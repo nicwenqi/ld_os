@@ -19,8 +19,8 @@ test("foundation page uses an executive cockpit hierarchy", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
   assert.match(page, /executive-cockpit/);
   assert.match(page, /health-hero/);
-  assert.match(page, /关键运营信号/);
-  assert.match(page, /本月培训健康度保持稳健/);
-  assert.match(page, /scope-compact/);
+  assert.match(page, /KPI 目标完成/);
+  assert.match(page, /培训健康度为/);
+  assert.match(page, /department-comparison/);
   assert.doesNotMatch(page, /MANAGEMENT INSIGHT|FOUNDATION CHECKPOINT|SCOPE FOUNDATION/);
 });

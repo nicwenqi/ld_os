@@ -14,6 +14,8 @@ for (const department of departments) {
   while (parentId) { path.unshift(parentId); parentId = departments.find((item) => item.id === parentId)?.parentId ?? null; }
   department.path = path;
 }
+const displayCounts:Record<string,number>={rooms:32,"front-office":18,concierge:6,"front-desk":8,"guest-relations":4,housekeeping:14,"room-attendant":8,"public-area":4,laundry:2,fb:24,restaurants:10,banquet:8,kitchen:6,sales:9,revenue:3,marcom:3,finance:8,purchasing:4,hr:7,learning:3,engineering:10,security:9};
+for(const department of departments) department.employeeCount=displayCounts[department.id]??department.employeeCount;
 
 export const positions: Position[] = [
   { id: "manager", nameZh: "部门经理", nameEn: "Department Manager", departmentIds: departments.map((d) => d.id) },
