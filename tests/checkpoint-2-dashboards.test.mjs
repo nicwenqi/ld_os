@@ -17,6 +17,8 @@ test("course effectiveness dashboard is analytical and actionable", async () => 
 test("risk dashboard separates operational accountability", async () => {
   const page = await read("../app/risk/page.tsx");
   for (const token of ["哪项风险需要立即行动","严重程度","负责人","到期日","影响人数","下一步行动","departmentId"]) assert.match(page,new RegExp(token));
+  for (const token of ["严重风险","预警风险","观察项","severity-group","severity-badge","executive-risk-card"]) assert.match(page,new RegExp(token));
+  assert.doesNotMatch(page,/className={`risk-case/);
 });
 
 test("shell links to all checkpoint 2 dashboards", async () => {
