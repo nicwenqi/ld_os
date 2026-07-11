@@ -1,0 +1,12 @@
+export type PeriodType = "month" | "quarter" | "year";
+export type SessionStatus = "draft" | "published" | "notified" | "checkin" | "completed" | "feedback" | "closed" | "cancelled";
+export type RiskSeverity = "low" | "warning" | "critical";
+export type Department = { id: string; nameZh: string; nameEn: string; parentId: string | null; level: number; path: string[]; employeeCount: number; active: boolean };
+export type Position = { id: string; nameZh: string; nameEn: string; departmentIds: string[] };
+export type Employee = { id: string; employeeId: string; nameZh: string; nameEn: string; departmentId: string; positionId: string; hireDate: string; newEmployee: boolean; active: boolean; completion: number; riskTags: string[] };
+export type Course = { id: string; nameZh: string; nameEn: string; type: string; mandatory: boolean; durationHours: number };
+export type Trainer = { id: string; nameZh: string; nameEn: string; departmentIds: string[] };
+export type TrainingSession = { id: string; courseId: string; titleZh: string; titleEn: string; departmentIds: string[]; trainerId: string; startAt: string; endAt: string; location: string; capacity: number; status: SessionStatus; mandatory: boolean };
+export type KpiDefinition = { id: string; nameZh: string; nameEn: string; formulaZh: string; unit: string; monthlyTarget: number; quarterlyTarget: number; yearlyTarget: number; warning: number; critical: number; weight: number; active: boolean };
+export type KpiOverride = { kpiId: string; departmentId: string; month?: number; quarter?: number; year?: number };
+export type RiskItem = { id: string; titleZh: string; severity: RiskSeverity; departmentId: string; recommendationZh: string };
