@@ -10,11 +10,17 @@ test("application shell exposes Chinese-first navigation and scope controls", as
   assert.match(shell, /DepartmentScopePicker/);
   assert.match(shell, /RoleSwitcher/);
   assert.match(shell, /showToast/);
+  assert.doesNotMatch(shell, /\["01"|\["02"|\["03"/);
+  assert.match(shell, /brand-signature/);
+  assert.match(shell, /control-cluster/);
 });
 
-test("foundation page uses the premium hierarchy story", async () => {
+test("foundation page uses an executive cockpit hierarchy", async () => {
   const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /今日运营重点/);
-  assert.match(page, /组织范围/);
-  assert.match(page, /Rooms 房务部/);
+  assert.match(page, /executive-cockpit/);
+  assert.match(page, /health-hero/);
+  assert.match(page, /关键运营信号/);
+  assert.match(page, /本月培训健康度保持稳健/);
+  assert.match(page, /scope-compact/);
+  assert.doesNotMatch(page, /MANAGEMENT INSIGHT|FOUNDATION CHECKPOINT|SCOPE FOUNDATION/);
 });
