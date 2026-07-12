@@ -8,9 +8,10 @@ select results_eq(
   array[true],
   'branding bucket is public'
 );
-select is_empty(
-  $$select id from storage.buckets where id = 'property-import-files'$$,
-  'private import bucket is not created in Review Stop 2C-A'
+select results_eq(
+  $$select public from storage.buckets where id = 'property-import-files'$$,
+  array[false],
+  'Review Stop 2C-C creates a private property import bucket'
 );
 select results_eq(
   $$select file_size_limit from storage.buckets where id = 'property-brand-assets'$$,
