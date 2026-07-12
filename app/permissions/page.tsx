@@ -1,92 +1,145 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "../components/shell/AppShell";
 import { AppProviders } from "../providers";
 import { useEscapeDismiss } from "../lib/use-escape-dismiss";
-import { useDepartmentScope } from "../state/department-scope";
+import { createRepositoryRegistry } from "../repositories/registry.ts";
+import type { DepartmentAlias, DepartmentMovePreview, DepartmentNode, OfficialPosition, OperationalUnit, PositionFamily, PositionSourceLabel } from "../repositories/contracts/organization-models.ts";
 import { usePrototypeFeedback } from "../state/prototype-feedback";
+import { useDepartmentScope } from "../state/department-scope";
 
-const branches = [
-  { depth: 0, name: "房务部", en: "Rooms", people: 186, active: true },
-  { depth: 1, name: "前厅部", en: "Front Office", people: 72 },
-  { depth: 2, name: "礼宾部", en: "Concierge", people: 18 },
-  { depth: 2, name: "前台", en: "Front Desk", people: 31 },
-  { depth: 2, name: "宾客关系", en: "Guest Relations", people: 23 },
-  { depth: 1, name: "客房部", en: "Housekeeping", people: 114 },
-];
+const assignedBranch = "房务部 › 前厅部 › 礼宾部";
+const allowedActions = ["查看培训进度", "发送提醒", "管理考勤与反馈", "创建补训"];
 
-const trainers = [
-  { name: "陈雅婷", en: "Amy Chen", branch: "前厅部 / 礼宾部", assignedBranch: "房务部 › 前厅部 › 礼宾部", coverage: 18, allowedActions: ["员工培训进度", "发送提醒", "考勤与反馈", "创建补训"], status: "运行正常", next: "查看范围" },
-  { name: "赵思远", en: "Jason Zhao", branch: "客房部 / 公共区域", assignedBranch: "房务部 › 客房部 › 公共区域", coverage: 29, allowedActions: ["员工培训进度", "发送提醒", "考勤与反馈"], status: "运行正常", next: "调整范围" },
-  { name: "周可欣", en: "Ivy Zhou", branch: "餐饮部 / 餐厅运营", assignedBranch: "餐饮部 › 餐厅运营", coverage: 46, allowedActions: ["员工培训进度", "发送提醒", "创建补训"], status: "待确认", next: "确认邀请" },
-];
-
-const positions = [
-  ["礼宾专员", "Concierge Agent", "礼宾部", "12 人"],
-  ["前台接待", "Front Desk Agent", "前台", "24 人"],
-  ["宾客关系主任", "Guest Relations Officer", "宾客关系", "9 人"],
-  ["客房服务员", "Room Attendant", "客房部", "68 人"],
-];
-
-function Page() {
-  const [tab, setTab] = useState("trainers");
-  const [inviteOpen, setInviteOpen] = useState(false);
-  const [scopeOpen, setScopeOpen] = useState(false);
-  const [role, setRole] = useState("manager");
-  const { departmentId, breadcrumb } = useDepartmentScope();
+function OrganizationWorkspace() {
+  const registry = useMemo(() => createRepositoryRegistry(), []);
   const { showToast } = usePrototypeFeedback();
-  useEscapeDismiss(inviteOpen || scopeOpen, () => { setInviteOpen(false); setScopeOpen(false); });
-  const currentScope = breadcrumb.at(-1)!;
-  const visibleTrainers = departmentId === "concierge" ? trainers.slice(0, 1) : departmentId === "front-office" ? trainers.slice(0, 2) : trainers;
+  const { departmentId } = useDepartmentScope();
+  const trainingScopeLabel = departmentId === "concierge" ? "礼宾部" : departmentId === "front-office" ? "前厅部" : "房务部";
+  const [tab, setTab] = useState<"tree" | "mapping" | "positions" | "access">("tree");
+  const [tree, setTree] = useState<DepartmentNode[]>([]);
+  const [aliases, setAliases] = useState<DepartmentAlias[]>([]);
+  const [units, setUnits] = useState<OperationalUnit[]>([]);
+  const [families, setFamilies] = useState<PositionFamily[]>([]);
+  const [positions, setPositions] = useState<OfficialPosition[]>([]);
+  const [positionSources, setPositionSources] = useState<PositionSourceLabel[]>([]);
+  const [propertyId, setPropertyId] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+  const [selectedAliasId, setSelectedAliasId] = useState("");
+  const [selectedPositionSourceId, setSelectedPositionSourceId] = useState("");
+  const [dialog, setDialog] = useState<"department" | "move" | "deactivate" | "family" | "position" | null>(null);
+  const [departmentMode, setDepartmentMode] = useState<"top" | "child" | "rename">("top");
+  const [departmentForm, setDepartmentForm] = useState({ nameZh: "", nameEn: "", code: "", nodeType: "department", sortOrder: 10 });
+  const [moveTargetId, setMoveTargetId] = useState("");
+  const [movePreview, setMovePreview] = useState<DepartmentMovePreview | null>(null);
+  const [mappingTargetId, setMappingTargetId] = useState("");
+  const [positionTargetId, setPositionTargetId] = useState("");
+  const [familyTargetId, setFamilyTargetId] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [roleView, setRoleView] = useState<"manager" | "trainer">("manager");
+  useEscapeDismiss(Boolean(dialog), () => setDialog(null));
 
-  return <AppShell><div className="page-wrap permissions-page">
-    <header className="ops-header control-header">
-      <div><span>ORGANIZATION CONTROL</span><h1>组织与权限中心</h1><p>Organization &amp; Access Control</p></div>
-      <div><button onClick={() => setScopeOpen(true)}>部门范围预览</button><button onClick={() => setInviteOpen(true)}>＋ 邀请账号</button></div>
-    </header>
+  const refresh = async (candidatePropertyId = propertyId) => {
+    if (!candidatePropertyId) return;
+    const [nextTree, nextAliases, nextUnits, nextFamilies, nextPositions, nextSources] = await Promise.all([
+      registry.department.listTree(candidatePropertyId), registry.department.listAliases(candidatePropertyId),
+      registry.department.listOperationalUnits(candidatePropertyId), registry.position.listPositionFamilies(candidatePropertyId),
+      registry.position.listPositions(candidatePropertyId), registry.position.listSourceLabels(candidatePropertyId),
+    ]);
+    setTree(nextTree); setAliases(nextAliases); setUnits(nextUnits); setFamilies(nextFamilies); setPositions(nextPositions); setPositionSources(nextSources);
+    setSelectedId(current => current && nextTree.some(item => item.id === current) ? current : nextTree[0]?.id ?? "");
+    setSelectedAliasId(current => current && nextAliases.some(item => item.id === current) ? current : nextAliases[0]?.id ?? "");
+    setSelectedPositionSourceId(current => current && nextSources.some(item => item.id === current) ? current : nextSources[0]?.id ?? "");
+    setMappingTargetId(current => current || nextAliases[0]?.suggestedTargetId || "");
+    setPositionTargetId(current => current || nextSources[0]?.suggestedPositionId || "");
+    setFamilyTargetId(current => current || nextSources[0]?.suggestedFamilyId || "");
+  };
 
-    <section className="control-narrative">
-      <div><span>组织运营结论 · {breadcrumb.map(item => item.nameZh).join(" › ")}</span><h2>{currentScope.nameZh}培训员覆盖 <em>{departmentId === "concierge" ? "100%" : departmentId === "front-office" ? "96%" : "94%"}</em>，范围与员工责任清晰可见。</h2><p>部门层级决定员工、培训、提醒与报表的可见范围。</p></div>
-      <div className="control-signals"><article><strong>12</strong><span>部门分支</span></article><article><strong>8</strong><span>培训员在岗</span></article><article><strong>94%</strong><span>员工覆盖</span></article><article className="attention"><strong>2</strong><span>待处理事项</span></article></div>
-    </section>
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const hostname = registry.environment.dataMode === "mock" ? "training-demo.example.test" : registry.environment.devPropertyHostname ?? registry.environment.previewPropertyHostname ?? window.location.hostname;
+        const context = await registry.property.resolveContext(hostname);
+        if (!context) throw new Error("当前域名尚未配置酒店组织上下文");
+        if (!active) return; setPropertyId(context.propertyId); await refresh(context.propertyId);
+      } catch (reason) { if (active) setError(message(reason)); }
+      finally { if (active) setLoading(false); }
+    })();
+    return () => { active = false; };
+  }, [registry]);
 
-    <section className="role-experience">
-      <div><span>切换体验角色</span><strong>{role === "manager" ? "学习与发展经理" : "部门培训管理员"}</strong><small>{role === "manager" ? "可管理全酒店范围、KPI 目标、角色与账号" : "仅管理被分配部门的员工、考勤、反馈与补训"}</small></div>
-      <div className="role-toggle"><button className={role === "manager" ? "active" : ""} onClick={() => { setRole("manager"); showToast("已切换为学习与发展经理视角"); }}>学习与发展经理</button><button className={role === "trainer" ? "active" : ""} onClick={() => { setRole("trainer"); showToast("已切换为部门培训管理员视角"); }}>部门培训管理员</button></div>
-    </section>
+  const selected = tree.find(item => item.id === selectedId) ?? null;
+  const selectedAlias = aliases.find(item => item.id === selectedAliasId) ?? null;
+  const selectedPositionSource = positionSources.find(item => item.id === selectedPositionSourceId) ?? null;
+  const selectedChildren = selected ? tree.filter(item => item.parentId === selected.id) : [];
+  const selectedUnits = selected ? units.filter(item => item.departmentId === selected.id) : [];
+  const breadcrumb = selected ? selected.pathIds.map(id => tree.find(item => item.id === id)?.nameZh).filter(Boolean).join(" › ") : "";
 
-    <nav className="control-tabs" aria-label="组织与权限模块">
-      {[["tree", "多级部门架构", "Department tree"], ["positions", "岗位管理", "Positions"], ["trainers", "部门培训员", "Trainers"], ["roles", "角色与账号", "Roles & accounts"]].map(([key, zh, en]) => <button className={tab === key ? "active" : ""} onClick={() => setTab(key)} key={key}><strong>{zh}</strong><small>{en}</small></button>)}
+  const openDepartmentDialog = (mode: "top" | "child" | "rename", seed?: string) => {
+    setDepartmentMode(mode); setMovePreview(null); setError(null);
+    setDepartmentForm(mode === "rename" && selected ? { nameZh: selected.nameZh, nameEn: selected.nameEn ?? "", code: selected.code ?? "", nodeType: selected.nodeType, sortOrder: selected.sortOrder } : { nameZh: seed ?? "", nameEn: seed ?? "", code: "", nodeType: mode === "child" ? "section" : "department", sortOrder: 10 });
+    setDialog("department");
+  };
+  const saveDepartment = async () => {
+    try {
+      if (!departmentForm.nameZh.trim()) throw new Error("请输入正式中文名称");
+      if (departmentMode === "rename" && selected) await registry.department.updateNode({ id: selected.id, expectedVersion: selected.version, nameZh: departmentForm.nameZh, nameEn: departmentForm.nameEn, sortOrder: departmentForm.sortOrder, isActive: selected.isActive });
+      else {
+        const parentId = departmentMode === "child" ? selected?.id ?? null : null;
+        await registry.department.createNode({ tenantId: tree[0].tenantId, propertyId, parentId, nodeType: departmentForm.nodeType as DepartmentNode["nodeType"], code: departmentForm.code || slug(departmentForm.nameEn || departmentForm.nameZh), nameZh: departmentForm.nameZh, nameEn: departmentForm.nameEn, sortOrder: departmentForm.sortOrder });
+      }
+      await refresh(); setDialog(null); showToast(departmentMode === "rename" ? "部门名称已更新" : departmentMode === "top" ? "一级部门已创建" : "下级部门已创建");
+    } catch (reason) { setError(message(reason)); }
+  };
+  const reorder = async (delta: number) => { if (!selected) return; try { await registry.department.updateNode({ id: selected.id, expectedVersion: selected.version, nameZh: selected.nameZh, nameEn: selected.nameEn ?? "", sortOrder: Math.max(0, selected.sortOrder + delta), isActive: selected.isActive }); await refresh(); showToast("部门显示顺序已调整"); } catch (reason) { setError(message(reason)); } };
+  const generateMovePreview = async () => { if (!selected) return; try { setMovePreview(await registry.department.previewMove(selected.id, moveTargetId || null)); } catch (reason) { setError(`组织层级校验：${message(reason)}`); setMovePreview(null); } };
+  const confirmMove = async () => { if (!selected || !movePreview) return; try { await registry.department.moveNode(selected.id, moveTargetId || null, selected.version); await refresh(); setDialog(null); setMovePreview(null); showToast("部门及全部下级部门已完成移动"); } catch (reason) { setError(`组织层级校验：${message(reason)}`); } };
+  const confirmActive = async () => { if (!selected) return; try { await registry.department.setActive(selected.id, selected.version, !selected.isActive); await refresh(); setDialog(null); showToast(selected.isActive ? "部门已停用，历史路径仍被保留" : "部门已重新启用"); } catch (reason) { setError(message(reason)); } };
+
+  const approveDepartment = async (action: "department" | "ignore" | "defer" | "merge") => { if (!selectedAlias) return; try { if (["department", "merge"].includes(action) && !mappingTargetId) throw new Error("请先选择正式目标部门"); await registry.department.approveMapping({ aliasId: selectedAlias.id, action, targetDepartmentId: mappingTargetId || undefined }); await refresh(); showToast(action === "ignore" ? "来源标签已标记为忽略" : action === "defer" ? "来源标签已保留为稍后处理" : "部门来源映射已批准并保存为别名"); } catch (reason) { setError(message(reason)); } };
+  const classifyUnit = async () => { if (!selectedAlias || !mappingTargetId) return setError("请先选择运营单元所属的正式部门"); try { const target = tree.find(item => item.id === mappingTargetId)!; const unit = await registry.department.createOperationalUnit({ tenantId: target.tenantId, propertyId, departmentId: target.id, parentOperationalUnitId: null, unitType: "outlet", code: slug(selectedAlias.sourceValue), nameZh: selectedAlias.sourceValue, nameEn: selectedAlias.sourceValue, sortOrder: 20 }); await registry.department.approveMapping({ aliasId: selectedAlias.id, action: "operational_unit", operationalUnitId: unit.id }); await refresh(); showToast("来源标签已归类为运营单元，不会形成独立权限范围"); } catch (reason) { setError(message(reason)); } };
+  const createFromAlias = (mode: "top" | "child") => { if (!selectedAlias) return; openDepartmentDialog(mode, selectedAlias.sourceValue); };
+
+  const saveFamily = async () => { try { await registry.position.savePositionFamily({ tenantId: tree[0].tenantId, propertyId, code: `family-${families.length + 1}`, nameZh: "新职位族", nameEn: "New Position Family", description: "由管理员创建的酒店职位族", sortOrder: (families.length + 1) * 10, isActive: true }); await refresh(); setDialog(null); showToast("职位族已保存"); } catch (reason) { setError(message(reason)); } };
+  const savePosition = async () => { try { await registry.position.savePosition({ tenantId: tree[0].tenantId, propertyId, positionFamilyId: families[0]?.id ?? null, code: `position-${positions.length + 1}`, nameZh: "新正式职位", nameEn: "New Official Position", gradeOrBand: "待配置", isActive: true }); await refresh(); setDialog(null); showToast("正式职位已保存"); } catch (reason) { setError(message(reason)); } };
+  const mapPosition = async (action: "position" | "family" | "external" | "ignore" | "defer") => { if (!selectedPositionSource) return; try { if (action === "position" && !positionTargetId) throw new Error("请先选择正式职位"); if (action === "family" && !familyTargetId) throw new Error("请先选择职位族"); await registry.position.approvePositionMapping({ sourceLabelId: selectedPositionSource.id, action, targetPositionId: positionTargetId || undefined, targetPositionFamilyId: familyTargetId || undefined, externalRoleCode: action === "external" ? slug(selectedPositionSource.sourceValue) : undefined, externalRoleName: action === "external" ? selectedPositionSource.sourceValue : undefined }); await refresh(); showToast(action === "ignore" ? "职位来源标签已忽略" : action === "defer" ? "职位来源标签已保留为稍后处理" : "职位来源映射已批准并可供后续复用"); } catch (reason) { setError(message(reason)); } };
+
+  if (loading) return <AppShell><div className="page-wrap org-loading">正在准备组织管理中心…</div></AppShell>;
+  return <AppShell><div className="page-wrap organization-foundation-page">
+    <header className="org-foundation-hero"><div><span>酒店组织基础 · ORGANIZATION FOUNDATION</span><h1>组织与权限中心</h1><p>用正式组织树、来源映射与职位体系，建立可信的酒店运营范围。当前培训视角：{trainingScopeLabel}</p></div><aside><strong>{tree.filter(item => item.isActive).length}</strong><span>有效正式部门</span><small>任意层级 · 当前酒店</small></aside></header>
+    {error && <div className="org-error" role="alert"><strong>需要处理</strong><span>{error}</span><button onClick={() => setError(null)}>关闭</button></div>}
+    <section className="org-foundation-summary"><div><span>组织治理结论</span><h2>正式部门决定权限与汇总；运营单元只用于业务分析，不会获得独立权限。</h2><p>所有来源建议均需管理员明确确认，系统不会自动修改正式组织架构。</p></div><div className="org-summary-signals"><article><strong>{aliases.filter(item => item.resolutionType === "deferred").length}</strong><span>待认领标签</span></article><article><strong>{units.length}</strong><span>运营单元</span></article><article><strong>{positions.length}</strong><span>正式职位</span></article></div></section>
+
+    <nav className="org-foundation-tabs" aria-label="组织管理模块">
+      {[["tree","正式部门架构","Official hierarchy"],["mapping","部门认领与映射","Claim & mapping"],["positions","职位与岗位管理","Positions"],["access","部门培训员与角色","Access"]].map(([key, zh, en]) => <button key={key} className={tab === key ? "active" : ""} onClick={() => setTab(key as typeof tab)}><strong>{zh}</strong><small>{en}</small></button>)}
     </nav>
 
-    {tab === "trainers" && <section className="trainer-workspace">
-      <div className="section-heading"><div><h3>部门培训员分配</h3><p>Trainer assignment · 以组织分支定义管理范围</p></div><button onClick={() => showToast("新增培训员分配面板已打开")}>＋ 新增分配</button></div>
-      <div className="trainer-list">{visibleTrainers.map((trainer, index) => <article key={trainer.name} className={trainer.status === "待确认" ? "pending" : ""}>
-        <div className="trainer-identity"><span>{trainer.name[0]}</span><div><strong>{trainer.name}</strong><small>{trainer.en}</small><em>{trainer.branch}</em></div></div>
-        <div className="branch-cell"><small>分配部门分支</small><strong>{trainer.assignedBranch}</strong></div>
-        <div className="coverage-cell"><small>覆盖员工</small><strong>{trainer.coverage}</strong><span>人</span></div>
-        <div className="allowed-cell"><small>可执行事项</small><div>{trainer.allowedActions.map(action => <span key={action}>{action}</span>)}</div></div>
-        <div className="trainer-action"><span className={trainer.status === "待确认" ? "wait" : "healthy"}><i />{trainer.status}</span><small>下一步行动</small><button onClick={() => index === 0 ? setScopeOpen(true) : showToast(`${trainer.name}：${trainer.next}面板已打开`)}>{trainer.next} →</button></div>
-      </article>)}</div>
-    </section>}
+    {tab === "tree" && <div className="org-hierarchy-layout">
+      <section className="official-tree-panel"><header><div><span>OFFICIAL DEPARTMENT TREE</span><h2>正式部门架构</h2><p>多级部门架构 · 不固定组织深度</p></div><button onClick={() => openDepartmentDialog("top")}>＋ 新增一级部门</button></header><div className="official-tree-list">{tree.map(item => <button key={item.id} className={`${selectedId === item.id ? "selected" : ""} ${item.isActive ? "" : "inactive"}`} style={{ paddingLeft: 18 + item.depth * 25 }} onClick={() => setSelectedId(item.id)}><i/><span><strong>{item.nameZh}</strong><small>{item.nameEn}</small></span><em>{nodeTypeLabel(item.nodeType)}</em><b>{item.syntheticEmployeeCount || "—"}</b></button>)}</div><footer><span>层级深度不设上限</span><small>内部识别码不会显示给使用者</small></footer></section>
+      {selected && <section className="department-detail-panel"><header><div><span>当前路径</span><h2>{selected.nameZh} <small>{selected.nameEn}</small></h2><p>{breadcrumb}</p></div><em className={selected.isActive ? "healthy" : "inactive"}>{selected.isActive ? "使用中" : "已停用"}</em></header><div className="department-vitals"><article><strong>{selectedChildren.length}</strong><span>直属下级部门</span></article><article><strong>{selected.syntheticEmployeeCount || "—"}</strong><span>员工影响占位</span></article><article><strong>{selectedUnits.length}</strong><span>运营单元</span></article><article><strong>v{selected.version}</strong><span>并发版本</span></article></div><div className="department-actions"><button onClick={() => openDepartmentDialog("child")}>＋ 新增下级部门</button><button onClick={() => openDepartmentDialog("rename")}>重命名</button><button onClick={() => void reorder(-10)}>↑ 调整顺序</button><button onClick={() => { setMoveTargetId(selected.parentId ?? ""); setMovePreview(null); setDialog("move"); }}>移动部门</button><button className="danger-soft" onClick={() => setDialog("deactivate")}>{selected.isActive ? "停用部门" : "重新启用"}</button></div><section className="operational-unit-card"><div><span>OPERATIONAL UNITS</span><h3>运营单元</h3><p>归属正式部门，但不授予独立权限范围。</p></div>{selectedUnits.length ? selectedUnits.map(unit => <article key={unit.id}><i/><span><strong>{unit.nameZh}</strong><small>{unit.nameEn} · {unit.unitType}</small></span><em>{unit.isActive ? "使用中" : "停用"}</em></article>) : <div className="compact-empty">当前部门暂无运营单元</div>}</section></section>}
+    </div>}
 
-    {tab === "tree" && <section className="org-control-grid">
-      <article className="branch-manager"><header><div><h3>多级部门架构</h3><p>以业务组织定义全部系统范围</p></div><button onClick={() => showToast("新增子部门面板已打开")}>＋ 新增子部门</button></header>{branches.map(branch => <button className={branch.active ? "active" : ""} key={branch.name} style={{ paddingLeft: 18 + branch.depth * 24 }} onClick={() => showToast(`已选择 ${branch.name}，范围摘要已更新`)}><i /> <span><strong>{branch.name}</strong><small>{branch.en}</small></span><em>{branch.people} 人</em></button>)}</article>
-      <article className="branch-summary"><span>当前范围</span><h3>房务部 <small>Rooms</small></h3><p>包含前厅部、客房部及其全部下级部门。</p><dl><div><dt>员工</dt><dd>186</dd></div><div><dt>培训员</dt><dd>5 / 6</dd></div><div><dt>岗位</dt><dd>14</dd></div></dl><button onClick={() => setScopeOpen(true)}>查看范围影响</button><button onClick={() => showToast("部门编辑面板已打开")}>编辑部门资料</button></article>
-    </section>}
+    {tab === "mapping" && <div className="mapping-center-layout"><section className="source-claim-list"><header><div><span>SOURCE SIDE</span><h2>部门认领与映射</h2><p>合成来源标签 · 不含真实工作簿数据</p></div><em>{aliases.length} 个标签</em></header>{aliases.map(aliasItem => <button key={aliasItem.id} className={selectedAliasId === aliasItem.id ? "selected" : ""} onClick={() => { setSelectedAliasId(aliasItem.id); setMappingTargetId(aliasItem.suggestedTargetId ?? ""); }}><div><strong>{aliasItem.sourceValue}</strong><small>{aliasItem.normalizedSourceValue}</small></div><span>{aliasItem.syntheticEmployeeCount} 人 · {aliasItem.sourceRowCount} 行</span><em className={aliasItem.resolutionType}>{resolutionLabel(aliasItem.resolutionType)}</em></button>)}</section>{selectedAlias && <section className="mapping-decision-panel"><header><div><span>来源标签 · {selectedAlias.sourceSystem}</span><h2>{selectedAlias.sourceValue}</h2><p>{selectedAlias.sourceSheet} · 合成影响 {selectedAlias.syntheticEmployeeCount} 人</p></div><strong>{selectedAlias.confidence}%<small>置信度</small></strong></header><div className="mapping-suggestion"><span>匹配建议</span><h3>{selectedAlias.suggestionLabel}</h3><p><strong>建议原因：</strong>{selectedAlias.suggestionReason}</p><div><i style={{ width: `${selectedAlias.confidence}%` }}/></div></div><label className="mapping-target"><span>正式目标路径</span><select value={mappingTargetId} onChange={event => setMappingTargetId(event.target.value)}><option value="">请选择正式部门</option>{tree.map(item => <option key={item.id} value={item.id}>{item.pathIds.map(id => tree.find(node => node.id === id)?.nameZh).join(" / ")}</option>)}</select></label><div className="mapping-impact"><article><strong>{selectedAlias.sourceRowCount}</strong><span>来源行数</span></article><article><strong>{selectedAlias.syntheticEmployeeCount}</strong><span>员工影响预览</span></article><article><strong>{selectedAlias.confidence}%</strong><span>自动建议置信度</span></article></div><div className="mapping-actions"><button onClick={() => void approveDepartment("department")}>映射到现有部门</button><button onClick={() => createFromAlias("top")}>新建一级部门</button><button onClick={() => createFromAlias("child")}>新建下级部门</button><button onClick={() => void classifyUnit()}>归类为运营单元</button><button onClick={() => void approveDepartment("department")}>保存为别名</button><button onClick={() => void approveDepartment("merge")}>合并来源标签</button><button className="quiet" onClick={() => void approveDepartment("ignore")}>忽略</button><button className="quiet" onClick={() => void approveDepartment("defer")}>稍后处理</button></div><p className="structure-warning">所有结构变更均需明确确认；匹配建议不会自动修改正式组织架构。</p></section>}</div>}
 
-    {tab === "positions" && <section className="position-workspace"><div className="section-heading"><div><h3>岗位管理</h3><p>Position management · 与部门范围保持一致</p></div><button onClick={() => showToast("新增岗位面板已打开")}>＋ 新增岗位</button></div><div className="position-grid">{positions.map(position => <article key={position[0]}><i /><div><strong>{position[0]}</strong><small>{position[1]}</small></div><span>{position[2]}</span><em>{position[3]}</em><button onClick={() => showToast(`${position[0]}编辑面板已打开`)}>管理 →</button></article>)}</div></section>}
+    {tab === "positions" && <div className="position-foundation-grid"><section className="position-catalog"><header><div><span>POSITION CATALOG</span><h2>职位族与正式职位</h2></div><div><button onClick={() => setDialog("family")}>＋ 新增职位族</button><button onClick={() => setDialog("position")}>＋ 新增正式职位</button></div></header><div className="family-strip">{families.map(family => <article key={family.id}><i/><strong>{family.nameZh}</strong><small>{family.nameEn}</small><span>{positions.filter(position => position.positionFamilyId === family.id).length} 个职位</span><button onClick={() => { setFamilyTargetId(family.id); showToast(`${family.nameZh}编辑面板已打开`); }}>编辑职位族</button></article>)}</div><h3>正式职位</h3><div className="official-position-list">{positions.map(position => <article key={position.id}><div><strong>{position.nameZh}</strong><small>{position.nameEn} · {position.gradeOrBand}</small></div><span>{families.find(family => family.id === position.positionFamilyId)?.nameZh ?? "未分类"}</span><em>{position.departmentIds.length} 个适用部门</em><button onClick={async () => { if (!selected) return setError("请先在正式部门架构中选择部门"); await registry.position.assignPositionToDepartments(position.id, [selected.id]); await refresh(); showToast(`${position.nameZh}的适用部门已更新`); }}>管理适用部门</button></article>)}</div></section><section className="position-mapping-panel"><header><span>POSITION SOURCE MAPPING</span><h2>职位来源映射</h2><p>保留原始来源值，批准后供后续导入复用。</p></header><div className="position-source-chips">{positionSources.map(source => <button className={selectedPositionSourceId === source.id ? "active" : ""} key={source.id} onClick={() => { setSelectedPositionSourceId(source.id); setPositionTargetId(source.suggestedPositionId ?? ""); setFamilyTargetId(source.suggestedFamilyId ?? ""); }}>{source.sourceValue}<small>{source.syntheticEmployeeCount} 人</small></button>)}</div>{selectedPositionSource && <div className="position-source-detail"><h3>{selectedPositionSource.sourceValue}</h3><p>{selectedPositionSource.suggestionReason}</p><div className="position-impact"><span><strong>{selectedPositionSource.syntheticEmployeeCount}</strong> 受影响员工</span><span><strong>{selectedPositionSource.departmentNames.length}</strong> 适用部门</span><span><strong>{selectedPositionSource.confidence}%</strong> 建议置信度</span></div><label>现有正式职位<select value={positionTargetId} onChange={event => setPositionTargetId(event.target.value)}><option value="">请选择</option>{positions.map(position => <option key={position.id} value={position.id}>{position.nameZh} · {position.nameEn}</option>)}</select></label><label>职位族<select value={familyTargetId} onChange={event => setFamilyTargetId(event.target.value)}><option value="">请选择</option>{families.map(family => <option key={family.id} value={family.id}>{family.nameZh} · {family.nameEn}</option>)}</select></label><div className="position-map-actions"><button onClick={() => void mapPosition("position")}>映射到现有职位</button><button onClick={() => setDialog("position")}>创建正式职位</button><button onClick={() => void mapPosition("family")}>仅映射职位族</button><button onClick={() => void mapPosition("external")}>仅作为外部 LMS 角色</button><button className="quiet" onClick={() => void mapPosition("ignore")}>忽略</button><button className="quiet" onClick={() => void mapPosition("defer")}>稍后处理</button></div></div>}</section></div>}
 
-    {tab === "roles" && <section className="role-workspace">
-      <div className="role-comparison"><article className="primary-role"><span>全酒店运营负责人</span><h3>学习与发展经理</h3><small>L&amp;D Manager</small><ul><li>查看并管理全酒店所有部门</li><li>定义 KPI 目标与健康分权重</li><li>邀请账号并分配角色</li><li>管理全部培训计划与风险</li></ul><button onClick={() => showToast("学习与发展经理角色详情已打开")}>查看角色说明</button></article><article><span>部门执行负责人</span><h3>部门培训管理员</h3><small>Department Training Administrator</small><ul><li>仅查看被分配部门范围内员工</li><li>发送提醒、管理考勤与反馈</li><li>创建本部门补训安排</li><li>不可管理全局 KPI 或其他管理员</li></ul><button onClick={() => setScopeOpen(true)}>预览部门视角</button></article></div>
-      <div className="account-strip"><div><strong>账号邀请</strong><small>使用业务角色与部门范围完成邀请</small></div><span>8 个活跃账号</span><span>1 个待接受邀请</span><button onClick={() => setInviteOpen(true)}>邀请新账号</button></div>
-    </section>}
+    {tab === "access" && <section className="access-continuity"><header><div><span>ACCESS CONTINUITY</span><h2>部门培训员与角色</h2><p>部门培训员读取组织树，但不能修改正式部门、映射或职位。</p></div><button onClick={() => showToast("邀请账号面板已打开")}>＋ 邀请账号</button></header><div className="role-view-toggle"><span>切换体验角色</span><button className={roleView === "manager" ? "active" : ""} onClick={() => setRoleView("manager")}>学习与发展经理</button><button className={roleView === "trainer" ? "active" : ""} onClick={() => setRoleView("trainer")}>部门培训管理员</button></div><article className="trainer-assignment-card"><div><span>合成培训员</span><strong>Synthetic Trainer</strong><small>{assignedBranch}</small></div><section><span>覆盖员工</span><strong>16</strong><small>合成影响人数</small></section><section><span>可执行事项</span><p>{allowedActions.map(action => <em key={action}>{action}</em>)}</p></section><section><span>下一步行动</span><button onClick={() => showToast("部门范围预览已打开")}>部门范围预览 →</button></section></article><div className="role-boundary-card"><article><h3>学习与发展经理</h3><p>管理当前酒店的正式组织、别名、运营单元与职位体系。</p></article><article><h3>部门培训管理员</h3><p>只读查看酒店组织；不能创建、移动、停用部门或批准来源映射。</p></article><article><h3>角色与账号</h3><p>当前检查点沿用既有成员与角色基础，不创建生产用户。</p></article></div></section>}
 
-    {scopeOpen && <div className="drawer-backdrop" onMouseDown={() => setScopeOpen(false)}><aside className="scope-preview-drawer" role="dialog" aria-modal="true" aria-label="部门范围预览" onMouseDown={e => e.stopPropagation()}><header><div><span>部门范围预览</span><h2>{role === "manager" ? "学习与发展经理" : "部门培训管理员"}</h2><p>{role === "manager" ? `${currentScope.nameZh}及下级部门` : "房务部 › 前厅部 › 礼宾部"}</p></div><button onClick={() => setScopeOpen(false)} aria-label="关闭部门范围预览">×</button></header><div className="scope-map"><span>上海澜庭酒店</span><i /><span>{currentScope.nameZh} {currentScope.nameEn}</span><i /><strong>{role === "manager" ? "当前范围全部分支均可见" : "礼宾部 Concierge"}</strong></div><section><h3>在此范围内可以</h3>{(role === "manager" ? ["查看当前范围员工与培训数据", "管理酒店 KPI 目标", "配置角色与账号", "查看范围内风险与报表"] : ["查看礼宾部 18 名员工", "发送提醒与创建补训", "管理本部门考勤和反馈", "查看本部门培训报表"]).map(item => <p key={item}>✓ {item}</p>)}</section><section className="scope-boundary"><h3>范围边界</h3><p>{role === "manager" ? "作为超级管理员，可在全部部门层级间切换。" : "无法查看其他部门员工，不能修改全局 KPI，也不能管理其他管理员。"}</p></section><button onClick={() => { setScopeOpen(false); showToast("部门范围预览已确认"); }}>确认范围</button></aside></div>}
-
-    {inviteOpen && <div className="dialog-backdrop" onMouseDown={() => setInviteOpen(false)}><div className="dialog invite-dialog" role="dialog" aria-modal="true" aria-label="邀请账号" onMouseDown={event => event.stopPropagation()}><header className="dialog-head"><div><span className="eyebrow">ACCOUNT INVITATION</span><h2>邀请账号</h2></div><button className="icon-button" onClick={() => setInviteOpen(false)} aria-label="关闭账号邀请">×</button></header><p>选择业务角色和负责部门，系统将发送一封模拟邀请。</p><label>员工姓名<input defaultValue="徐婉宁 Wendy Xu" /></label><label>业务角色<select><option>部门培训管理员</option><option>学习与发展经理</option></select></label><label>负责部门<select><option>房务部 › 客房部</option><option>房务部 › 前厅部 › 礼宾部</option></select></label><div className="invite-note">此账号将仅能查看和操作所选部门分支。</div><footer><button onClick={() => setInviteOpen(false)}>取消</button><button onClick={() => { setInviteOpen(false); showToast("模拟邀请已发送给徐婉宁"); }}>发送邀请</button></footer></div></div>}
+    {dialog === "department" && <Modal title={departmentMode === "top" ? "新增一级部门" : departmentMode === "child" ? "新增下级部门" : "重命名部门"} onClose={() => setDialog(null)}><p>正式部门将驱动权限、筛选与后续报表范围。</p><label>正式中文名称<input value={departmentForm.nameZh} onChange={event => setDepartmentForm({ ...departmentForm, nameZh: event.target.value })}/></label><label>英文名称<input value={departmentForm.nameEn} onChange={event => setDepartmentForm({ ...departmentForm, nameEn: event.target.value })}/></label><label>部门代码<input disabled={departmentMode === "rename"} value={departmentForm.code} onChange={event => setDepartmentForm({ ...departmentForm, code: event.target.value })}/></label><label>节点类型<select value={departmentForm.nodeType} disabled={departmentMode === "rename"} onChange={event => setDepartmentForm({ ...departmentForm, nodeType: event.target.value })}><option value="division">业务板块 Division</option><option value="department">部门 Department</option><option value="section">分部 Section</option><option value="team">小组 Team</option><option value="other">其他 Other</option></select></label><footer><button onClick={() => setDialog(null)}>取消</button><button onClick={() => void saveDepartment()}>确认保存</button></footer></Modal>}
+    {dialog === "move" && selected && <Modal title="移动影响预览" onClose={() => setDialog(null)}><p>移动操作将以事务方式重建受影响子树的路径和闭包关系。</p><label>目标路径<select value={moveTargetId} onChange={event => { setMoveTargetId(event.target.value); setMovePreview(null); }}><option value="">设为一级部门</option>{tree.filter(item => item.id !== selected.id).map(item => <option key={item.id} value={item.id}>{item.pathIds.map(id => tree.find(node => node.id === id)?.nameZh).join(" / ")}</option>)}</select></label><button className="preview-button" onClick={() => void generateMovePreview()}>生成移动影响预览</button>{movePreview && <div className="move-preview"><dl><div><dt>当前路径</dt><dd>{movePreview.currentPath}</dd></div><div><dt>目标路径</dt><dd>{movePreview.proposedPath}</dd></div></dl><section><article><strong>{movePreview.childDepartmentsAffected}</strong><span>下级部门</span></article><article><strong>{movePreview.syntheticEmployeeImpact}</strong><span>员工影响</span></article><article><strong>{movePreview.aliasesAffected}</strong><span>别名</span></article><article><strong>{movePreview.operationalUnitsAffected}</strong><span>运营单元</span></article></section><p>注意：所有下级部门将一并移动，正式路径与报表汇总范围会同时更新。</p></div>}<footer><button onClick={() => setDialog(null)}>取消</button><button disabled={!movePreview} onClick={() => void confirmMove()}>确认移动</button></footer></Modal>}
+    {dialog === "deactivate" && selected && <Modal title={selected.isActive ? "停用部门" : "重新启用部门"} onClose={() => setDialog(null)}><p>{selected.isActive ? "停用不会删除部门或历史路径；下级部门与映射仍会保留。" : "重新启用后，该部门将恢复为可选的正式组织节点。"}</p><div className="confirm-path">{breadcrumb}</div><footer><button onClick={() => setDialog(null)}>取消</button><button onClick={() => void confirmActive()}>确认{selected.isActive ? "停用" : "启用"}</button></footer></Modal>}
+    {dialog === "family" && <Modal title="编辑职位族" onClose={() => setDialog(null)}><p>职位族用于归一化岗位分析，不等同于系统权限角色。</p><div className="confirm-path">管理人员 / 主管人员 / 一线员工 / 厨房岗位 / 工程岗位</div><footer><button onClick={() => setDialog(null)}>取消</button><button onClick={() => void saveFamily()}>保存职位族</button></footer></Modal>}
+    {dialog === "position" && <Modal title="创建正式职位" onClose={() => setDialog(null)}><p>正式职位可分配到多个部门，并保留来源职位别名。</p><div className="confirm-path">新正式职位 · New Official Position · 职级待配置</div><footer><button onClick={() => setDialog(null)}>取消</button><button onClick={() => void savePosition()}>保存正式职位</button></footer></Modal>}
   </div></AppShell>;
 }
 
-export default function Permissions() { return <AppProviders><Page /></AppProviders>; }
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) { return <div className="dialog-backdrop" onMouseDown={onClose}><div className="dialog org-foundation-dialog" role="dialog" aria-modal="true" aria-label={title} onMouseDown={event => event.stopPropagation()}><header><div><span>ORGANIZATION ACTION</span><h2>{title}</h2></div><button onClick={onClose} aria-label={`关闭${title}`}>×</button></header>{children}</div></div>; }
+function nodeTypeLabel(type: DepartmentNode["nodeType"]) { return ({ division: "板块", department: "部门", section: "分部", team: "小组", other: "其他" })[type]; }
+function resolutionLabel(type: DepartmentAlias["resolutionType"]) { return ({ mapped: "已映射", created_top_level: "已新建", created_child: "已新建", merged: "已合并", ignored: "已忽略", deferred: "待处理" })[type]; }
+function slug(value: string) { return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || `node-${Date.now()}`; }
+function message(reason: unknown) { return reason instanceof Error ? reason.message : "操作未完成，请重试"; }
+
+export default function Permissions() { return <AppProviders><OrganizationWorkspace/></AppProviders>; }

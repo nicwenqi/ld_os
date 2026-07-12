@@ -23,8 +23,15 @@ async function foundationAuthorizationMigrationSource() {
   return readFile(new URL(file, migrationsDir), "utf8");
 }
 
+async function foundationSchemaMigrationSource() {
+  const files = await readdir(migrationsDir);
+  const file = files.find(candidate => candidate.endsWith("_tenancy_authorization_schema.sql"));
+  assert.ok(file, "foundation tenancy schema migration must exist");
+  return readFile(new URL(file, migrationsDir), "utf8");
+}
+
 test("Checkpoint 2B.1 migration contains only approved foundation tables", async () => {
-  const sql = await migrationSource();
+  const sql = await foundationSchemaMigrationSource();
   for (const table of [
     "profiles", "platform_memberships", "tenants", "tenant_memberships", "properties",
     "property_memberships", "roles", "role_assignments", "trainer_scopes",

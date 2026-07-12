@@ -15,3 +15,10 @@ test("mock mode never selects a Supabase repository", () => {
   assert.equal(dataSourceForModule("hotel-settings", "mock"), "mock");
   assert.equal(dataSourceForModule("people", "mock"), "mock");
 });
+
+test("Review Stop 2C-B activates only organization management repositories in hybrid mode", () => {
+  assert.equal(dataSourceForModule("organization-management", "hybrid"), "supabase");
+  assert.equal(dataSourceForModule("position-management", "hybrid"), "supabase");
+  assert.equal(dataSourceForModule("organization-dashboard", "hybrid"), "mock");
+  assert.equal(dataSourceForModule("people", "hybrid"), "mock");
+});
