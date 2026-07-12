@@ -1,0 +1,216 @@
+/* MILESTONE 1.1 — Readability & Usability Pass */
+
+/* Shared shell and page hierarchy */
+body{font-size:12px;line-height:1.5}
+.app-shell .nav-item{padding:11px 12px}
+.app-shell .nav-item strong{font-size:13px;line-height:1.35}
+.app-shell .nav-item small{font-size:10px;line-height:1.3;margin-top:4px}
+.app-shell .brand small,.app-shell .hotel-card small{font-size:9px}
+.app-shell .hotel-card strong{font-size:11px}
+.app-shell .scope-trigger small{font-size:10px}
+.app-shell .scope-trigger strong{font-size:14px}
+.app-shell .scope-trigger strong em{font-size:10px}
+.app-shell .role-switcher span{font-size:10px}
+.app-shell .role-switcher select{font-size:11px;max-width:160px}
+.app-shell .button{font-size:12px;min-height:40px}
+.app-shell .tree-item strong{font-size:12px}
+.app-shell .tree-item small,.app-shell .tree-item em,.app-shell .scope-path span{font-size:10px}
+.page-intro p,.dash-header p,.ops-header p,.calendar-head p,.session-header p{font-size:11px;line-height:1.45}
+.date-line,.dash-header>div>span,.ops-header>div>span,.calendar-head>div>span{font-size:11px}
+.period-control button,.outline-action,.narrative-strip>button{font-size:11px;min-height:38px}
+.section-heading p,.card-heading p{font-size:10px}
+.section-heading button,.text-action{font-size:11px;min-height:34px}
+.status-pill,.scope-summary-pill span{font-size:10px}
+.page-wrap .page-intro p{font-size:11px}
+.page-wrap .date-line{font-size:11px}
+.page-wrap .period-control button{font-size:11px;min-height:38px}
+
+/* Executive and analytical dashboards */
+.conclusion>span{font-size:11px}
+.conclusion p{font-size:12px;line-height:1.75}
+.conclusion button{font-size:11px;min-height:38px}
+.health-orbit strong{font-size:60px}
+.health-orbit>div>span,.health-orbit small,.health-caption span,.health-caption small{font-size:11px}
+.trend-head span,.trend-head strong{font-size:10px}
+.target-line,.month-row{font-size:9px}
+.signal{padding:20px}
+.signal-top span{font-size:12px;font-weight:600}
+.signal-top em{font-size:10px}
+.signal-value strong{font-size:36px}
+.signal-value small{font-size:11px}
+.kpi-contract span{font-size:10px}
+.kpi-contract b{font-size:11px}
+.signal-foot{font-size:9px;line-height:1.4}
+.comparison-list strong,.course-row strong,.risk-row strong,.priority-callout strong{font-size:12px}
+.comparison-list small,.course-row small,.risk-row small,.priority-callout small{font-size:10px;line-height:1.4}
+.course-row>b{font-size:20px}
+.course-row>b small,.risk-row>b,.risk-count{font-size:10px}
+.priority-callout button,.mini-actions button{font-size:10px;min-height:38px}
+.narrative-strip span{font-size:10px}
+.narrative-strip p{font-size:11px;line-height:1.55}
+.dept-row strong,.vertical-bars span{font-size:12px}
+.dept-row small,.vertical-bars small,.donut-row li,.next-action p{font-size:10px}
+.dept-row em,.vertical-bars strong{font-size:18px}
+.next-action>strong{font-size:18px}
+.next-action button{font-size:10px;min-height:38px}
+.matrix-legend,.axis-y,.axis-x,.chart-months{font-size:9px}
+.bubble{width:30px;height:30px}
+.bubble span,.bubble b{font-size:9px}
+.response-card>button,.roi-card strong{font-size:11px}
+.roi-card small{font-size:9px}
+.risk-stats small,.severity-filter button,.severity-group>header small{font-size:9px}
+.severity-group>header h3{font-size:13px}
+.severity-badge,.department-label,.risk-identity p,.risk-details span,.risk-action>span{font-size:9px}
+.risk-identity h3{font-size:16px}
+.risk-details strong,.risk-action>strong{font-size:11px}
+.risk-action button{font-size:10px;min-height:36px}
+.executive-cockpit .conclusion>span{font-size:11px}
+.executive-cockpit .conclusion p{font-size:12px;line-height:1.75}
+.executive-cockpit .conclusion button{font-size:11px;min-height:38px}
+.executive-cockpit .health-orbit strong{font-size:60px}
+.executive-cockpit .health-orbit>div>span,.executive-cockpit .health-orbit small,.executive-cockpit .health-caption span,.executive-cockpit .health-caption small{font-size:11px}
+.executive-cockpit .trend-head span,.executive-cockpit .trend-head strong{font-size:10px}
+.executive-cockpit .target-line,.executive-cockpit .month-row{font-size:9px}
+.executive-cockpit .signal{padding:20px}
+.executive-cockpit .signal-top span{font-size:12px}
+.executive-cockpit .signal-top em{font-size:10px}
+.executive-cockpit .signal-value strong{font-size:36px}
+.executive-cockpit .signal-value small{font-size:11px}
+.executive-cockpit .signal-foot{font-size:9px;line-height:1.4}
+
+/* Calendar and session operations */
+.calendar-head button,.session-actions button{font-size:11px;min-height:40px}
+.view-tabs button{font-size:11px;min-height:38px;padding:8px 14px}
+.calendar-filters label{font-size:10px}
+.calendar-filters select{font-size:12px;min-height:40px;padding:9px 28px 9px 10px}
+.weekdays span{font-size:9px;padding:12px}
+.date-cell{height:140px;padding:10px}
+.date-cell>span{font-size:14px}
+.event{padding:9px 8px;margin-top:9px}
+.event strong{font-size:11px;line-height:1.35}
+.event small{font-size:9px;line-height:1.4;margin-top:4px}
+.calendar-legend span{font-size:10px}
+.time-column span{font-size:10px}
+.week-calendar>button>strong,.week-event,.day-calendar>button>div{font-size:11px}
+.week-event small,.day-calendar small,.day-calendar>button>span{font-size:9px}
+.create-session header span,.create-session header p{font-size:10px}
+.form-grid label{font-size:11px}
+.form-grid input,.form-grid select{font-size:12px;min-height:42px}
+.qr-options button,.create-session footer button{font-size:11px;min-height:44px}
+.session-header>a,.session-status{font-size:10px}
+.summary-strip span{font-size:9px}
+.summary-strip strong{font-size:11px}
+.status-timeline strong{font-size:10px}
+.status-timeline span{font-size:9px}
+.roster strong{font-size:11px}
+.roster small,.roster em,.dept-break,.feedback-progress>button{font-size:9px}
+.qr-card h3{font-size:17px}
+.qr-card p,.qr-card small,.qr-card button,.qr-card a{font-size:10px}
+
+/* People and KPI operations */
+.people-insight>div:first-child span{font-size:9px}
+.people-insight h2{font-size:20px}
+.people-insight>div:not(:first-child) strong{font-size:30px}
+.people-insight>div:not(:first-child) span{font-size:9px}
+.people-tools label{font-size:10px}
+.people-tools select,.people-search input{font-size:11px;min-height:40px}
+.people-table-head{font-size:9px}
+.people-list article{padding:14px 16px}
+.identity-cell strong{font-size:12px}
+.identity-cell strong small{font-size:10px}
+.identity-cell em{font-size:9px}
+.identity-cell em b,.risk-tags span{font-size:8px}
+.dept-cell strong,.training-cell strong{font-size:11px}
+.dept-cell small,.training-cell small,.risk-tags small{font-size:9px}
+.dept-cell button,.next-cell{font-size:9px;min-height:34px}
+.people-import-link,.ops-header button{font-size:11px;min-height:40px}
+.profile-drawer header span,.profile-drawer header p{font-size:9px}
+.profile-drawer h2 small{font-size:11px}
+.profile-flags span,.profile-drawer dt,.profile-drawer dd,.history-row strong,.history-row em{font-size:10px}
+.history-row small{font-size:9px}
+.profile-drawer section>button,.profile-drawer footer button{font-size:10px;min-height:40px}
+.health-impact>div:first-child span,.health-impact>div:first-child small,.health-impact p,.health-impact em{font-size:10px}
+.health-impact h2{font-size:18px}
+.health-impact>button{font-size:10px;min-height:38px}
+.weight-line b,.kpi-catalog p,.active-label,.formula-box span,.formula-box small{font-size:9px}
+.kpi-catalog strong{font-size:11px}
+.kpi-catalog small{font-size:9px}
+.kpi-catalog em{font-size:15px}
+.formula-box strong{font-size:11px}
+.kpi-editor>h3{font-size:15px}
+.target-grid label,.override-detail label{font-size:10px}
+.target-grid input{font-size:12px;min-height:42px}
+.departmentTree button{font-size:10px;min-height:38px}
+.departmentTree button span,.override-detail>span,.inherit-preview span,.inherit-preview p{font-size:9px}
+.inherit-preview strong{font-size:11px}
+.override-detail>button{font-size:10px;min-height:40px}
+
+/* Organization, permissions, and import workflows */
+.control-narrative p,.role-experience small,.branch-manager header p,.branch-summary>p{font-size:10px}
+.control-signals strong{font-size:26px}
+.control-signals span,.role-experience>div>span{font-size:9px}
+.role-experience strong{font-size:13px}
+.role-toggle button{font-size:10px;min-height:38px}
+.control-tabs button strong{font-size:12px}
+.control-tabs button small{font-size:9px}
+.trainer-identity strong{font-size:12px}
+.trainer-identity small,.trainer-identity em,.branch-cell small,.coverage-cell small,.allowed-cell>small,.trainer-action>small{font-size:9px}
+.branch-cell strong,.allowed-cell>div span,.trainer-action>span,.trainer-action button{font-size:10px}
+.coverage-cell strong{font-size:26px}
+.branch-manager>button strong,.position-grid strong,.role-comparison li,.account-strip strong{font-size:11px}
+.branch-manager>button small,.branch-manager>button em,.position-grid small,.position-grid span,.position-grid em,.role-comparison>article>small,.account-strip small,.account-strip>span{font-size:9px}
+.scope-preview-drawer header p,.scope-preview-drawer section p,.invite-dialog>p{font-size:10px}
+.scope-preview-drawer section:not(.scope-boundary) p{line-height:1.6}
+.invite-dialog label,.invite-note{font-size:10px}
+.import-assurance p,.import-assurance strong,.import-stage header p{font-size:10px}
+.import-assurance small,.import-assurance>div:first-child>span,.import-stage header>div>span,.confirm-main>span{font-size:9px}
+.import-steps button strong{font-size:10px}
+.import-steps button small{font-size:9px}
+.upload-drop p{font-size:11px}
+.upload-drop small,.upload-stage aside p{font-size:9px}
+.sheet-list strong{font-size:11px}
+.sheet-list small,.sheet-list em,.file-safe,.mapping-stage>header>strong{font-size:9px}
+.mapping-head{font-size:9px}
+.mapping-list>div:not(.mapping-head),.mapping-list select{font-size:10px}
+.change-summary small{font-size:10px}
+.change-summary p,.issue-heading p,.issue-heading>span{font-size:9px}
+.issue-type>span{font-size:9px}
+.issue-type strong{font-size:12px}
+.issue-type small,.issue-list>article>em,.resolved-label{font-size:9px}
+.confirm-main>p,.confirm-main>label,.confirm-stage>aside p{font-size:10px}
+.confirm-stage>aside small,.import-history header p,.import-history small,.import-history em,.import-history b{font-size:9px}
+.import-history strong{font-size:11px}
+
+/* Mobile staff flows */
+.mobile-brand strong{font-size:14px}
+.mobile-brand small{font-size:9px}
+.mobile-session>span{font-size:9px}
+.mobile-session h1{font-size:23px;line-height:1.35}
+.mobile-session p{font-size:10px;line-height:1.5}
+.mobile-steps i{width:28px;height:28px;font-size:10px}
+.mobile-steps small{font-size:8px}
+.mobile-card h2{font-size:22px}
+.mobile-card>p{font-size:10px}
+.mobile-card>button:not(.back):not(.mobile-primary):not(.mobile-secondary):not(.already-link){font-size:12px;min-height:54px}
+.mobile-card .back,.already-link{font-size:10px;min-height:40px}
+.mobile-search{min-height:48px}
+.mobile-search input{font-size:11px}
+.employee-card strong{font-size:12px}
+.employee-card small,.employee-card em{font-size:10px;line-height:1.4}
+.confirm-card dt,.confirm-card dd{font-size:10px}
+.mobile-primary,.mobile-secondary{font-size:12px;min-height:48px}
+.success-card strong{font-size:17px}
+.success-card small,.mobile-footer{font-size:9px}
+.rating-row strong{font-size:11px}
+.rating-row small,.comment-box small,.mobile-overlay p,.mobile-overlay small{font-size:9px}
+.comment-box{font-size:11px}
+.comment-box textarea{font-size:11px}
+.rating-row button{font-size:22px;min-height:48px;min-width:44px}
+
+@media(max-width:650px){
+  .page-intro h1,.dash-header h1,.ops-header h1,.calendar-head h1,.session-header h1{font-size:27px}
+  .calendar-filters label{font-size:10px}
+  .calendar-filters select{font-size:11px}
+  .people-list article{padding:16px 14px}
+  .mobile-flow button{min-height:48px}
+}
