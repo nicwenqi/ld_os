@@ -9,6 +9,13 @@ async function migrationSource() {
   return (await Promise.all(files.map(file => readFile(new URL(file, migrationsDir), "utf8")))).join("\n");
 }
 
+async function correctiveTriggerMigrationSource() {
+  const files = await readdir(migrationsDir);
+  const file = files.find(candidate => candidate.endsWith("_split_immutable_identity_triggers.sql"));
+  assert.ok(file, "corrective immutable trigger migration must exist");
+  return readFile(new URL(file, migrationsDir), "utf8");
+}
+
 test("Checkpoint 2B.1 migration contains only approved foundation tables", async () => {
   const sql = await migrationSource();
   for (const table of [
@@ -49,4 +56,24 @@ test("all approved public tables enable RLS without broad authenticated or anony
     assert.match(policy, /\busing\s*\(/i);
     assert.match(policy, /\bwith check\s*\(/i);
   }
+});
+
+test("immutable identity triggers are replaced by table-safe functions", async () => {
+  const sql = await correctiveTriggerMigrationSource();
+  const mappings = [
+    ["platform_memberships", "prevent_platform_membership_identity_change"],
+    ["tenant_memberships", "prevent_tenant_membership_identity_change"],
+    ["properties", "prevent_property_tenant_change"],
+    ["property_memberships", "prevent_property_membership_identity_change"],
+    ["role_assignments", "prevent_role_assignment_identity_change"],
+    ["trainer_scopes", "prevent_trainer_scope_identity_change"],
+  ];
+
+  assert.match(sql, /drop function app_private\.prevent_scope_identity_change\(\)/i);
+  for (const [table, fn] of mappings) {
+    assert.match(sql, new RegExp(`function app_private\\.${fn}\\(\\)`, "i"));
+    assert.match(sql, new RegExp(`before update on public\\.${table}[\\s\\S]{0,120}execute function app_private\\.${fn}\\(\\)`, "i"));
+  }
+  assert.equal((sql.match(/using errcode = '23514'/gi) || []).length, mappings.length);
+  assert.doesNotMatch(sql, /execute function app_private\.prevent_scope_identity_change\(\)/i);
 });
