@@ -1,0 +1,28 @@
+/* Final shared polish: scope-aware empty states, keyboard clarity, and touch comfort. */
+.people-import-link{display:inline-flex;align-items:center;border:1px solid var(--border);background:#fffefa;border-radius:9px;padding:9px 12px;font-size:8px;color:var(--ink);text-decoration:none}
+.calendar-empty,.people-empty,.risk-empty{display:flex;align-items:center;justify-content:center;gap:9px;min-height:78px;margin-top:10px;border-radius:13px;background:rgba(255,254,250,.62);color:var(--muted);text-align:center}
+.calendar-empty strong,.people-empty strong,.risk-empty strong{font-family:var(--serif);font-size:12px;color:var(--ink)}
+.calendar-empty span,.people-empty span,.risk-empty span{font-size:8px}
+.calendar-empty button{border:0;border-radius:8px;background:var(--ink);color:#fff;padding:8px 11px;font-size:8px}
+.bars-trend{height:170px;display:flex;align-items:flex-end;gap:10px;border-bottom:1px solid var(--border);padding:0 8px;overflow:visible}
+.bars-trend>i{flex:1;min-width:16px;max-width:36px;position:relative;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--teal),rgba(83,139,131,.28));z-index:1}
+.bars-trend>i>b{position:absolute;top:-16px;left:50%;transform:translateX(-50%);font:400 8px Georgia,serif;color:var(--ink)}
+.bars-trend .trend-target{left:0;right:0;top:31%;height:1px;border-top:1px dashed var(--champagne);text-align:right;color:#94794c;padding-top:3px}
+.import-steps button:disabled{cursor:not-allowed;opacity:.58}
+.mobile-primary:disabled{cursor:not-allowed;opacity:.48}.form-guidance{display:block;margin-top:8px;text-align:center;color:var(--muted);font-size:7px}
+.switch input{display:block!important;position:absolute;opacity:0;width:1px;height:1px}
+.switch input:focus-visible+span{outline:3px solid rgba(191,161,106,.35);outline-offset:3px}
+.drawer-backdrop [role="dialog"]:focus-visible,.dialog:focus-visible{outline:3px solid rgba(191,161,106,.35);outline-offset:-3px}
+button:focus-visible,a:focus-visible,select:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid rgba(191,161,106,.38);outline-offset:2px}
+
+@media(max-width:650px){
+  .mobile-flow button,.mobile-flow input,.mobile-flow textarea,.calendar-controls button,.calendar-controls select,.calendar-head button,.people-page button,.people-page select,.people-import-link,.import-page button,.import-page select,.dialog button,.create-session button{min-height:44px}
+  .rating-row button{min-width:42px;min-height:44px;padding:6px}
+  .mobile-overlay button{min-width:44px}
+  .calendar-controls{padding:12px}.view-tabs button{flex:1}.calendar-filters select{width:100%;padding-block:11px}
+  .calendar-empty,.people-empty,.risk-empty{flex-direction:column;padding:18px}
+  .people-list article{padding-block:14px}.identity-cell{align-items:center}.dept-cell button{font-size:7px}.next-cell{text-align:left}
+  .people-import-link{justify-content:center}.ops-header>div:last-child{flex-wrap:wrap}
+  .import-steps button{min-width:44px;justify-content:center}.issue-list>article>div:last-child button{min-height:40px}
+  .scope-preview-drawer,.profile-drawer,.create-session{padding:22px 18px}
+}

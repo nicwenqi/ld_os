@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { AppShell } from "../components/shell/AppShell";
 import { AppProviders } from "../providers";
+import { useEscapeDismiss } from "../lib/use-escape-dismiss";
+import { useDepartmentScope } from "../state/department-scope";
 import { usePrototypeFeedback } from "../state/prototype-feedback";
 
 const branches = [
@@ -32,7 +34,11 @@ function Page() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [scopeOpen, setScopeOpen] = useState(false);
   const [role, setRole] = useState("manager");
+  const { departmentId, breadcrumb } = useDepartmentScope();
   const { showToast } = usePrototypeFeedback();
+  useEscapeDismiss(inviteOpen || scopeOpen, () => { setInviteOpen(false); setScopeOpen(false); });
+  const currentScope = breadcrumb.at(-1)!;
+  const visibleTrainers = departmentId === "concierge" ? trainers.slice(0, 1) : departmentId === "front-office" ? trainers.slice(0, 2) : trainers;
 
   return <AppShell><div className="page-wrap permissions-page">
     <header className="ops-header control-header">
@@ -41,7 +47,7 @@ function Page() {
     </header>
 
     <section className="control-narrative">
-      <div><span>组织运营结论</span><h2>房务部已覆盖 <em>94%</em> 员工，客房部仍缺少 1 名部门培训员。</h2><p>部门层级决定员工、培训、提醒与报表的可见范围。</p></div>
+      <div><span>组织运营结论 · {breadcrumb.map(item => item.nameZh).join(" › ")}</span><h2>{currentScope.nameZh}培训员覆盖 <em>{departmentId === "concierge" ? "100%" : departmentId === "front-office" ? "96%" : "94%"}</em>，范围与员工责任清晰可见。</h2><p>部门层级决定员工、培训、提醒与报表的可见范围。</p></div>
       <div className="control-signals"><article><strong>12</strong><span>部门分支</span></article><article><strong>8</strong><span>培训员在岗</span></article><article><strong>94%</strong><span>员工覆盖</span></article><article className="attention"><strong>2</strong><span>待处理事项</span></article></div>
     </section>
 
@@ -56,7 +62,7 @@ function Page() {
 
     {tab === "trainers" && <section className="trainer-workspace">
       <div className="section-heading"><div><h3>部门培训员分配</h3><p>Trainer assignment · 以组织分支定义管理范围</p></div><button onClick={() => showToast("新增培训员分配面板已打开")}>＋ 新增分配</button></div>
-      <div className="trainer-list">{trainers.map((trainer, index) => <article key={trainer.name} className={trainer.status === "待确认" ? "pending" : ""}>
+      <div className="trainer-list">{visibleTrainers.map((trainer, index) => <article key={trainer.name} className={trainer.status === "待确认" ? "pending" : ""}>
         <div className="trainer-identity"><span>{trainer.name[0]}</span><div><strong>{trainer.name}</strong><small>{trainer.en}</small><em>{trainer.branch}</em></div></div>
         <div className="branch-cell"><small>分配部门分支</small><strong>{trainer.assignedBranch}</strong></div>
         <div className="coverage-cell"><small>覆盖员工</small><strong>{trainer.coverage}</strong><span>人</span></div>
@@ -77,9 +83,9 @@ function Page() {
       <div className="account-strip"><div><strong>账号邀请</strong><small>使用业务角色与部门范围完成邀请</small></div><span>8 个活跃账号</span><span>1 个待接受邀请</span><button onClick={() => setInviteOpen(true)}>邀请新账号</button></div>
     </section>}
 
-    {scopeOpen && <div className="drawer-backdrop" onMouseDown={() => setScopeOpen(false)}><aside className="scope-preview-drawer" onMouseDown={e => e.stopPropagation()}><header><div><span>部门范围预览</span><h2>{role === "manager" ? "学习与发展经理" : "部门培训管理员"}</h2><p>{role === "manager" ? "全酒店范围" : "房务部 › 前厅部 › 礼宾部"}</p></div><button onClick={() => setScopeOpen(false)}>×</button></header><div className="scope-map"><span>上海澜庭酒店</span><i /><span>房务部 Rooms</span><i /><strong>{role === "manager" ? "全部分支均可见" : "礼宾部 Concierge"}</strong></div><section><h3>在此范围内可以</h3>{(role === "manager" ? ["查看全部员工与培训数据", "管理全酒店 KPI 目标", "配置角色与账号", "查看所有风险与报表"] : ["查看礼宾部 18 名员工", "发送提醒与创建补训", "管理本部门考勤和反馈", "查看本部门培训报表"]).map(item => <p key={item}>✓ {item}</p>)}</section><section className="scope-boundary"><h3>范围边界</h3><p>{role === "manager" ? "作为超级管理员，可在全部部门层级间切换。" : "无法查看其他部门员工，不能修改全局 KPI，也不能管理其他管理员。"}</p></section><button onClick={() => { setScopeOpen(false); showToast("部门范围预览已确认"); }}>确认范围</button></aside></div>}
+    {scopeOpen && <div className="drawer-backdrop" onMouseDown={() => setScopeOpen(false)}><aside className="scope-preview-drawer" role="dialog" aria-modal="true" aria-label="部门范围预览" onMouseDown={e => e.stopPropagation()}><header><div><span>部门范围预览</span><h2>{role === "manager" ? "学习与发展经理" : "部门培训管理员"}</h2><p>{role === "manager" ? `${currentScope.nameZh}及下级部门` : "房务部 › 前厅部 › 礼宾部"}</p></div><button onClick={() => setScopeOpen(false)} aria-label="关闭部门范围预览">×</button></header><div className="scope-map"><span>上海澜庭酒店</span><i /><span>{currentScope.nameZh} {currentScope.nameEn}</span><i /><strong>{role === "manager" ? "当前范围全部分支均可见" : "礼宾部 Concierge"}</strong></div><section><h3>在此范围内可以</h3>{(role === "manager" ? ["查看当前范围员工与培训数据", "管理酒店 KPI 目标", "配置角色与账号", "查看范围内风险与报表"] : ["查看礼宾部 18 名员工", "发送提醒与创建补训", "管理本部门考勤和反馈", "查看本部门培训报表"]).map(item => <p key={item}>✓ {item}</p>)}</section><section className="scope-boundary"><h3>范围边界</h3><p>{role === "manager" ? "作为超级管理员，可在全部部门层级间切换。" : "无法查看其他部门员工，不能修改全局 KPI，也不能管理其他管理员。"}</p></section><button onClick={() => { setScopeOpen(false); showToast("部门范围预览已确认"); }}>确认范围</button></aside></div>}
 
-    {inviteOpen && <div className="dialog-backdrop"><div className="dialog invite-dialog"><header className="dialog-head"><div><span className="eyebrow">ACCOUNT INVITATION</span><h2>邀请账号</h2></div><button className="icon-button" onClick={() => setInviteOpen(false)}>×</button></header><p>选择业务角色和负责部门，系统将发送一封模拟邀请。</p><label>员工姓名<input defaultValue="徐婉宁 Wendy Xu" /></label><label>业务角色<select><option>部门培训管理员</option><option>学习与发展经理</option></select></label><label>负责部门<select><option>房务部 › 客房部</option><option>房务部 › 前厅部 › 礼宾部</option></select></label><div className="invite-note">此账号将仅能查看和操作所选部门分支。</div><footer><button onClick={() => setInviteOpen(false)}>取消</button><button onClick={() => { setInviteOpen(false); showToast("模拟邀请已发送给徐婉宁"); }}>发送邀请</button></footer></div></div>}
+    {inviteOpen && <div className="dialog-backdrop" onMouseDown={() => setInviteOpen(false)}><div className="dialog invite-dialog" role="dialog" aria-modal="true" aria-label="邀请账号" onMouseDown={event => event.stopPropagation()}><header className="dialog-head"><div><span className="eyebrow">ACCOUNT INVITATION</span><h2>邀请账号</h2></div><button className="icon-button" onClick={() => setInviteOpen(false)} aria-label="关闭账号邀请">×</button></header><p>选择业务角色和负责部门，系统将发送一封模拟邀请。</p><label>员工姓名<input defaultValue="徐婉宁 Wendy Xu" /></label><label>业务角色<select><option>部门培训管理员</option><option>学习与发展经理</option></select></label><label>负责部门<select><option>房务部 › 客房部</option><option>房务部 › 前厅部 › 礼宾部</option></select></label><div className="invite-note">此账号将仅能查看和操作所选部门分支。</div><footer><button onClick={() => setInviteOpen(false)}>取消</button><button onClick={() => { setInviteOpen(false); showToast("模拟邀请已发送给徐婉宁"); }}>发送邀请</button></footer></div></div>}
   </div></AppShell>;
 }
 
