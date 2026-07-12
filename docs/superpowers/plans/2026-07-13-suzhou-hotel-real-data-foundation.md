@@ -15,6 +15,7 @@
 - Keep multi-property isolation in every new table and foreign key.
 - Do not apply migrations, seeds, buckets, functions, or users to production without explicit approval.
 - Do not import real hotel data during implementation verification.
+- Use synthetic local property data only in Review Stop 2C-A; do not commit the real hotel name, code, domain, logo, administrator identity, or employee data.
 - Do not commit real workbook contents, hotel employee data, credentials, database passwords, or secret/service-role keys.
 - Use `APP_DATA_MODE=hybrid`; keep current deployed behavior unchanged until a separately approved deployment.
 - Treat ChatGPT Sites as design/prototype preview only; do not depend on Sites-specific runtime behavior.
@@ -189,7 +190,7 @@ export interface ImportRepository {
 - Produces the approved non-secret property identity values used for local fixtures and later production initialization.
 - Produces environment validation for `APP_DATA_MODE=hybrid` and the one primary development/preview hostname.
 
-- [ ] **Step 1: Record the approved hotel decisions**: official bilingual names, short name, code, brand, city, primary hostname, new-employee days, probation meaning, employee-status source, CTC/GTC settings, file-size limit, file types, and reversal window.
+- [ ] **Step 1: Record synthetic local fixture values** for bilingual names, short name, code, brand, city, hostname, new-employee days, probation meaning, employee-status source, and CTC/GTC settings. Keep all real hotel decisions deferred to the administrator workflow.
 - [ ] **Step 2: Write failing environment tests** requiring hybrid mode to have URL, publishable key, base domain, and exactly one valid development hostname while rejecting secret/service-role variables exposed through `NEXT_PUBLIC_*`.
 - [ ] **Step 3: Write failing boundary tests** asserting only Settings, organization management, mappings, People, and Import select real repositories in hybrid mode.
 - [ ] **Step 4: Run** `node --test tests/environment.test.mjs tests/hybrid-boundaries.test.mjs`; expect failures for missing hybrid registry behavior.
@@ -253,13 +254,13 @@ export interface ImportRepository {
 - Implements `PropertyRepository`.
 - Produces `usePropertySettings()` and section-level save results.
 
-- [ ] **Step 1: Write failing Storage tests** proving public read is limited to branding, property managers can write only their tenant/property path, and imports remain private.
+- [ ] **Step 1: Write failing Storage tests** proving the branding bucket is public, no test assumes object-level RLS can restrict public URL retrieval, authenticated metadata/list and write policies are limited to the authorized tenant/property path, and private/import data is prohibited from branding paths.
 - [ ] **Step 2: Write failing UI/service tests** for loading, section validation, optimistic conflict, success feedback, invalid logo type/size, and initialization progress.
 - [ ] **Step 3: Run focused tests and confirm expected failures.**
-- [ ] **Step 4: Create the public branding bucket and object policies** with property-isolated paths and PNG/JPEG/WebP validation.
+- [ ] **Step 4: Create the public branding bucket and object policies** with property-isolated, versioned, non-guessable paths; PNG/JPEG/WebP validation; authenticated metadata/list support; and upload/update/move/delete checks. Do not create `property-import-files` in Review Stop 2C-A.
 - [ ] **Step 5: Implement the browser client** with URL and publishable key only; fail closed when hybrid configuration is invalid.
 - [ ] **Step 6: Implement PropertyRepository and service methods** with no queries in the page component.
-- [ ] **Step 7: Build the Chinese-first Settings Center** with Basic Information, Logo, Business Rules, Initialization Status, unsaved-state protection, validation, and save feedback.
+- [ ] **Step 7: Build the Chinese-first Settings Center** with Basic Information, Logo, Business Rules, Initialization Status, unsaved-state protection, validation, save feedback, and synthetic local fixtures only. Logo replacement creates a new immutable object, retains old versions for 30 days, and exposes authorized cleanup for expired non-current versions.
 - [ ] **Step 8: Run reset, pgTAP, focused UI tests, full tests, and build.**
 - [ ] **Step 9: Stop for Review 2C-A.**
 - [ ] **Step 10: Commit** with `feat: add Suzhou hotel settings center` after approval.

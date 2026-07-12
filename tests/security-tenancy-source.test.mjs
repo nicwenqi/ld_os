@@ -16,6 +16,13 @@ async function correctiveTriggerMigrationSource() {
   return readFile(new URL(file, migrationsDir), "utf8");
 }
 
+async function foundationAuthorizationMigrationSource() {
+  const files = await readdir(migrationsDir);
+  const file = files.find(candidate => candidate.endsWith("_authorization_helpers_and_rls.sql"));
+  assert.ok(file, "foundation authorization migration must exist");
+  return readFile(new URL(file, migrationsDir), "utf8");
+}
+
 test("Checkpoint 2B.1 migration contains only approved foundation tables", async () => {
   const sql = await migrationSource();
   for (const table of [
@@ -42,13 +49,14 @@ test("authorization helpers are private, identity-bound, and explicitly granted"
 });
 
 test("all approved public tables enable RLS without broad authenticated or anonymous policies", async () => {
-  const sql = await migrationSource();
+  const sql = await foundationAuthorizationMigrationSource();
+  const allSql = await migrationSource();
   for (const table of [
     "profiles", "platform_memberships", "tenants", "tenant_memberships", "properties",
     "property_memberships", "roles", "role_assignments", "trainer_scopes",
   ]) assert.match(sql, new RegExp(`alter table public\\.${table} enable row level security`, "i"));
-  assert.doesNotMatch(sql, /to\s+(?:authenticated|anon)[\s\S]{0,160}using\s*\(\s*true\s*\)/i);
-  assert.doesNotMatch(sql, /to\s+(?:authenticated|anon)[\s\S]{0,160}with check\s*\(\s*true\s*\)/i);
+  assert.doesNotMatch(allSql, /to\s+(?:authenticated|anon)[\s\S]{0,160}using\s*\(\s*true\s*\)/i);
+  assert.doesNotMatch(allSql, /to\s+(?:authenticated|anon)[\s\S]{0,160}with check\s*\(\s*true\s*\)/i);
 
   const updatePolicies = [...sql.matchAll(/create policy\s+\S+\s+on\s+public\.\S+\s+for update\s+to authenticated([\s\S]*?);/gi)];
   assert.equal(updatePolicies.length, 9);

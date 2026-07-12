@@ -17,6 +17,11 @@ const appEnvironments = new Set<AppEnvironmentName>(["local", "preview", "produc
 const dataModes = new Set<AppDataMode>(["mock", "hybrid", "supabase"]);
 
 export function parseAppEnvironment(input: EnvironmentInput = process.env): AppEnvironment {
+  for (const [name, value] of Object.entries(input)) {
+    if (name.startsWith("NEXT_PUBLIC_") && /(SERVICE_ROLE|SECRET)/i.test(name) && clean(value))
+      throw new Error(`${name} must never be browser-visible`);
+  }
+
   const appEnv = (input.APP_ENV || "local") as AppEnvironmentName;
   const dataMode = (input.APP_DATA_MODE || "mock") as AppDataMode;
   if (!appEnvironments.has(appEnv)) throw new Error("APP_ENV must be local, preview, or production");
@@ -31,6 +36,10 @@ export function parseAppEnvironment(input: EnvironmentInput = process.env): AppE
   if (dataMode !== "mock") {
     if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required outside mock mode");
     if (!supabasePublishableKey) throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required outside mock mode");
+    if (appEnv === "local" && !devPropertyHostname)
+      throw new Error("DEV_PROPERTY_HOSTNAME is required for local real-data modes");
+    if (appEnv === "preview" && !previewPropertyHostname)
+      throw new Error("PREVIEW_PROPERTY_HOSTNAME is required for preview real-data modes");
   }
 
   return {

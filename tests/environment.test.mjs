@@ -31,7 +31,7 @@ test("environment names, URLs, and property hostnames are validated", () => {
   assert.throws(() => parseAppEnvironment({ APP_ENV: "staging" }), /APP_ENV/);
   assert.throws(() => parseAppEnvironment({ APP_DATA_MODE: "real" }), /APP_DATA_MODE/);
   assert.throws(
-    () => parseAppEnvironment({ DEV_PROPERTY_HOSTNAME: "https://ktsz.ldchub.cn/path" }),
+    () => parseAppEnvironment({ DEV_PROPERTY_HOSTNAME: "https://hotel.example.test/path" }),
     /DEV_PROPERTY_HOSTNAME/,
   );
   assert.throws(
@@ -41,6 +41,32 @@ test("environment names, URLs, and property hostnames are validated", () => {
       NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
     }),
     /NEXT_PUBLIC_SUPABASE_URL/,
+  );
+});
+
+test("hybrid mode requires the property hostname for local and preview environments", () => {
+  const base = {
+    APP_DATA_MODE: "hybrid",
+    NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
+  };
+  assert.throws(() => parseAppEnvironment({ ...base, APP_ENV: "local" }), /DEV_PROPERTY_HOSTNAME/);
+  assert.throws(() => parseAppEnvironment({ ...base, APP_ENV: "preview" }), /PREVIEW_PROPERTY_HOSTNAME/);
+  assert.equal(parseAppEnvironment({
+    ...base,
+    APP_ENV: "local",
+    DEV_PROPERTY_HOSTNAME: "training-demo.example.test",
+  }).devPropertyHostname, "training-demo.example.test");
+});
+
+test("browser-visible secret and service-role variables are rejected", () => {
+  assert.throws(
+    () => parseAppEnvironment({ NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: "forbidden" }),
+    /must never be browser-visible/,
+  );
+  assert.throws(
+    () => parseAppEnvironment({ NEXT_PUBLIC_SUPABASE_SECRET_KEY: "forbidden" }),
+    /must never be browser-visible/,
   );
 });
 

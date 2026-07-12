@@ -22,6 +22,10 @@ The implementation supports one active tenant, one active property, and one prim
 7. Do not apply migrations or seeds to production without a separate approval after full local verification.
 8. Do not hardcode real hotel data or credentials in migrations, source files, or committed seed files.
 
+### 2.1 Review Stop 2C-A synthetic-data boundary
+
+Review Stop 2C-A uses synthetic local property fixtures only. Migrations and committed seeds must not contain the real Suzhou hotel name, property code, domain, logo, administrator identity, employee data, or any other production hotel value. The Hotel Settings Center demonstrates the approved workflow locally; real hotel identity is entered later by an authorized administrator after separate production approval.
+
 ## 3. Chosen architecture
 
 ### 3.1 Property-scoped hybrid vertical slice
@@ -76,7 +80,7 @@ Real employees must not display fabricated training history. Until training reco
 
 ### 4.1 Hostname resolution
 
-`property_domains` resolves the request hostname to a tenant and property. One active primary record is configured for the Suzhou property.
+`property_domains` resolves the request hostname to a tenant and property. Review Stop 2C-A configures one synthetic active primary record locally. The real Suzhou primary record is created later through the approved administrator workflow after production approval.
 
 Resolution rules:
 
@@ -130,11 +134,15 @@ Rules are property-specific. Changing a rule shows an impact explanation before 
 
 ### 5.3 Logo
 
-The logo is stored in the public `property-brand-assets` bucket under:
+The logo is stored in the public `property-brand-assets` bucket under a versioned, non-guessable path:
 
-`{tenant_id}/{property_id}/branding/logo.{extension}`
+`{tenant_id}/{property_id}/branding/{asset_uuid}/logo-v{version}.{extension}`
 
-Allowed formats are PNG, JPEG, and WebP. Upload validates MIME type, file extension, size, and property-owned path. Replacing a logo retains asset audit metadata while only one asset is marked current.
+Allowed formats are PNG, JPEG, and WebP. Upload validates MIME type, file extension, size, and property-owned path. Employee data, workbooks, imports, and private files are prohibited from this bucket.
+
+Because the bucket is public, anyone with an object URL can retrieve that object and public retrieval does not depend on object-level RLS. RLS controls authenticated metadata/list operations needed by the client plus upload, update, move/copy, and delete, always within an authorized tenant/property path.
+
+Replacing a logo creates a new immutable object and marks the previous metadata record non-current. Replaced versions are retained for 30 days for rollback; expired non-current objects may then be removed through the Storage API by an authorized property manager. Review Stop 2C-A does not add a scheduled cleanup service.
 
 ### 5.4 Save behavior
 
@@ -401,10 +409,13 @@ Anonymous users never read employee, membership, mapping, source-file, issue, or
 
 Bucket: `property-brand-assets`
 
-- Public read only for approved current branding objects
-- Property L&D Manager/tenant/platform write
-- Property-isolated paths
+- Public object retrieval for anyone who possesses the URL; this cannot be restricted by object-level RLS once the bucket is public
+- RLS-controlled authenticated metadata/list access plus upload, update, move/copy, and delete
+- Property L&D Manager/tenant/platform writes only within an authorized tenant/property path
+- Versioned, non-guessable object names
 - PNG/JPEG/WebP only
+- No employee data, workbooks, imports, or private files
+- Replaced versions retained for 30 days, followed by authorized Storage API cleanup
 
 ### Private imports
 

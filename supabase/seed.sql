@@ -67,3 +67,20 @@ from (values
 ) as fixture(user_id, role_code, tenant_id, property_id)
 join public.roles on roles.code = fixture.role_code
 on conflict do nothing;
+
+insert into public.property_domains (
+  id, tenant_id, property_id, hostname, subdomain, is_primary, verification_status, is_active, verified_at
+) values
+  ('40000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000011', 'demo-a1.example.test', 'demo-a1', true, 'verified', true, now()),
+  ('40000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000012', 'demo-a2.example.test', 'demo-a2', true, 'verified', true, now()),
+  ('40000000-0000-0000-0000-000000000021', '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000021', 'demo-b1.example.test', 'demo-b1', true, 'verified', true, now())
+on conflict (id) do nothing;
+
+insert into public.property_settings (
+  id, tenant_id, property_id, new_employee_days, probation_field_meaning,
+  employee_status_source, ctc_mandatory, gtc_mandatory, initialization_state
+) values
+  ('50000000-0000-0000-0000-000000000011', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000011', 90, 'confirmation_date', 'manual', true, true, 'in_progress'),
+  ('50000000-0000-0000-0000-000000000012', '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000012', 90, 'confirmation_date', 'manual', true, true, 'in_progress'),
+  ('50000000-0000-0000-0000-000000000021', '10000000-0000-0000-0000-000000000002', '20000000-0000-0000-0000-000000000021', 90, 'confirmation_date', 'manual', true, true, 'in_progress')
+on conflict (id) do nothing;
