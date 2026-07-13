@@ -27,6 +27,31 @@ test("XLS and CSV are inspected while employee numbers remain strings",()=>{
   const csv=new TextEncoder().encode("Employee Number,Chinese Name,Department,Position\n0007,示例员工甲,Concierge,Associate\n");
   const result=inspectWorkbook({fileName:"synthetic.csv",mimeType:"text/csv",bytes:csv}); assert.equal(result.sheets[0].likelyHeaderRow,1); assert.equal(result.sheets[0].rowCount,2);
 });
+test("legacy abbreviated employee-master headers map without using workbook-specific data",()=>{
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([["Workbook title"], [], ["Empid", "CName", "EName", "Department", "Position", "JoinDate", "Probation"], ["0007", "示例员工甲", "Synthetic Associate A", "Synthetic Department", "Synthetic Position", new Date("2026-06-01"), new Date("2026-09-01")]]);
+  XLSX.utils.book_append_sheet(workbook, sheet, "Legacy Master");
+  const bytes = new Uint8Array(XLSX.write(workbook, { type: "array", bookType: "biff8" }));
+  const result = inspectWorkbook({fileName:"legacy.xls",mimeType:"application/vnd.ms-excel",bytes});
+  const mappings = Object.fromEntries(result.sheets[0].suggestedMappings.map(item => [item.sourceColumn, item.targetField]));
+  assert.equal(result.sheets[0].likelyHeaderRow, 3);
+  assert.equal(mappings.Empid, "employee_number");
+  assert.equal(mappings.CName, "name_zh");
+  assert.equal(mappings.EName, "name_en");
+  assert.equal(mappings.JoinDate, "hire_date");
+});
+test("course-history-style columns are excluded from employee master mapping",()=>{
+  const workbook = XLSX.utils.book_new();
+  const sheet = XLSX.utils.aoa_to_sheet([["Employee Number", "Hotel Orientation", "Onboarding Checklist", "Leadership Journey", "First Aid"], ["0007", "Completed", "Completed", "Assigned", "Completed"]]);
+  XLSX.utils.book_append_sheet(workbook, sheet, "Employee Master");
+  const bytes = new Uint8Array(XLSX.write(workbook, { type: "array", bookType: "xlsx" }));
+  const result = inspectWorkbook({fileName:"history.xlsx",mimeType:mimeXlsx,bytes});
+  const excluded = Object.fromEntries(result.sheets[0].suggestedMappings.map(item => [item.sourceColumn, item.excluded]));
+  assert.equal(excluded["Hotel Orientation"], true);
+  assert.equal(excluded["Onboarding Checklist"], true);
+  assert.equal(excluded["Leadership Journey"], true);
+  assert.equal(excluded["First Aid"], true);
+});
 test("parser rejects mismatched formats and oversized files",()=>{
   assert.throws(()=>inspectWorkbook({fileName:"fake.xlsx",mimeType:mimeXlsx,bytes:new TextEncoder().encode("not zip")}),/签名/);
   assert.throws(()=>inspectWorkbook({fileName:"fake.exe",mimeType:"application/octet-stream",bytes:new Uint8Array([1])}),/仅支持/);

@@ -8,16 +8,16 @@ const MIME_BY_EXTENSION: Record<string, readonly string[]> = {
   csv: ["text/csv", "application/csv", "text/plain"],
 };
 const targetAliases: Record<string, readonly string[]> = {
-  employee_number: ["employee number", "employee no", "employee id", "员工编号", "工号"],
-  name_zh: ["chinese name", "中文名", "姓名"],
-  name_en: ["english name", "英文名"],
+  employee_number: ["employee number", "employee no", "employee id", "emp id", "empid", "员工编号", "工号"],
+  name_zh: ["chinese name", "cname", "中文名", "姓名"],
+  name_en: ["english name", "ename", "英文名"],
   department_source_label: ["department", "部门"],
   position_source_label: ["position", "job title", "职位", "岗位"],
   grade_or_band: ["grade", "band", "级别"],
-  hire_date: ["hire date", "date of hire", "入职日期"],
+  hire_date: ["hire date", "date of hire", "join date", "joindate", "入职日期"],
   probation_or_confirmation_date: ["probation", "confirmation date", "转正日期", "试用期"],
 };
-const excludedPattern = /(gender|性别|ctc|gtc|course|training|培训|completion|完成)/i;
+const excludedPattern = /(gender|性别|ctc|gtc|course|training|培训|completion|完成|orientation|入职引导|onboarding|checklist|清单|journey|旅程|first\s*aid|急救|problem\s*handling|问题处理)/i;
 
 export type WorkbookFile = { fileName: string; mimeType: string; bytes: Uint8Array };
 export type SheetInspection = {
