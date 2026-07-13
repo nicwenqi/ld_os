@@ -1,7 +1,9 @@
 import { inspectEmployeeMasterAggregate } from "../../services/import/workbook-parser.ts";
+import { parseAppEnvironment } from "../../lib/environment.ts";
 
 export async function POST(request: Request) {
-  if ((process.env.APP_ENV ?? "local") !== "local" || (process.env.APP_DATA_MODE ?? "mock") !== "mock") return Response.json({ message:"本地工作簿检查只在本机 mock 模式可用" },{ status:404 });
+  const environment=parseAppEnvironment();
+  if (environment.appEnv !== "local" || environment.dataMode !== "mock") return Response.json({ message:"本地工作簿检查只在本机 mock 模式可用" },{ status:404 });
   const form=await request.formData();const file=form.get("file");
   if(!(file instanceof File))return Response.json({message:"请选择工作簿"},{status:400});
   try{

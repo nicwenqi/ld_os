@@ -121,12 +121,13 @@ test("wizard UI has one save-later action and scalable setup workspaces", async 
   for (const token of ["新增一级部门","新增下级部门","移动影响预览","尚未选择文件","合成测试文件","真实工作簿，仅本地检查，尚未提交","仅看未处理","批量接受高置信度建议","当前筛选结果"]) assert.match(source,new RegExp(token));
   assert.match(css,/wizard-organization-editor/);
   assert.match(css,/@media\(max-width:980px\)/);
-  assert.match(route,/APP_DATA_MODE/);
-  assert.match(route,/APP_ENV/);
+  assert.match(route,/parseAppEnvironment/);
+  assert.match(route,/environment\.appEnv !== "local"/);
+  assert.match(route,/environment\.dataMode !== "mock"/);
   assert.match(route,/Cache-Control/);
   assert.doesNotMatch(route,/service_role|SUPABASE_SERVICE/);
   assert.match(progressRoute,/Cache-Control/);
-  assert.match(progressRoute,/APP_ENV/);
+  assert.match(progressRoute,/parseAppEnvironment/);
   assert.match(progressRoute,/expectedVersion/);
   assert.match(mockProgressRepository,/mock-initialization-progress/);
 });

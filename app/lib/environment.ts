@@ -22,7 +22,7 @@ export function parseAppEnvironment(input: EnvironmentInput = process.env): AppE
       throw new Error(`${name} must never be browser-visible`);
   }
 
-  const appEnv = (input.APP_ENV || "local") as AppEnvironmentName;
+  const appEnv = (input.APP_ENV || inferredHostingEnvironment(input) || "local") as AppEnvironmentName;
   const dataMode = (input.APP_DATA_MODE || "mock") as AppDataMode;
   if (!appEnvironments.has(appEnv)) throw new Error("APP_ENV must be local, preview, or production");
   if (!dataModes.has(dataMode)) throw new Error("APP_DATA_MODE must be mock, hybrid, or supabase");
@@ -51,6 +51,12 @@ export function parseAppEnvironment(input: EnvironmentInput = process.env): AppE
     supabaseUrl,
     supabasePublishableKey,
   };
+}
+
+function inferredHostingEnvironment(input: EnvironmentInput): AppEnvironmentName | null {
+  if (input.VERCEL_ENV === "preview") return "preview";
+  if (input.VERCEL_ENV === "production") return "production";
+  return null;
 }
 
 function clean(value: string | undefined): string | null {

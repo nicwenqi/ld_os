@@ -16,6 +16,12 @@ test("mock mode remains the safe default without Supabase credentials", () => {
   });
 });
 
+test("Vercel deployment environments are recognized when APP_ENV is not explicitly configured", () => {
+  assert.equal(parseAppEnvironment({ VERCEL_ENV: "preview" }).appEnv, "preview");
+  assert.equal(parseAppEnvironment({ VERCEL_ENV: "production" }).appEnv, "production");
+  assert.equal(parseAppEnvironment({ APP_ENV: "local", VERCEL_ENV: "production" }).appEnv, "local");
+});
+
 test("Supabase data modes require a URL and publishable key", () => {
   assert.throws(
     () => parseAppEnvironment({ APP_DATA_MODE: "supabase" }),
