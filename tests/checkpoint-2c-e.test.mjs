@@ -48,6 +48,23 @@ test("saved step confirmations survive repository reload and change the derived 
   assert.equal(derived.nextRecommendedAction,"进入系统");
 });
 
+test("browser mock initialization keeps synthetic progress when the local-only endpoint is unavailable", async () => {
+  const originalWindow = globalThis.window;
+  const originalFetch = globalThis.fetch;
+  globalThis.window = {};
+  globalThis.fetch = async () => new Response(JSON.stringify({ message:"not found" }), { status:404 });
+  try {
+    const repository=createMockInitializationRepository();
+    const initial=await repository.getProgress("20000000-0000-0000-0000-000000000011");
+    const saved=await repository.saveStep({ propertyId:"20000000-0000-0000-0000-000000000011", stepKey:"positions", lastActiveStep:5, explicitlyConfirmed:true, expectedVersion:initial.version });
+    assert.equal(saved.steps.positions.explicitlyConfirmed,true);
+    assert.equal((await repository.getProgress("20000000-0000-0000-0000-000000000011")).lastActiveStep,5);
+  } finally {
+    globalThis.window = originalWindow;
+    globalThis.fetch = originalFetch;
+  }
+});
+
 const mappings = [
   { id:"d1", type:"department", sourceLabel:"Front Office", affectedRows:25, sourceSheet:"Synthetic Departments", suggestedTarget:"前厅部", confidence:96, suggestionReason:"名称高度匹配", targetLabel:"房务部 / 前厅部", status:"pending", blocked:false },
   { id:"d2", type:"department", sourceLabel:"Unknown Unit", affectedRows:3, sourceSheet:"Synthetic Departments", suggestedTarget:null, confidence:20, suggestionReason:"缺少正式结构", targetLabel:null, status:"blocked", blocked:true },
