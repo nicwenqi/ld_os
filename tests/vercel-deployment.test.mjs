@@ -6,6 +6,7 @@ test("Vercel builds use the Vinext Nitro adapter instead of the Cloudflare runti
   const packageJson = await readFile(new URL("../package.json", import.meta.url), "utf8");
   const viteConfig = await readFile(new URL("../vite.config.ts", import.meta.url), "utf8");
   const globalStyles = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
+  const vercelConfig = await readFile(new URL("../vercel.json", import.meta.url), "utf8");
   const workbookRoute = await readFile(new URL("../app/api/local-workbook-inspection/route.ts", import.meta.url), "utf8");
   const progressRoute = await readFile(new URL("../app/api/mock-initialization-progress/route.ts", import.meta.url), "utf8");
   assert.match(packageJson, /"nitro"/);
@@ -17,4 +18,6 @@ test("Vercel builds use the Vinext Nitro adapter instead of the Cloudflare runti
   assert.match(globalStyles, /@import "\.\.\/node_modules\/tailwindcss\/index\.css"/);
   assert.match(workbookRoute, /parseAppEnvironment/);
   assert.match(progressRoute, /parseAppEnvironment/);
+  assert.match(vercelConfig, /"framework"\s*:\s*null/);
+  assert.match(vercelConfig, /"buildCommand"\s*:\s*"npm run build"/);
 });
