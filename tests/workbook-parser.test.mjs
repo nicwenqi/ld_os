@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
-import { inspectWorkbook, sanitizeWorkbookFilename, stableRowFingerprint } from "../app/services/import/workbook-parser.ts";
+import { inspectEmployeeMasterAggregate, inspectWorkbook, sanitizeWorkbookFilename, stableRowFingerprint } from "../app/services/import/workbook-parser.ts";
 
 const mimeXlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 function syntheticWorkbook(bookType="xlsx") {
@@ -59,4 +59,19 @@ test("parser rejects mismatched formats and oversized files",()=>{
 test("filename and row fingerprints are deterministic",()=>{
   assert.equal(sanitizeWorkbookFilename("../../员工 主表.xlsx"),"员工-主表.xlsx");
   assert.equal(stableRowFingerprint({b:2,a:1}),stableRowFingerprint({a:1,b:2}));
+});
+test("employee master aggregate treats absent and whitespace-only departments as missing without exposing rows",()=>{
+  const workbook=XLSX.utils.book_new();
+  const sheet=XLSX.utils.aoa_to_sheet([["Synthetic workbook"],[],["Empid","CName","EName","Department","Position","JoinDate","Probation"],["0007","示例员工甲","Synthetic A",undefined,"Associate",new Date("2026-01-01"),new Date("2026-04-01")],["0008","示例员工乙","Synthetic B","   ","Associate",new Date("2026-01-02"),new Date("2026-04-02")],["0009","示例员工丙","Synthetic C","Front Office","Associate",new Date("2026-01-03"),new Date("2026-04-03")]]);
+  XLSX.utils.book_append_sheet(workbook,sheet,"Employee Master");
+  const bytes=new Uint8Array(XLSX.write(workbook,{type:"array",bookType:"biff8"}));
+  const result=inspectEmployeeMasterAggregate({fileName:"synthetic.xls",mimeType:"application/vnd.ms-excel",bytes});
+  assert.equal(result.employeeMaster.sourceRows,3);
+  assert.equal(result.employeeMaster.missingDepartments,2);
+  assert.equal(result.employeeMaster.structurallyValid,1);
+  assert.equal(result.employeeMaster.leadingZeroPreserved,true);
+  assert.equal(result.mapping.uniqueDepartmentLabels,1);
+  assert.equal(result.mapping.uniquePositionLabels,1);
+  assert.equal(JSON.stringify(result).includes("0007"),false);
+  assert.equal(JSON.stringify(result).includes("示例员工甲"),false);
 });

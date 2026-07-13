@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
+import { classifyEmployeeStagingRows, isMissingSourceValue } from "./employee-staging-preview.ts";
 
 export const MAX_IMPORT_BYTES = 25 * 1024 * 1024;
 const MIME_BY_EXTENSION: Record<string, readonly string[]> = {
@@ -26,6 +27,15 @@ export type SheetInspection = {
   formulaColumns: readonly string[]; suggestedMappings: readonly { sourceColumn: string; targetField: string | null; excluded: boolean; reason: string }[];
 };
 export type WorkbookInspection = { sanitizedFilename: string; extension: string; mimeType: string; checksum: string; sizeBytes: number; sheets: readonly SheetInspection[] };
+export type EmployeeMasterAggregate = {
+  workbook: WorkbookInspection;
+  selectedSheet: string;
+  headerRow: number;
+  employeeMaster: { sourceRows:number; structurallyValid:number; missingEmployeeNumbers:number; duplicateEmployeeNumbers:number; leadingZeroPreserved:boolean; missingChineseNames:number; missingEnglishNames:number; missingDepartments:number; missingPositions:number; parsedHireDates:number; invalidOrAmbiguousHireDates:number; parsedProbationDates:number; invalidOrAmbiguousProbationDates:number };
+  mapping: { uniqueDepartmentLabels:number; uniquePositionLabels:number };
+  exclusions: { totalColumns:number; formulaDerivedColumns:number; trainingHistoryAndSensitiveColumns:number; genderExcludedByDefault:boolean; trainingHistoryExcluded:boolean; ctcGtcExcluded:boolean };
+  warnings: readonly string[];
+};
 
 export function sanitizeWorkbookFilename(value: string) {
   const base = value.replace(/\\/g, "/").split("/").at(-1) ?? "workbook";
@@ -75,6 +85,31 @@ export function inspectWorkbook(input: WorkbookFile): WorkbookInspection {
     return { name, index, hidden: Boolean(metadata?.Hidden), rowCount: range ? range.e.r - range.s.r + 1 : 0, columnCount: range ? range.e.c - range.s.c + 1 : 0, likelyHeaderRow: likelyHeaderIndex >= 0 ? likelyHeaderIndex + 1 : null, mergedCellCount: sheet["!merges"]?.length ?? 0, hiddenRowCount: sheet["!rows"]?.filter(row => row?.hidden).length ?? 0, hiddenColumnCount: sheet["!cols"]?.filter(column => column?.hidden).length ?? 0, formulaColumns: [...formulaColumns], suggestedMappings };
   });
   return { sanitizedFilename, extension, mimeType: input.mimeType, checksum: createHash("sha256").update(input.bytes).digest("hex"), sizeBytes: input.bytes.byteLength, sheets };
+}
+
+export function inspectEmployeeMasterAggregate(input: WorkbookFile): EmployeeMasterAggregate {
+  const inspection=inspectWorkbook(input);
+  const workbook=XLSX.read(input.bytes,{type:"array",cellDates:true,cellFormula:true,cellStyles:true,sheetStubs:true,raw:true});
+  const candidate=inspection.sheets.map(sheet=>({sheet,score:sheet.suggestedMappings.filter(item=>item.targetField).length})).sort((a,b)=>b.score-a.score)[0];
+  if(!candidate?.sheet.likelyHeaderRow||candidate.score<4)throw new Error("未识别到员工主数据工作表");
+  const sheet=workbook.Sheets[candidate.sheet.name];const range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):null;if(!range)throw new Error("员工主数据工作表为空");
+  const headerIndex=candidate.sheet.likelyHeaderRow-1;
+  const headers=Array.from({length:range.e.c-range.s.c+1},(_,offset)=>String((sheet[XLSX.utils.encode_cell({r:headerIndex,c:range.s.c+offset})] as XLSX.CellObject|undefined)?.v??"").trim());
+  const mappings=new Map(candidate.sheet.suggestedMappings.filter(item=>item.targetField).map(item=>[item.targetField!,item.sourceColumn]));
+  const column=(target:string)=>headers.indexOf(mappings.get(target)??"");
+  const columns={employeeNumber:column("employee_number"),nameZh:column("name_zh"),nameEn:column("name_en"),department:column("department_source_label"),position:column("position_source_label"),hireDate:column("hire_date"),probation:column("probation_or_confirmation_date")};
+  for(const [field,index] of Object.entries(columns))if(index<0&&["employeeNumber","nameZh","department","position"].includes(field))throw new Error(`缺少员工主数据必填列：${field}`);
+  const value=(row:number,columnIndex:number)=>columnIndex<0?null:(sheet[XLSX.utils.encode_cell({r:row,c:range.s.c+columnIndex})] as XLSX.CellObject|undefined)?.v??null;
+  const rows=[] as Array<{employeeNumber:unknown;nameZh:unknown;nameEn:unknown;department:unknown;position:unknown;hireDate:unknown;probation:unknown}>;
+  for(let row=headerIndex+1;row<=range.e.r;row+=1){const employeeNumber=value(row,columns.employeeNumber);if(isMissingSourceValue(employeeNumber))continue;rows.push({employeeNumber:String(employeeNumber),nameZh:value(row,columns.nameZh),nameEn:value(row,columns.nameEn),department:value(row,columns.department),position:value(row,columns.position),hireDate:value(row,columns.hireDate),probation:value(row,columns.probation)});}
+  const dateState=(input:unknown)=>{if(input instanceof Date)return Number.isNaN(input.getTime())?"invalid":"parsed";if(typeof input==="number")return "parsed";const text=String(input??"").trim();if(!text)return "missing";const tokens=text.match(/\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/g)??[];if(tokens.length>1)return "ambiguous";return Number.isNaN(Date.parse(text))?"invalid":"parsed";};
+  const hireStates=rows.map(row=>dateState(row.hireDate));const probationStates=rows.map(row=>dateState(row.probation));
+  const staging=classifyEmployeeStagingRows(rows.map(row=>({employeeNumber:row.employeeNumber,nameZh:row.nameZh,department:row.department,position:row.position,hireDateValid:dateState(row.hireDate)==="parsed"})));
+  const uniqueDepartments=new Set(rows.map(row=>String(row.department??"").trim()).filter(Boolean));const uniquePositions=new Set(rows.map(row=>String(row.position??"").trim()).filter(Boolean));
+  const employeeNumbers=rows.map(row=>String(row.employeeNumber));const duplicates=employeeNumbers.filter((value,index)=>employeeNumbers.indexOf(value)!==index);
+  const excluded=candidate.sheet.suggestedMappings.filter(item=>item.excluded);const formulaExcluded=excluded.filter(item=>item.reason.includes("公式"));
+  const warnings=[] as string[];if(staging.missingDepartment)warnings.push(`${staging.missingDepartment} 条候选记录缺少部门`);if(staging.missingPosition)warnings.push(`${staging.missingPosition} 条候选记录缺少职位`);const ambiguousDates=hireStates.filter(state=>state==="invalid"||state==="ambiguous").length+probationStates.filter(state=>state==="invalid"||state==="ambiguous").length;if(ambiguousDates)warnings.push(`${ambiguousDates} 个日期值需要人工确认`);if(duplicates.length)warnings.push(`${new Set(duplicates).size} 个员工编号重复`);
+  return {workbook:inspection,selectedSheet:candidate.sheet.name,headerRow:candidate.sheet.likelyHeaderRow,employeeMaster:{sourceRows:rows.length,structurallyValid:staging.structurallyValid,missingEmployeeNumbers:0,duplicateEmployeeNumbers:new Set(duplicates).size,leadingZeroPreserved:rows.some(row=>String(row.employeeNumber).startsWith("0"))&&rows.every(row=>typeof row.employeeNumber==="string"),missingChineseNames:rows.filter(row=>isMissingSourceValue(row.nameZh)).length,missingEnglishNames:rows.filter(row=>isMissingSourceValue(row.nameEn)).length,missingDepartments:staging.missingDepartment,missingPositions:staging.missingPosition,parsedHireDates:hireStates.filter(state=>state==="parsed").length,invalidOrAmbiguousHireDates:hireStates.filter(state=>state==="invalid"||state==="ambiguous").length,parsedProbationDates:probationStates.filter(state=>state==="parsed").length,invalidOrAmbiguousProbationDates:probationStates.filter(state=>state==="invalid"||state==="ambiguous").length},mapping:{uniqueDepartmentLabels:uniqueDepartments.size,uniquePositionLabels:uniquePositions.size},exclusions:{totalColumns:excluded.length,formulaDerivedColumns:formulaExcluded.length,trainingHistoryAndSensitiveColumns:excluded.length-formulaExcluded.length,genderExcludedByDefault:excluded.some(item=>/gender|性别/i.test(item.sourceColumn)),trainingHistoryExcluded:true,ctcGtcExcluded:true},warnings};
 }
 
 export function stableRowFingerprint(values: Record<string, unknown>) {

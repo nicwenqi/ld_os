@@ -10,7 +10,7 @@ test("wizard derives readiness from setup facts and explicit confirmations", () 
   const incomplete = deriveWizardState({ identity, rules, activeDepartments: 0, activePositions: 0, inspectedEmployeeMaster: false, unresolvedDepartmentLabels: 0, unresolvedPositionLabels: 0, activePropertyAdministrator: true, progress: { lastActiveStep: 1, steps: {} } });
   assert.equal(incomplete.ready, false);
   assert.equal(incomplete.lastIncompleteStep, 3);
-  const ready = deriveWizardState({ identity, rules, activeDepartments: 1, activePositions: 1, inspectedEmployeeMaster: true, unresolvedDepartmentLabels: 0, unresolvedPositionLabels: 0, activePropertyAdministrator: true, progress: { lastActiveStep: 8, steps: { positions: { explicitlyConfirmed: true }, upload: { explicitlyConfirmed: true }, mapping: { explicitlyConfirmed: true }, access: { explicitlyConfirmed: true } } } });
+  const ready = deriveWizardState({ identity, rules, activeDepartments: 1, activePositions: 1, inspectedEmployeeMaster: true, unresolvedDepartmentLabels: 0, unresolvedPositionLabels: 0, activePropertyAdministrator: true, progress: { lastActiveStep: 8, steps: { organization: { explicitlyConfirmed: true }, positions: { explicitlyConfirmed: true }, upload: { explicitlyConfirmed: true }, mapping: { explicitlyConfirmed: true }, access: { explicitlyConfirmed: true } } } });
   assert.equal(ready.ready, true);
   assert.equal(ready.completedSteps.length, 8);
 });
@@ -31,5 +31,7 @@ test("shell preserves the wizard as an administrator maintenance route", async (
 
 test("mapping confirmation is enabled once source-label blockers are resolved", async () => {
   const page = await readFile(new URL("../app/initialize/page.tsx", import.meta.url), "utf8");
-  assert.match(page, /disabled=\{state\.steps\[5\]\.blocked\}/);
+  const mapping = await readFile(new URL("../app/initialize/MappingSetupStep.tsx", import.meta.url), "utf8");
+  assert.match(page, /blocked=\{state\.steps\[5\]\.blocked\}/);
+  assert.match(mapping, /disabled=\{props\.blocked\}/);
 });

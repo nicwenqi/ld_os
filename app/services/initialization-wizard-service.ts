@@ -20,11 +20,24 @@ export function deriveWizardState(facts: WizardFacts) {
   const mappingBlocked = facts.unresolvedDepartmentLabels + facts.unresolvedPositionLabels > 0;
   const explicit = (key: WizardStepKey) => Boolean(facts.progress.steps[key]?.explicitlyConfirmed);
   const complete: Record<WizardStepKey, boolean> = {
-    identity: identityComplete, rules: rulesComplete, organization: facts.activeDepartments > 0, positions: facts.activePositions > 0 && explicit("positions"),
+    identity: identityComplete, rules: rulesComplete, organization: facts.activeDepartments > 0 && explicit("organization"), positions: facts.activePositions > 0 && explicit("positions"),
     upload: facts.inspectedEmployeeMaster && explicit("upload"), mapping: !mappingBlocked && explicit("mapping"), access: facts.activePropertyAdministrator && explicit("access"), readiness: false,
   };
   complete.readiness = definitions.slice(0, 7).every(step => complete[step.key]);
   const steps = definitions.map(definition => ({ ...definition, complete: complete[definition.key], blocked: definition.key === "mapping" ? mappingBlocked : !complete[definition.key] && Boolean(facts.progress.steps[definition.key]?.blockingReason), warning: facts.progress.steps[definition.key]?.warning ?? null }));
   const lastIncompleteStep = steps.find(step => !step.complete)?.number ?? 8;
-  return { steps, ready: complete.readiness, lastIncompleteStep, completedSteps: steps.filter(step => step.complete), progressPercent: Math.round(steps.filter(step => step.complete).length / steps.length * 100) };
+  const nextRecommendedAction = recommendation(steps, complete.readiness, facts);
+  return { steps, ready: complete.readiness, lastIncompleteStep, completedSteps: steps.filter(step => step.complete), progressPercent: Math.round(steps.filter(step => step.complete).length / steps.length * 100), nextRecommendedAction };
+}
+
+function recommendation(steps: readonly WizardStepState[], ready: boolean, facts: WizardFacts) {
+  if (ready) return "进入系统";
+  if (!steps[0].complete) return "完善酒店基本信息";
+  if (!steps[1].complete) return "确认业务规则";
+  if (!steps[2].complete) return facts.activeDepartments > 0 ? "确认初始组织架构" : "建立正式组织架构";
+  if (!steps[3].complete) return facts.activePositions > 0 ? "确认初始职位体系" : "建立职位体系";
+  if (!steps[4].complete) return facts.inspectedEmployeeMaster ? "确认工作簿检查结果" : "检查员工主数据工作簿";
+  if (!steps[5].complete) return facts.unresolvedDepartmentLabels + facts.unresolvedPositionLabels > 0 ? "处理未解决的来源标签" : "确认部门与职位映射";
+  if (!steps[6].complete) return facts.activePropertyAdministrator ? "确认管理员访问安排" : "配置酒店管理员";
+  return "完成初始化检查";
 }
