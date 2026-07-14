@@ -146,7 +146,7 @@ function mapPropertyRecord(property: any, settings: any, asset: any, origin: str
   const identity: PropertyIdentity = {
     id: property.id,
     tenantId: property.tenant_id,
-    code: property.code,
+    code: displayPropertyCode(property.code),
     nameZh: property.name_zh,
     nameEn: property.name_en,
     shortName: property.short_name ?? property.name_zh,
@@ -171,6 +171,10 @@ function mapPropertyRecord(property: any, settings: any, asset: any, origin: str
     updatedAt: settings.updated_at,
   };
   return { identity, settings: propertySettings, currentLogo: asset ? mapBrandAsset(asset, origin) : null };
+}
+
+export function displayPropertyCode(value: string): string {
+  return value.trim().toUpperCase();
 }
 
 function mapBrandAsset(asset: any, origin: string): PropertyBrandAsset {

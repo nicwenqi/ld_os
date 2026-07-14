@@ -5,7 +5,12 @@ import {
   absolutePublicLogoUrl,
   buildBrandAssetPath,
   createSupabasePropertyRepository,
+  displayPropertyCode,
 } from "../app/repositories/supabase/property-repository.ts";
+
+test("normalized property codes are presented in the confirmed hotel business format", () => {
+  assert.equal(displayPropertyCode("szvbg"), "SZVBG");
+});
 
 test("public logo paths are versioned, property-owned, and non-guessable", () => {
   const path = buildBrandAssetPath({
