@@ -67,6 +67,8 @@ export async function POST(request: Request) {
       const { error } = await admin.from("import_issues").insert(issues);
       if (error) throw error;
     }
+    await stageDepartmentAliases(admin, actor, batchId, prepared.sourceLabels.departments);
+    await stagePositionAliases(admin, actor, batchId, prepared.sourceLabels.positions);
     const { error: updateError } = await admin.from("import_batches").update({ status: "mapping_required" }).eq("id", batchId).eq("property_id", actor.propertyId);
     if (updateError) throw updateError;
     const headers = new Headers({ "Cache-Control": "no-store, private" });
@@ -74,9 +76,37 @@ export async function POST(request: Request) {
     return Response.json({ batchId, status: "mapping_required", ...prepared.safeSummary }, { status: 201, headers });
   } catch (error) {
     if (objectPath) await admin.storage.from(BUCKET).remove([objectPath]);
-    if (batchId) await admin.from("import_batches").delete().eq("id", batchId);
+    if (batchId) {
+      await admin.from("department_aliases").update({ source_batch_id: null }).eq("source_batch_id", batchId);
+      await admin.from("position_aliases").update({ source_batch_id: null }).eq("source_batch_id", batchId);
+      await admin.from("import_batches").delete().eq("id", batchId);
+    }
     if (error instanceof AuthorizationError) return failure(error.status, error.message);
     return failure(422, batchId ? "工作簿暂存失败，请重试" : error instanceof Error ? error.message : "工作簿检查失败");
+  }
+}
+
+async function stageDepartmentAliases(admin: ReturnType<typeof createServerAdminClient>, actor: { tenantId:string; propertyId:string }, batchId:string, labels: readonly {sourceValue:string;normalizedSourceValue:string;sourceSheet:string;sourceRowCount:number}[]) {
+  for (const label of labels) {
+    const { data: existing, error: readError } = await admin.from("department_aliases").select("id").eq("property_id",actor.propertyId).eq("source_system","hotel_workbook").eq("normalized_source_value",label.normalizedSourceValue).eq("is_active",true).maybeSingle();
+    if (readError) throw readError;
+    const values={source_batch_id:batchId,source_sheet:label.sourceSheet,source_row_count:label.sourceRowCount};
+    const { error }=existing
+      ? await admin.from("department_aliases").update(values).eq("id",existing.id)
+      : await admin.from("department_aliases").insert({tenant_id:actor.tenantId,property_id:actor.propertyId,source_system:"hotel_workbook",source_value:label.sourceValue,normalized_source_value:label.normalizedSourceValue,resolution_type:"deferred",is_active:true,...values});
+    if(error)throw error;
+  }
+}
+
+async function stagePositionAliases(admin: ReturnType<typeof createServerAdminClient>, actor: { tenantId:string; propertyId:string }, batchId:string, labels: readonly {sourceValue:string;normalizedSourceValue:string;sourceSheet:string;sourceRowCount:number}[]) {
+  for (const label of labels) {
+    const { data: existing, error: readError } = await admin.from("position_aliases").select("id").eq("property_id",actor.propertyId).eq("source_system","hotel_workbook").eq("normalized_source_value",label.normalizedSourceValue).eq("is_active",true).maybeSingle();
+    if (readError) throw readError;
+    const values={source_batch_id:batchId,source_sheet:label.sourceSheet,source_row_count:label.sourceRowCount};
+    const { error }=existing
+      ? await admin.from("position_aliases").update(values).eq("id",existing.id)
+      : await admin.from("position_aliases").insert({tenant_id:actor.tenantId,property_id:actor.propertyId,source_system:"hotel_workbook",source_value:label.sourceValue,normalized_source_value:label.normalizedSourceValue,resolution_status:"deferred",is_active:true,...values});
+    if(error)throw error;
   }
 }
 

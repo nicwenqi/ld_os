@@ -101,7 +101,7 @@ test("wizard UI has one save-later action and scalable setup workspaces", async 
   const mockProgressRepository = await readFile(new URL("../app/repositories/mock/initialization-repository.ts",import.meta.url),"utf8");
   const source = `${page}\n${organization}\n${workbook}\n${mapping}`;
   assert.equal((page.match(/保存并稍后继续/g) ?? []).length,1);
-  for (const token of ["新增一级部门","新增下级部门","移动影响预览","尚未选择文件","合成测试文件","真实工作簿，仅本地检查，尚未提交","仅看未处理","批量接受高置信度建议","当前筛选结果"]) assert.match(source,new RegExp(token));
+  for (const token of ["新增一级部门","新增下级部门","移动影响预览","尚未选择文件","合成测试文件","已进入私有暂存，尚未提交","仅看未处理","批量接受高置信度建议","当前筛选结果"]) assert.match(source,new RegExp(token));
   assert.match(css,/wizard-organization-editor/);
   assert.match(css,/@media\(max-width:980px\)/);
   assert.match(route,/APP_DATA_MODE/);

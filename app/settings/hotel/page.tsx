@@ -119,7 +119,7 @@ function HotelSettingsContent() {
   return <AppShell><div className="page-wrap hotel-settings-page">
     <header className="settings-hero">
       <div><span className="settings-kicker">当前酒店设置 · {contextLabel}</span><h1>酒店设置中心</h1><p>Hotel Settings Center · 以酒店为单位维护身份、品牌与运营规则</p></div>
-      <div className="synthetic-data-note"><i/><span><strong>本地示范资料</strong><small>Synthetic local fixture · 不含真实酒店数据</small></span></div>
+      <div className="synthetic-data-note"><i/><span><strong>{registry.environment.dataMode==="mock"?"本地测试资料":"当前酒店真实设置"}</strong><small>{registry.environment.dataMode==="mock"?"Synthetic local fixture":"Server-persisted property settings"}</small></span></div>
     </header>
     {error && <div className="settings-alert" role="alert"><span>请检查</span><strong>{error}</strong><button onClick={() => setError(null)}>关闭</button></div>}
 
@@ -172,7 +172,7 @@ function HotelSettingsContent() {
         <section className="settings-card initialization-card">
           <header><div><span>04 · INITIALIZATION</span><h2>初始化进度</h2><p>当前酒店基础准备状态</p></div></header>
           <div className="initialization-list">{steps.map((step, index) => <div className={step.complete ? "complete" : "pending"} key={step.key}><span>{step.complete ? "✓" : index + 1}</span><div><strong>{step.label}</strong><small>{step.detail}</small></div></div>)}</div>
-          <p className="initialization-note">部门树、职位与员工导入属于后续 Review Stop，本阶段不会提前创建。</p>
+          <p className="initialization-note">部门树、职位体系与工作簿检查均可在“初始化检查”中继续完成；员工导入仍需最终确认。</p>
         </section>
       </aside>
     </div>

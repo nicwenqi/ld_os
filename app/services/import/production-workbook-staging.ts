@@ -23,6 +23,13 @@ export type PreparedFieldMapping = {
   isRequired: boolean;
 };
 
+export type PreparedSourceLabel = {
+  sourceValue: string;
+  normalizedSourceValue: string;
+  sourceSheet: string;
+  sourceRowCount: number;
+};
+
 export function prepareEmployeeMasterStaging(input: WorkbookFile) {
   const inspection = inspectWorkbook(input);
   const aggregate = inspectEmployeeMasterAggregate(input);
@@ -76,11 +83,17 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile) {
     row.processingStatus = "error";
   }
 
+  const sourceLabels = {
+    departments: aggregateSourceLabels(sourceRows, "department_source_label", aggregate.selectedSheet),
+    positions: aggregateSourceLabels(sourceRows, "position_source_label", aggregate.selectedSheet),
+  };
+
   return {
     inspection,
     selectedSheet: selectedInspection,
     sourceRows,
     fieldMappings,
+    sourceLabels,
     safeSummary: {
       sanitizedFilename: inspection.sanitizedFilename,
       checksum: inspection.checksum,
@@ -101,6 +114,19 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile) {
       ctcGtcImported: false,
     },
   };
+}
+
+function aggregateSourceLabels(rows: readonly PreparedSourceRow[], field: string, sourceSheet: string): PreparedSourceLabel[] {
+  const counts = new Map<string, { sourceValue: string; count: number }>();
+  for (const row of rows) {
+    const sourceValue = String(row.normalizedValues[field] ?? "").trim();
+    if (!sourceValue) continue;
+    const normalizedSourceValue = sourceValue.normalize("NFKC").toLocaleLowerCase();
+    const current = counts.get(normalizedSourceValue);
+    counts.set(normalizedSourceValue, { sourceValue: current?.sourceValue ?? sourceValue, count: (current?.count ?? 0) + 1 });
+  }
+  return [...counts.entries()].map(([normalizedSourceValue, value]) => ({ sourceValue: value.sourceValue, normalizedSourceValue, sourceSheet, sourceRowCount: value.count }))
+    .sort((left, right) => left.sourceValue.localeCompare(right.sourceValue, "en"));
 }
 
 function normalizeTargetValue(target: string, cell: XLSX.CellObject | undefined): unknown {
