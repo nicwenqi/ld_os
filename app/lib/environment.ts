@@ -16,7 +16,7 @@ type EnvironmentInput = Record<string, string | undefined>;
 const appEnvironments = new Set<AppEnvironmentName>(["local", "preview", "production"]);
 const dataModes = new Set<AppDataMode>(["mock", "hybrid", "supabase"]);
 
-export function parseAppEnvironment(input: EnvironmentInput = process.env): AppEnvironment {
+export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironmentInput()): AppEnvironment {
   for (const [name, value] of Object.entries(input)) {
     if (name.startsWith("NEXT_PUBLIC_") && /(SERVICE_ROLE|SECRET)/i.test(name) && clean(value))
       throw new Error(`${name} must never be browser-visible`);
@@ -50,6 +50,21 @@ export function parseAppEnvironment(input: EnvironmentInput = process.env): AppE
     previewPropertyHostname,
     supabaseUrl,
     supabasePublishableKey,
+  };
+}
+
+function defaultEnvironmentInput(): EnvironmentInput {
+  return {
+    APP_ENV: process.env.APP_ENV,
+    APP_DATA_MODE: process.env.APP_DATA_MODE,
+    APP_BASE_DOMAIN: process.env.APP_BASE_DOMAIN,
+    DEV_PROPERTY_HOSTNAME: process.env.DEV_PROPERTY_HOSTNAME,
+    PREVIEW_PROPERTY_HOSTNAME: process.env.PREVIEW_PROPERTY_HOSTNAME,
+    VERCEL_ENV: process.env.VERCEL_ENV,
+    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY,
+    NEXT_PUBLIC_SUPABASE_SECRET_KEY: process.env.NEXT_PUBLIC_SUPABASE_SECRET_KEY,
   };
 }
 

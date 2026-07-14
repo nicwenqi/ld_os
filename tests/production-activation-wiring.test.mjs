@@ -118,3 +118,17 @@ test("public hostname resolver suppresses inactive and unknown private context",
   assert.match(migration, /property\.status = 'active'/);
   assert.match(migration, /tenant\.status = 'active'/);
 });
+
+test("Vite exposes only the validated public runtime boundary to browser repositories", async () => {
+  const [viteConfig, environment, statusCard] = await Promise.all([
+    readFile(new URL("../vite.config.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/lib/environment.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/initialization/InitializationStatusCard.tsx", import.meta.url), "utf8"),
+  ]);
+  assert.match(viteConfig, /browserEnvironmentDefines/);
+  assert.match(viteConfig, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
+  assert.doesNotMatch(viteConfig, /SUPABASE_SECRET_KEY|SERVICE_ROLE/);
+  assert.match(environment, /defaultEnvironmentInput/);
+  assert.match(statusCard, /session\.propertyId/);
+  assert.doesNotMatch(statusCard, /resolveContext\(hostname\)/);
+});

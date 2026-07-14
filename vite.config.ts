@@ -35,7 +35,17 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async ({ mode }) => {
-  parseAppEnvironment({ ...loadEnv(mode, process.cwd(), ""), ...process.env });
+  const environment = parseAppEnvironment({ ...loadEnv(mode, process.cwd(), ""), ...process.env });
+  const browserEnvironmentDefines = {
+    "process.env.APP_ENV": JSON.stringify(environment.appEnv),
+    "process.env.APP_DATA_MODE": JSON.stringify(environment.dataMode),
+    "process.env.APP_BASE_DOMAIN": JSON.stringify(environment.appBaseDomain),
+    "process.env.DEV_PROPERTY_HOSTNAME": JSON.stringify(environment.devPropertyHostname ?? ""),
+    "process.env.PREVIEW_PROPERTY_HOSTNAME": JSON.stringify(environment.previewPropertyHostname ?? ""),
+    "process.env.VERCEL_ENV": JSON.stringify(process.env.VERCEL_ENV ?? ""),
+    "process.env.NEXT_PUBLIC_SUPABASE_URL": JSON.stringify(environment.supabaseUrl ?? ""),
+    "process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(environment.supabasePublishableKey ?? ""),
+  };
 
   const isVercelDeployment =
     process.env.VERCEL === "1" || process.env.NITRO_PRESET === "vercel";
@@ -45,6 +55,7 @@ export default defineConfig(async ({ mode }) => {
     const { default: tailwindcss } = await import("@tailwindcss/postcss");
 
     return {
+      define: browserEnvironmentDefines,
       css: {
         postcss: {
           plugins: [tailwindcss()],
@@ -64,6 +75,7 @@ export default defineConfig(async ({ mode }) => {
   const { cloudflare } = await import("@cloudflare/vite-plugin");
 
   return {
+    define: browserEnvironmentDefines,
     server: isCodexSeatbeltSandbox
       ? { watch: { useFsEvents: false, usePolling: true } }
       : undefined,
