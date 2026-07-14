@@ -49,7 +49,7 @@ test("Import Center exposes a safe guided mock workflow", async () => {
 });
 
 test("shell navigates to Checkpoint 4B modules", async () => {
-  const shell = await read("../app/components/shell/AppShell.tsx");
-  assert.match(shell, /href:"\/permissions"/);
-  assert.match(shell, /href:"\/import"/);
+  const navigation = await read("../app/services/role-navigation.ts");
+  assert.match(navigation, /href:"\/permissions/);
+  assert.match(navigation, /href:"\/import/);
 });

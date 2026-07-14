@@ -1,0 +1,21 @@
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+
+function serverEnvironment() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  const publishableKey = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY?.trim();
+  const secretKey = process.env.SUPABASE_SECRET_KEY?.trim();
+  if (!url || !publishableKey || !secretKey) throw new Error("服务端 Supabase 登录配置不完整");
+  return { url, publishableKey, secretKey };
+}
+
+const serverAuthOptions = { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } } as const;
+
+export function createServerAdminClient(): SupabaseClient {
+  const environment = serverEnvironment();
+  return createClient(environment.url, environment.secretKey, serverAuthOptions);
+}
+
+export function createServerPasswordClient(): SupabaseClient {
+  const environment = serverEnvironment();
+  return createClient(environment.url, environment.publishableKey, serverAuthOptions);
+}

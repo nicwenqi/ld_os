@@ -18,10 +18,12 @@ test("Hotel Settings Center covers synthetic identity, branding, rules, and init
 
 test("application shell exposes Hotel Settings without changing existing module routes", async () => {
   const shell = await read("../app/components/shell/AppShell.tsx");
-  assert.match(shell, /酒店设置/);
-  assert.match(shell, /\/settings\/hotel/);
+  const navigation = await read("../app/services/role-navigation.ts");
+  assert.match(navigation, /酒店设置/);
+  assert.match(navigation, /\/settings\/hotel/);
   for (const route of ["/calendar", "/organization", "/people", "/kpi", "/risk", "/effectiveness"])
-    assert.match(shell, new RegExp(route.replaceAll("/", "\\/")));
+    assert.match(navigation, new RegExp(route.replaceAll("/", "\\/")));
+  assert.match(shell,/navigationForRole/);
 });
 
 test("Review Stop 2C-A source and committed seeds contain synthetic property identity only", async () => {

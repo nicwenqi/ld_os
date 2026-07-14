@@ -25,8 +25,10 @@ test("initialization wizard is a standalone eight-step route with no direct Supa
 
 test("shell preserves the wizard as an administrator maintenance route", async () => {
   const shell = await readFile(new URL("../app/components/shell/AppShell.tsx", import.meta.url), "utf8");
-  assert.match(shell, /\/initialize/);
-  assert.match(shell, /InitializationGuard/);
+  const navigation = await readFile(new URL("../app/services/role-navigation.ts", import.meta.url), "utf8");
+  assert.match(navigation, /\/initialize/);
+  assert.match(shell, /SessionGate/);
+  assert.doesNotMatch(shell, /InitializationGuard/);
 });
 
 test("mapping confirmation is enabled once source-label blockers are resolved", async () => {

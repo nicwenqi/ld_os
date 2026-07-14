@@ -22,6 +22,6 @@ test("risk dashboard separates operational accountability", async () => {
 });
 
 test("shell links to all checkpoint 2 dashboards", async () => {
-  const shell = await read("../app/components/shell/AppShell.tsx");
-  for (const href of ["/organization","/effectiveness","/risk"]) assert.match(shell,new RegExp(`href:\"${href}`));
+  const navigation = await read("../app/services/role-navigation.ts");
+  for (const href of ["/organization","/effectiveness","/risk"]) assert.match(navigation,new RegExp(`href:\"${href}`));
 });

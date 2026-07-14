@@ -27,7 +27,14 @@ export function deriveWizardState(facts: WizardFacts) {
   const steps = definitions.map(definition => ({ ...definition, complete: complete[definition.key], blocked: definition.key === "mapping" ? mappingBlocked : !complete[definition.key] && Boolean(facts.progress.steps[definition.key]?.blockingReason), warning: facts.progress.steps[definition.key]?.warning ?? null }));
   const lastIncompleteStep = steps.find(step => !step.complete)?.number ?? 8;
   const nextRecommendedAction = recommendation(steps, complete.readiness, facts);
-  return { steps, ready: complete.readiness, lastIncompleteStep, completedSteps: steps.filter(step => step.complete), progressPercent: Math.round(steps.filter(step => step.complete).length / steps.length * 100), nextRecommendedAction };
+  const minimumReady = identityComplete && rulesComplete && facts.activeDepartments > 0 && facts.activePropertyAdministrator;
+  const operationalBlockingReasons = [
+    !complete.positions && "职位体系尚未确认",
+    !complete.upload && "员工工作簿尚未完成检查",
+    !complete.mapping && "部门或职位映射尚未解决",
+    !complete.access && "管理员访问安排尚未确认",
+  ].filter((value): value is string => Boolean(value));
+  return { steps, ready: complete.readiness, operationalReady: complete.readiness, minimumReady, operationalBlockingReasons, lastIncompleteStep, completedSteps: steps.filter(step => step.complete), progressPercent: Math.round(steps.filter(step => step.complete).length / steps.length * 100), nextRecommendedAction };
 }
 
 function recommendation(steps: readonly WizardStepState[], ready: boolean, facts: WizardFacts) {

@@ -1,0 +1,5 @@
+import{getMockProperty,getMockPropertyContext,saveMockIdentity,saveMockRules}from"./store.ts";
+export async function GET(request:Request){if(!isLocalMock())return Response.json({message:"not found"},{status:404});const url=new URL(request.url);const hostname=url.searchParams.get("hostname");if(hostname){const context=getMockPropertyContext(hostname);return context?noStore(context):Response.json({message:"酒店域名尚未配置"},{status:404})}return noStore(getMockProperty())}
+export async function POST(request:Request){if(!isLocalMock())return Response.json({message:"not found"},{status:404});try{const body=await request.json();return noStore(body.action==="rules"?saveMockRules(body.input):saveMockIdentity(body.input))}catch(error){return Response.json({message:error instanceof Error?error.message:"保存失败"},{status:409,headers:{"Cache-Control":"no-store"}})}}
+function isLocalMock(){return(process.env.APP_ENV??"local")==="local"&&(process.env.APP_DATA_MODE??"mock")==="mock"}
+function noStore(value:unknown){return Response.json(value,{headers:{"Cache-Control":"no-store"}})}

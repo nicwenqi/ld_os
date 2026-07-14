@@ -55,6 +55,7 @@ export function createMockPropertyRepository(): PropertyRepository {
 
   return {
     async resolveContext(candidate): Promise<PropertyContext | null> {
+      if (browserAvailable()) return propertyRequest(`?hostname=${encodeURIComponent(candidate)}`);
       if (candidate.trim().toLowerCase() !== hostname) return null;
       const currentLogo = assets.find(asset => asset.isCurrent);
       return {
@@ -69,11 +70,13 @@ export function createMockPropertyRepository(): PropertyRepository {
     },
 
     async getProperty(candidatePropertyId) {
+      if (browserAvailable()) return propertyRequest(`?propertyId=${encodeURIComponent(candidatePropertyId)}`);
       if (candidatePropertyId !== propertyId) throw new Error("未找到当前酒店资料");
       return snapshot();
     },
 
     async saveIdentity(input: SavePropertyIdentityInput) {
+      if (browserAvailable()) return propertyRequest("",{action:"identity",input});
       if (input.propertyId !== propertyId) throw new Error("未找到当前酒店资料");
       if (input.expectedUpdatedAt !== identity.updatedAt) throw new Error("酒店资料已被更新，请刷新后重试");
       identity = {
@@ -93,6 +96,7 @@ export function createMockPropertyRepository(): PropertyRepository {
     },
 
     async saveBusinessRules(input: SaveBusinessRulesInput) {
+      if (browserAvailable()) return propertyRequest("",{action:"rules",input});
       if (input.propertyId !== propertyId) throw new Error("未找到当前酒店资料");
       if (input.expectedVersion !== settings.version) throw new Error("酒店资料已被更新，请刷新后重试");
       if (!Number.isInteger(input.newEmployeeDays) || input.newEmployeeDays < 1 || input.newEmployeeDays > 365)
@@ -148,6 +152,9 @@ export function createMockPropertyRepository(): PropertyRepository {
     },
   };
 }
+
+function browserAvailable(){return typeof window!=="undefined"}
+async function propertyRequest(path:string,body?:unknown){const response=await fetch(`/api/mock-property${path}`,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{cache:"no-store"});const payload=await response.json();if(!response.ok){if(response.status===404)return null;throw new Error(payload.message??"无法读取本地酒店资料")}return payload}
 
 function required(value: string, label: string): string {
   const trimmed = value.trim();
