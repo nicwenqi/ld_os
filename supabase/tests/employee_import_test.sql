@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(39);
+select plan(40);
 
 select results_eq($$select count(*) from pg_class where relnamespace='public'::regnamespace and relname in ('employees','employee_external_identifiers','import_batches','import_sheets','import_source_rows','import_field_mappings','import_issues','import_resolution_rules','import_commits','import_commit_items') and relrowsecurity and relforcerowsecurity$$,array[10::bigint],'all employee/import tables force RLS');
 select results_eq($$select public from storage.buckets where id='property-import-files'$$,array[false],'workbook bucket is private');
@@ -52,6 +52,7 @@ reset role;
 select results_eq($$select count(*) from pg_policies where schemaname='public' and tablename in ('employees','employee_external_identifiers','import_batches','import_sheets','import_source_rows','import_field_mappings','import_issues','import_resolution_rules','import_commits','import_commit_items') and (qual='true' or with_check='true')$$,array[0::bigint],'no broad private-data RLS policy');
 select results_eq($$select count(*) from pg_policies where schemaname='storage' and tablename='objects' and policyname like 'import_files_manager_%'$$,array[4::bigint],'private storage has four manager policies');
 select results_eq($$select count(*) from information_schema.routine_privileges where routine_schema='app_private' and routine_name in ('commit_employee_import','preview_employee_import_revert','revert_employee_import') and grantee in ('anon','authenticated')$$,array[0::bigint],'private commit functions are not directly executable');
+select results_eq($$select count(*) from information_schema.routine_privileges where routine_schema='public' and routine_name in ('commit_employee_import','preview_employee_import_revert','revert_employee_import') and grantee in ('anon','PUBLIC')$$,array[0::bigint],'anonymous and PUBLIC cannot execute import commit or revert wrappers');
 select results_eq($$select count(*) from public.import_commit_items where action='unchanged'$$,array[0::bigint],'unchanged rows do not mutate employees');
 select results_eq($$select (commit_summary->>'training_history_imported')::boolean from public.import_commits limit 1$$,array[false],'training history is explicitly excluded');
 select results_eq($$select (commit_summary->>'ctc_gtc_imported')::boolean from public.import_commits limit 1$$,array[false],'CTC and GTC facts are explicitly excluded');
