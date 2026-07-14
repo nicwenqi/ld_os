@@ -1,0 +1,35 @@
+begin;
+create extension if not exists pgtap with schema extensions;
+select plan(6);
+
+select has_function('public','save_property_initialization_navigation',array['uuid','smallint','bigint'],'wizard navigation RPC exists');
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000104';
+select throws_ok(
+  $$select public.save_property_initialization_navigation('20000000-0000-0000-0000-000000000011'::uuid,8::smallint,null::bigint)$$,
+  'P4021',null,'ordinary member cannot change wizard navigation state'
+);
+
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
+select lives_ok(
+  $$select public.save_property_initialization_step('20000000-0000-0000-0000-000000000011'::uuid,'organization'::text,4::smallint,true,null::text,null::text,null::bigint)$$,
+  'manager can establish a confirmed step before navigation'
+);
+select lives_ok(
+  $$select public.save_property_initialization_navigation('20000000-0000-0000-0000-000000000011'::uuid,8::smallint,null::bigint)$$,
+  'manager can navigate to readiness review'
+);
+select results_eq(
+  $$select (public.get_property_initialization_progress('20000000-0000-0000-0000-000000000011')->>'lastActiveStep')::int$$,
+  array[8],
+  'navigation persists the last active step'
+);
+select results_eq(
+  $$select explicitly_confirmed from public.property_initialization_steps where property_id='20000000-0000-0000-0000-000000000011' and step_key='organization'$$,
+  array[true],
+  'navigation does not clear an existing step confirmation'
+);
+
+select * from finish();
+rollback;

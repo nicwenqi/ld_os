@@ -8,6 +8,7 @@ export type InitializationAccessSummary = {
 };
 export interface InitializationRepository {
   getProgress(propertyId: string): Promise<WizardProgress & { version: number; completedAt: string | null }>;
+  saveNavigation(propertyId: string, lastActiveStep: number, expectedVersion?: number): Promise<WizardProgress & { version: number; completedAt: string | null }>;
   saveStep(input: SaveWizardStepInput): Promise<WizardProgress & { version: number; completedAt: string | null }>;
   complete(propertyId: string, expectedVersion?: number): Promise<void>;
   getAccessSummary(propertyId: string): Promise<InitializationAccessSummary>;
