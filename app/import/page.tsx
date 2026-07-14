@@ -5,6 +5,7 @@ import { AppProviders } from "../providers";
 import { createRepositoryRegistry } from "../repositories/registry";
 import { usePrototypeFeedback } from "../state/prototype-feedback";
 import { useEscapeDismiss } from "../lib/use-escape-dismiss";
+type ProductionInspection={batchId:string;status:string;sanitizedFilename:string;checksum:string;sizeBytes:number;detectedSheets:Array<{name:string;rowCount:number;columnCount:number;hidden:boolean}>;selectedSheet:string;headerRow:number;sourceRows:number;structurallyValid:number;blockedRows:number;warningRows:number;uniqueDepartmentLabels:number;uniquePositionLabels:number;employeesImported:number;trainingHistoryImported:boolean;ctcGtcImported:boolean};
 const steps = [
   "上传文件",
   "文件检查",
@@ -36,8 +37,13 @@ function Page() {
     [resolvedIssues, setResolvedIssues] = useState<string[]>([]),
     [importComplete, setImportComplete] = useState(false),
     [historyOpen, setHistoryOpen] = useState(false),
-    [revertOpen, setRevertOpen] = useState(false);
+    [revertOpen, setRevertOpen] = useState(false),
+    [selectedFile,setSelectedFile]=useState<File|null>(null),
+    [inspection,setInspection]=useState<ProductionInspection|null>(null),
+    [uploading,setUploading]=useState(false),
+    [uploadError,setUploadError]=useState("");
   const { showToast } = usePrototypeFeedback();
+  const isRealMode=repo.environment.dataMode!=="mock";
   useEscapeDismiss(revertOpen, () => setRevertOpen(false));
   const summary = {
     inserted: 18,
@@ -47,6 +53,7 @@ function Page() {
     unresolved: resolvedIssues.includes("dept") ? 0 : 2,
   };
   const advance = () => setStep((v) => Math.min(v + 1, steps.length - 1));
+  const inspectSelectedFile=async()=>{if(!selectedFile)return setUploadError("请选择工作簿");setUploading(true);setUploadError("");try{const form=new FormData();form.append("file",selectedFile);const response=await fetch("/api/import/inspect",{method:"POST",body:form});const payload=await response.json();if(!response.ok)throw new Error(payload.message??"工作簿检查失败");setInspection(payload);setStep(1);showToast("工作簿已进入私有暂存区；尚未导入员工")}catch(error){setUploadError(error instanceof Error?error.message:"工作簿检查失败")}finally{setUploading(false)}};
   return (
     <AppShell>
       <div className="page-wrap import-page controlled-import">
@@ -132,39 +139,33 @@ function Page() {
               <p>
                 选择员工主数据文件；文件检查由可信服务执行，浏览器页面不直接解析。
               </p>
-              <button
-                onClick={() => {
-                  advance();
-                  showToast("已创建私有导入批次并进入文件检查");
-                }}
-              >
-                选择模拟文件
-              </button>
+              {isRealMode?<><label className="logo-upload-button"><input type="file" accept=".xls,.xlsx,.csv,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv" onChange={event=>setSelectedFile(event.target.files?.[0]??null)}/>{selectedFile?selectedFile.name:"选择工作簿"}</label><button disabled={!selectedFile||uploading} onClick={()=>void inspectSelectedFile()}>{uploading?"正在安全检查…":"上传并进入私有暂存"}</button>{uploadError&&<p role="alert">{uploadError}</p>}<small>员工记录不会在此步骤写入员工主表。</small></>:<button onClick={()=>{advance();showToast("已创建私有导入批次并进入文件检查")}}>选择模拟文件</button>}
             </div>
           )}
           {step === 1 && (
             <div className="inspection-grid">
               <article>
                 <strong>文件签名</strong>
-                <span>与 XLSX 格式一致</span>
+                <span>{inspection?"扩展名、MIME 与文件签名一致":"与 XLSX 格式一致"}</span>
               </article>
               <article>
                 <strong>校验和</strong>
-                <span>SHA-256 已计算</span>
+                <span>{inspection?`${inspection.checksum.slice(0,12)}… 已保存`:"SHA-256 已计算"}</span>
               </article>
               <article>
                 <strong>隐藏结构</strong>
-                <span>1 个隐藏工作表待确认</span>
+                <span>{inspection?`${inspection.detectedSheets.filter(sheet=>sheet.hidden).length} 个隐藏工作表`:"1 个隐藏工作表待确认"}</span>
               </article>
               <article>
                 <strong>公式列</strong>
-                <span>CTC/GTC 结果已标记排除</span>
+                <span>CTC/GTC 与培训历史均排除</span>
               </article>
+              {inspection&&<button onClick={advance}>查看工作表识别结果</button>}
             </div>
           )}
           {step === 2 && (
             <div className="sheet-list">
-              <label className="selected">
+              {inspection?inspection.detectedSheets.map(sheet=><label className={sheet.name===inspection.selectedSheet?"selected":""} key={sheet.name}><input type="checkbox" checked={sheet.name===inspection.selectedSheet} readOnly/><span><strong>{sheet.name}</strong><small>{sheet.rowCount} 行 · {sheet.columnCount} 列{sheet.name===inspection.selectedSheet?` · 表头第 ${inspection.headerRow} 行`:""}</small></span><em>{sheet.name===inspection.selectedSheet?"员工主数据":"本次不导入"}</em></label>):<><label className="selected">
                 <input type="checkbox" defaultChecked />
                 <span>
                   <strong>Employee Master</strong>
@@ -179,7 +180,7 @@ function Page() {
                   <small>480 行</small>
                 </span>
                 <em>培训历史本次不导入</em>
-              </label>
+              </label></>}
             </div>
           )}
           {step === 3 && (
@@ -298,8 +299,8 @@ function Page() {
                 我已检查每条更新的前后值及排除记录
               </label>
               <button
-                disabled={summary.unresolved > 0}
-                title={summary.unresolved > 0 ? "仍有未解决行" : ""}
+                disabled={isRealMode||summary.unresolved > 0}
+                title={isRealMode?"本次生产激活只验证可信暂存，不执行员工导入":summary.unresolved > 0 ? "仍有未解决行" : ""}
                 onClick={async () => {
                   await repo.import.commitBatch("synthetic-batch-202607", 1);
                   setImportComplete(true);

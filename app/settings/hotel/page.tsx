@@ -7,11 +7,13 @@ import { createRepositoryRegistry } from "../../repositories/registry.ts";
 import type { HotelPropertyRecord, PropertyIdentity, PropertySettings } from "../../repositories/contracts/models.ts";
 import { getInitializationSteps } from "../../services/property-settings-service.ts";
 import { usePrototypeFeedback } from "../../state/prototype-feedback";
+import { useAuthSession } from "../../state/auth-session.tsx";
 
 function HotelSettingsContent() {
   const registry = useMemo(() => createRepositoryRegistry(), []);
   const repository = registry.property;
   const { showToast } = usePrototypeFeedback();
+  const { session } = useAuthSession();
   const [contextLabel, setContextLabel] = useState("正在识别酒店上下文");
   const [record, setRecord] = useState<HotelPropertyRecord | null>(null);
   const [identity, setIdentity] = useState<PropertyIdentity | null>(null);
@@ -25,14 +27,12 @@ function HotelSettingsContent() {
     let active = true;
     const load = async () => {
       try {
-        const hostname = registry.environment.dataMode === "mock"
-          ? "training-demo.example.test"
-          : registry.environment.devPropertyHostname ?? registry.environment.previewPropertyHostname ?? window.location.hostname;
-        const context = await repository.resolveContext(hostname);
-        if (!context) throw new Error("当前域名尚未配置酒店上下文");
-        const next = await repository.getProperty(context.propertyId);
+        const context = registry.environment.dataMode === "mock" ? await repository.resolveContext("training-demo.example.test") : null;
+        const propertyId = context?.propertyId ?? session.propertyId;
+        if (!propertyId) throw new Error("当前账号尚未取得酒店上下文");
+        const next = await repository.getProperty(propertyId);
         if (!active) return;
-        setContextLabel(`${context.shortName} · ${context.hostname}`);
+        setContextLabel(`${next.identity.shortName} · 当前登录酒店`);
         setRecord(next);
         setIdentity(next.identity);
         setRules(next.settings);
@@ -44,7 +44,7 @@ function HotelSettingsContent() {
     };
     void load();
     return () => { active = false; };
-  }, [registry, repository]);
+  }, [registry, repository, session.propertyId]);
 
   const updateIdentity = (key: keyof PropertyIdentity, value: string) =>
     setIdentity(current => current ? { ...current, [key]: value } : current);

@@ -39,7 +39,7 @@ export async function authenticateSyntheticAccount(input: { loginId: string; pas
   };
 }
 
-export type ResolvedAccount = { session: AuthSession; internalEmail: string; accessToken?: string };
+export type ResolvedAccount = { session: AuthSession; internalEmail: string; accessToken?: string; refreshToken?: string };
 
 export async function resolveAccountForLogin(input: { loginId: string; password: string; hostname: string }): Promise<ResolvedAccount> {
   const [{ createServerAdminClient, createServerPasswordClient }, { parseAppEnvironment }] = await Promise.all([
@@ -61,7 +61,7 @@ export async function resolveAccountForLogin(input: { loginId: string; password:
   if (error || !auth.user || auth.user.id !== account.auth_user_id || !auth.session) throw genericLoginError();
   const session = await resolveSessionForAuthUser(account.auth_user_id, hostname);
   await admin.from("user_accounts").update({ last_login_at: new Date().toISOString(), failed_login_count: 0 }).eq("auth_user_id", account.auth_user_id).eq("property_id", account.property_id);
-  return { session, internalEmail: profile.email, accessToken: auth.session.access_token };
+  return { session, internalEmail: profile.email, accessToken: auth.session.access_token, refreshToken: auth.session.refresh_token };
 }
 
 export async function resolveSessionForAuthUser(authUserId: string, hostname: string): Promise<AuthSession> {

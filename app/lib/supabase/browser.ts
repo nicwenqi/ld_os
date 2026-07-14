@@ -7,7 +7,12 @@ export function createBrowserSupabaseClient(environment: AppEnvironment): Supaba
   if (!environment.supabaseUrl || !environment.supabasePublishableKey)
     throw new Error("当前数据模式缺少 Supabase 浏览器配置");
   browserClient ??= createClient(environment.supabaseUrl, environment.supabasePublishableKey, {
-    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+    accessToken: async () => {
+      const response = await fetch("/api/auth/access-token", { credentials: "same-origin", cache: "no-store" });
+      if (!response.ok) return null;
+      const payload = await response.json() as { accessToken?: string };
+      return payload.accessToken ?? null;
+    },
   });
   return browserClient;
 }
