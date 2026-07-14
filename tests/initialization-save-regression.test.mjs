@@ -6,6 +6,7 @@ const page = await readFile(new URL("../app/initialize/page.tsx", import.meta.ur
 
 test("business rules save advances initialization with the persisted settings version", () => {
   assert.match(page, /const updatedRecord=await registry\.property\.saveBusinessRules/);
+  assert.match(page, /saveBusinessRules\(\{propertyId:record\.settings\.propertyId,expectedVersion:progress\.version/);
   assert.match(page, /expectedVersion:updatedRecord\.settings\.version/);
 });
 
