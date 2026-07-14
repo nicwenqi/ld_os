@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import "../node_modules/tailwindcss/index.css";
 @import "./executive.css";
 @import "./dashboard-pages.css";
 @import "./risk-refined.css";
