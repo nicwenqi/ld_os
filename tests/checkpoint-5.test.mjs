@@ -6,8 +6,9 @@ const read = path => readFile(new URL(path,import.meta.url),"utf8");
 test("department scope comes from the authenticated session, not local storage",async()=>{
   const [service,home]=await Promise.all([read("../app/services/department-foundation.ts"),read("../app/department/page.tsx")]);
   assert.match(service,/session.departmentScopes/);
-  assert.match(service,/includeDescendants/);
   assert.match(home,/session.departmentScopes/);
+  assert.match(home,/includeDescendants/);
+  assert.doesNotMatch(service,/listTree|listEmployees/);
   assert.doesNotMatch(`${service}${home}`,/localStorage|useDepartmentScope/);
 });
 
