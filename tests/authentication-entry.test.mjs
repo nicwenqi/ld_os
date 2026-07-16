@@ -5,6 +5,10 @@ import { homeForRole, canRoleAccessPath } from "../app/services/auth-routing.ts"
 import { authenticateSyntheticAccount } from "../app/services/authentication-service.ts";
 import { canReleaseBrowserAccessToken } from "../app/services/request-authentication.ts";
 import { deriveWizardState } from "../app/services/initialization-wizard-service.ts";
+import {
+  createMockSession,
+  readMockSession,
+} from "../app/api/auth/mock-session-store.ts";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 const identity={nameZh:"示范酒店",nameEn:"Synthetic Hotel",shortName:"示范",code:"demo",brand:"Demo",city:"测试城市",countryRegion:"CN",timezone:"Asia/Shanghai",defaultLanguage:"zh-CN"};
@@ -29,6 +33,26 @@ test("local synthetic authentication is gated and has no employee or platform ac
   assert.equal(session.role,"department_training_responsible");
   assert.equal(session.departmentScopes.length,1);
   assert.equal(session.internalAuthIdentity,undefined);
+});
+
+test("local-review sessions survive serverless instance changes without widening role scope", async () => {
+  const manager = await authenticateSyntheticAccount({
+    loginId: "property-manager",
+    password: "HotelDemo2026",
+    hostname: "training-demo.example.test",
+    appEnv: "local",
+    dataMode: "mock",
+  });
+  const token = createMockSession(manager);
+  assert.deepEqual(readMockSession(token), manager);
+  assert.equal(readMockSession(`${token}tampered`), null);
+
+  const forged = createMockSession({
+    ...manager,
+    userId: "synthetic-department-responsible",
+    role: "property_ld_manager",
+  });
+  assert.equal(readMockSession(forged), null);
 });
 
 test("minimum readiness does not hijack operational entry",()=>{
