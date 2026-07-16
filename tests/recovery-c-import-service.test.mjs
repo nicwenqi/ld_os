@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  createEmployeeUpdateDecisionDraft,
   createImportService,
   deriveEmployeeUpdateProgress,
+  updateEmployeeUpdateDecisionDraft,
 } from "../app/services/import-service.ts";
 import {
   ImportRepositoryError,
@@ -49,6 +51,17 @@ function fakeRepository() {
         value: null,
         message: "缺少部门来源值",
         resolutionStatus: "unresolved",
+      }];
+    },
+    async listFieldMappings(id) {
+      calls.push(["listFieldMappings", id]);
+      return [{
+        id: "11111111-1111-4111-8111-111111111111",
+        sourceColumnName: "Empid",
+        targetField: "employee_number",
+        mappingStatus: "confirmed",
+        transformationRule: { preserveText: true },
+        isRequired: true,
       }];
     },
     async listSourceLabelResolutions(id, type) {
@@ -133,14 +146,15 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
   assert.equal(resumed.departmentLabels.length, 1);
   assert.equal(resumed.positionLabels.length, 1);
   assert.equal(resumed.issues.length, 1);
+  assert.equal(resumed.progress.currentStep, "attribution");
 
   const mapped = await service.confirmFieldMappings("batch-1", 4, [{
-    sourceColumnName: "Empid",
+    mappingId: "11111111-1111-4111-8111-111111111111",
     targetField: "employee_number",
     mappingStatus: "confirmed",
   }]);
-  assert.equal(mapped.version, 5);
-  assert.deepEqual(repository.calls.at(-1), ["getBatch", "batch-1"]);
+  assert.equal(mapped.batch.version, 5);
+  assert.equal(repository.calls.filter(call => call[0] === "listFieldMappings").length >= 2, true);
 
   const attributed = await service.resolveSourceLabel(
     "batch-1",
@@ -150,26 +164,26 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
     "department-1",
     "mapped",
   );
-  assert.equal(attributed.version, 6);
+  assert.equal(attributed.batch.version, 6);
 
   const corrected = await service.resolveIssue("batch-1", 6, "issue-1", {
     status: "corrected",
-    payload: { department_id: "department-1" },
+    payload: { corrections: { department_id: "department-1" } },
   });
-  assert.equal(corrected.version, 7);
+  assert.equal(corrected.batch.version, 7);
 
   const preview = await service.preparePreview("batch-1", 7, {
-    statusTreatment: "retain_existing_and_activate_additions",
+    statusTreatment: "retain_existing_set_additions_active",
   });
   assert.equal(preview.preview.additions, 194);
-  assert.equal(preview.batch.status, "ready_for_review");
+  assert.equal(preview.workflow.batch.status, "ready_for_review");
   assert.equal(repository.calls.some(call => call[0] === "commitBatch"), false);
 
   await assert.rejects(
-    () => service.confirmUpdate("batch-1", preview.batch.version, false),
+    () => service.confirmUpdate("batch-1", preview.workflow.batch.version, false),
     /请先确认更新范围/,
   );
-  const committed = await service.confirmUpdate("batch-1", preview.batch.version, true);
+  const committed = await service.confirmUpdate("batch-1", preview.workflow.batch.version, true);
   assert.equal(committed.commitId, "commit-1");
   assert.equal(committed.batch.status, "completed");
   assert.equal(committed.audit.length, 1);
@@ -178,6 +192,22 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
   assert.equal(revertPreview.token, "preview-token");
   const reverted = await service.revert("batch-1", revertPreview.token);
   assert.equal(reverted.status, "reverted");
+});
+
+test("Recovery C decision drafts have an authoritative base version and explicit dirty state", async () => {
+  const service = createImportService(fakeRepository());
+  const workflow = await service.resume("batch-1");
+  const clean = createEmployeeUpdateDecisionDraft(workflow);
+  assert.equal(clean.baseVersion, 4);
+  assert.equal(clean.dirty, false);
+  const dirty = updateEmployeeUpdateDecisionDraft(clean, {
+    fieldMappings: [{
+      mappingId: "11111111-1111-4111-8111-111111111111",
+      mappingStatus: "confirmed",
+    }],
+  });
+  assert.equal(dirty.dirty, true);
+  assert.equal(clean.dirty, false);
 });
 
 test("Recovery C progress derives only eligible next steps and keeps unresolved rows blocking", () => {
@@ -202,6 +232,8 @@ test("Recovery C maps database concurrency failures into stable business conflic
   assert.equal(mapImportRepositoryError({ code: "P3001", message: "stale" }).conflict, "batch_stale");
   assert.equal(mapImportRepositoryError({ code: "P3005", message: "employee stale" }).conflict, "employee_stale");
   assert.equal(mapImportRepositoryError({ code: "P3202", message: "mapping stale" }).conflict, "mapping_stale");
+  assert.equal(mapImportRepositoryError({ code: "P3203", message: "invalid target" }).conflict, null);
+  assert.equal(mapImportRepositoryError({ code: "P3210", message: "invalid correction" }).conflict, null);
   assert.equal(mapImportRepositoryError({ code: "P3006", message: "identifier" }).conflict, "identifier_conflict");
   assert.equal(mapImportRepositoryError({ code: "P3011", message: "revert" }).conflict, "revert_conflict");
   assert.equal(mapImportRepositoryError(new Error("validation")).conflict, null);

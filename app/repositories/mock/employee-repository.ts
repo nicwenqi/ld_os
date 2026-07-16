@@ -56,20 +56,21 @@ const rows: EmployeeRecord[] = [
   },
 ];
 
-function filtered(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {}) {
+function filtered(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {}, propertyId?: string) {
   const query = options.query?.trim().toLocaleLowerCase("zh-CN");
   return rows.filter(employee => {
+    if (propertyId && employee.propertyId !== propertyId) return false;
     if ("active" in options && options.active !== undefined && employee.isActive !== options.active) return false;
     if ("departmentId" in options && options.departmentId && employee.departmentId !== options.departmentId) return false;
     if ("positionId" in options && options.positionId && employee.positionId !== options.positionId) return false;
     if ("positionFamilyId" in options && options.positionFamilyId && employee.positionFamilyId !== options.positionFamilyId) return false;
-    if (options.employmentStatus && employee.employmentStatus !== options.employmentStatus) return false;
+    if ("employmentStatus" in options && options.employmentStatus && employee.employmentStatus !== options.employmentStatus) return false;
     return !query || `${employee.employeeNumber}${employee.nameZh}${employee.nameEn}`.toLocaleLowerCase("zh-CN").includes(query);
   });
 }
 
-function page(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {}) {
-  const matches = filtered(options);
+function page(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {}, propertyId?: string) {
+  const matches = filtered(options, propertyId);
   const offset = Math.max(0, options.offset ?? 0);
   const limit = Math.min(100, Math.max(1, options.limit ?? 25));
   return {
@@ -82,13 +83,24 @@ function page(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOpt
 export function createMockEmployeeRepository(): EmployeeRepository {
   return {
     async listEmployees(_propertyId, options) {
-      return page({ ...options, limit: options?.limit ?? 100 }).rows;
+      return page({ ...options, limit: options?.limit ?? 100 }, _propertyId).rows;
     },
     async listEmployeesPage(_propertyId, options) {
-      return page(options);
+      return page(options, _propertyId);
     },
     async listDepartmentEmployees(options) {
-      return page(options);
+      const scoped = page(options, "synthetic-property-a1");
+      return {
+        ...scoped,
+        rows: scoped.rows.map(employee => ({
+          ...employee,
+          tenantId: "",
+          propertyId: "",
+          gradeOrBand: null,
+          externalIdentifierTypes: [],
+          version: 0,
+        })),
+      };
     },
     async getEmployee(id) {
       return rows.find(employee => employee.id === id) ?? null;

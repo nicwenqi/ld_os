@@ -29,7 +29,7 @@ export function mapImportRepositoryError(reason: unknown): ImportRepositoryError
   let conflict: ImportConflict | null = null;
   if (code === "P3001") conflict = "batch_stale";
   else if (code === "P3005") conflict = "employee_stale";
-  else if (code.startsWith("P320") || code === "23514") conflict = "mapping_stale";
+  else if (code === "P3202") conflict = "mapping_stale";
   else if (code === "P3006" || /identifier/i.test(message)) conflict = "identifier_conflict";
   else if (code === "P3011" || code === "P3012") conflict = "revert_conflict";
   return new ImportRepositoryError(message, conflict, reason instanceof Error ? { cause: reason } : undefined);
@@ -81,6 +81,30 @@ export type ImportMutationResult = {
   status: string;
 };
 
+export type ImportFieldMapping = {
+  id: string;
+  sourceColumnName: string;
+  targetField: string;
+  mappingStatus: "suggested" | "confirmed" | "excluded";
+  transformationRule: Record<string, unknown>;
+  isRequired: boolean;
+};
+
+export type ImportFieldMappingDecision = {
+  mappingId: string;
+  mappingStatus: "confirmed" | "excluded";
+  targetField?: string;
+  transformationRule?: Record<string, unknown>;
+};
+
+export type ImportIssueResolution = {
+  status: "accepted" | "corrected" | "excluded" | "ignored" | "deferred";
+  payload?: {
+    corrections?: Record<string, unknown>;
+    normalizedValues?: Record<string, unknown>;
+  };
+};
+
 export type ImportSourceLabelResolution = {
   sourceValue: string;
   sourceRowCount: number;
@@ -93,8 +117,8 @@ export type ImportRevertPreview = {
   safe: boolean;
   conflicts: number;
   strategy: string;
-  token: string;
-  expiresAt: string;
+  token: string | null;
+  expiresAt: string | null;
 };
 
 export interface ImportRepository {
@@ -111,9 +135,10 @@ export interface ImportRepository {
   inspectWorkbook(batchId: string): Promise<WorkbookInspection>;
   getBatch(batchId: string): Promise<ImportBatch | null>;
   listSheets(batchId: string): Promise<readonly unknown[]>;
+  listFieldMappings(batchId: string): Promise<readonly ImportFieldMapping[]>;
   selectSheet(sheetId: string, selected: boolean, headerRow: number): Promise<void>;
   saveFieldMappings(batchId: string, mappings: readonly unknown[]): Promise<void>;
-  confirmFieldMappings(batchId: string, expectedVersion: number, mappings: readonly unknown[]): Promise<ImportMutationResult>;
+  confirmFieldMappings(batchId: string, expectedVersion: number, mappings: readonly ImportFieldMappingDecision[]): Promise<ImportMutationResult>;
   stageRows(batchId: string, rows: readonly unknown[]): Promise<void>;
   listDepartmentLabels(batchId: string): Promise<readonly unknown[]>;
   listPositionLabels(batchId: string): Promise<readonly unknown[]>;
@@ -132,7 +157,7 @@ export interface ImportRepository {
     batchId: string,
     expectedVersion: number,
     issueId: string,
-    resolution: { status: string; payload?: Record<string, unknown> },
+    resolution: ImportIssueResolution,
   ): Promise<ImportMutationResult>;
   preparePreview(batchId: string, expectedVersion: number, options: Record<string, unknown>): Promise<EmployeeUpdatePreview>;
   previewCommit(batchId: string): Promise<ImportBatch["summary"]>;

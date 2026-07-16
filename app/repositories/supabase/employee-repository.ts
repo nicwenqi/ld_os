@@ -72,7 +72,20 @@ function safeSearch(value: string) {
 export function createSupabaseEmployeeRepository(client: Client): EmployeeRepository {
   return {
     async listEmployees(propertyId, options) {
-      return (await this.listEmployeesPage(propertyId, { ...options, limit: options?.limit ?? 100, offset: options?.offset ?? 0 })).rows;
+      let query: any = client.from("employees")
+        .select(select)
+        .eq("property_id", propertyId)
+        .order("employee_number");
+      if (options?.active !== undefined) query = query.eq("is_active", options.active);
+      if (options?.departmentId) query = query.eq("department_id", options.departmentId);
+      if (options?.positionId) query = query.eq("position_id", options.positionId);
+      if (options?.positionFamilyId) query = query.eq("position_family_id", options.positionFamilyId);
+      if (options?.employmentStatus) query = query.eq("employment_status", options.employmentStatus);
+      const search = options?.query ? safeSearch(options.query) : "";
+      if (search) query = query.or(`employee_number.ilike.%${search}%,name_zh.ilike.%${search}%,name_en.ilike.%${search}%`);
+      const { data, error } = await query;
+      if (error) throw new Error(`无法读取员工主数据：${error.message}`);
+      return (data ?? []).map(map);
     },
     async listEmployeesPage(propertyId, options: EmployeeDirectoryOptions = {}): Promise<EmployeeDirectoryPage> {
       const limit = Math.min(100, Math.max(1, options.limit ?? 25));

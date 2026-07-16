@@ -24,7 +24,6 @@ export function createEmployeeService(repository: EmployeeDirectoryRepository) {
     listDepartmentDirectory(options: DepartmentEmployeeDirectoryOptions & Record<string, unknown> = {}) {
       const allowed: DepartmentEmployeeDirectoryOptions = {};
       if (typeof options.query === "string") allowed.query = options.query;
-      if (options.employmentStatus) allowed.employmentStatus = options.employmentStatus;
       if (options.limit !== undefined) allowed.limit = options.limit;
       if (options.offset !== undefined) allowed.offset = options.offset;
       return repository.listDepartmentEmployees(normalizePage(allowed));

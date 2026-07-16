@@ -90,6 +90,21 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
       if (error) throw mapImportRepositoryError(error);
       return data ?? [];
     },
+    async listFieldMappings(batchId) {
+      const { data, error } = await client.from("import_field_mappings")
+        .select("id,source_column_name,target_field,mapping_status,transformation_rule,is_required")
+        .eq("import_batch_id", batchId)
+        .order("source_column_index");
+      if (error) throw mapImportRepositoryError(error);
+      return (data ?? []).map((row: any) => ({
+        id: row.id,
+        sourceColumnName: row.source_column_name,
+        targetField: row.target_field,
+        mappingStatus: row.mapping_status,
+        transformationRule: row.transformation_rule ?? {},
+        isRequired: Boolean(row.is_required),
+      }));
+    },
     async selectSheet(id, selected, headerRow) {
       const { error } = await client.from("import_sheets").update({
         selected_for_import: selected,

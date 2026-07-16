@@ -34,10 +34,7 @@ export type EmployeeDirectoryOptions = {
   offset?: number;
 };
 
-export type DepartmentEmployeeDirectoryOptions = Pick<
-  EmployeeDirectoryOptions,
-  "query" | "employmentStatus" | "limit" | "offset"
->;
+export type DepartmentEmployeeDirectoryOptions = Pick<EmployeeDirectoryOptions, "query" | "limit" | "offset">;
 
 export type EmployeeDirectoryPage = {
   rows: readonly EmployeeRecord[];
