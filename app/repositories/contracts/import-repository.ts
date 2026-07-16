@@ -105,10 +105,18 @@ export type ImportIssueResolution = {
   };
 };
 
+export type ImportSourceLabelDecision = "mapped" | "excluded" | "deferred";
+
+export type EmployeeImportPreviewOptions = {
+  statusTreatment:
+    | "use_recognized_status"
+    | "retain_existing_set_additions_active";
+};
+
 export type ImportSourceLabelResolution = {
   sourceValue: string;
   sourceRowCount: number;
-  decision: string;
+  decision: ImportSourceLabelDecision | "pending";
   targetId?: string | null;
   targetName?: string | null;
 };
@@ -149,7 +157,7 @@ export interface ImportRepository {
     type: "department" | "position",
     sourceValue: string,
     targetId: string | null,
-    decision: string,
+    decision: ImportSourceLabelDecision,
   ): Promise<ImportMutationResult>;
   validateBatch(batchId: string): Promise<ImportBatch>;
   listIssues(batchId: string): Promise<readonly ImportIssue[]>;
@@ -159,7 +167,7 @@ export interface ImportRepository {
     issueId: string,
     resolution: ImportIssueResolution,
   ): Promise<ImportMutationResult>;
-  preparePreview(batchId: string, expectedVersion: number, options: Record<string, unknown>): Promise<EmployeeUpdatePreview>;
+  preparePreview(batchId: string, expectedVersion: number, options: EmployeeImportPreviewOptions): Promise<EmployeeUpdatePreview>;
   previewCommit(batchId: string): Promise<ImportBatch["summary"]>;
   commitBatch(batchId: string, expectedVersion: number): Promise<string>;
   previewRevert(batchId: string): Promise<ImportRevertPreview>;

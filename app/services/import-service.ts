@@ -1,5 +1,6 @@
 import type {
   EmployeeUpdatePreview,
+  EmployeeImportPreviewOptions,
   ImportBatch,
   ImportFieldMapping,
   ImportFieldMappingDecision,
@@ -7,6 +8,7 @@ import type {
   ImportIssueResolution,
   ImportRepository,
   ImportSourceLabelResolution,
+  ImportSourceLabelDecision,
 } from "../repositories/contracts/import-repository.ts";
 
 type ImportWorkflowRepository = Pick<
@@ -41,7 +43,7 @@ export type EmployeeUpdateDecisionDraft = {
     type: "department" | "position";
     sourceValue: string;
     targetId: string | null;
-    decision: string;
+    decision: ImportSourceLabelDecision;
   }[];
   issueResolutions: readonly {
     issueId: string;
@@ -77,6 +79,13 @@ export type EmployeeUpdateProgressInput = {
 };
 
 export function deriveEmployeeUpdateProgress(input: EmployeeUpdateProgressInput) {
+  if (input.status === "completed" || input.status === "completed_with_warnings" || input.status === "reverted") {
+    return {
+      currentStep: input.status === "reverted" ? "reverted" : "completed",
+      canPreview: false,
+      canConfirm: false,
+    };
+  }
   const attributionPending = input.departmentUnresolved > 0 || input.positionUnresolved > 0;
   const currentStep =
     !input.fieldMappingsConfirmed
@@ -133,7 +142,7 @@ export function createImportService(repository: ImportWorkflowRepository) {
       type: "department" | "position",
       sourceValue: string,
       targetId: string | null,
-      decision: string,
+      decision: ImportSourceLabelDecision,
     ) {
       await repository.resolveSourceLabel(batchId, expectedVersion, type, sourceValue, targetId, decision);
       return readWorkflow(batchId);
@@ -150,14 +159,21 @@ export function createImportService(repository: ImportWorkflowRepository) {
     async preparePreview(
       batchId: string,
       expectedVersion: number,
-      options: Record<string, unknown>,
+      options: EmployeeImportPreviewOptions,
+      draft: EmployeeUpdateDecisionDraft,
     ): Promise<{ preview: EmployeeUpdatePreview; workflow: EmployeeUpdateWorkflow }> {
-      if (!options.statusTreatment) throw new Error("请选择本批次员工状态处理方式");
+      assertDraftReady(draft, expectedVersion);
       const preview = await repository.preparePreview(batchId, expectedVersion, options);
       const workflow = await readWorkflow(batchId);
       return { preview, workflow };
     },
-    async confirmUpdate(batchId: string, expectedVersion: number, acknowledged: boolean) {
+    async confirmUpdate(
+      batchId: string,
+      expectedVersion: number,
+      acknowledged: boolean,
+      draft: EmployeeUpdateDecisionDraft,
+    ) {
+      assertDraftReady(draft, expectedVersion);
       if (!acknowledged) throw new Error("请先确认更新范围、排除行与状态处理方式");
       const commitId = await repository.commitBatch(batchId, expectedVersion);
       const [batch, audit] = await Promise.all([
@@ -175,4 +191,9 @@ export function createImportService(repository: ImportWorkflowRepository) {
       return readBatch(batchId);
     },
   };
+}
+
+function assertDraftReady(draft: EmployeeUpdateDecisionDraft, expectedVersion: number) {
+  if (draft.dirty) throw new Error("仍有未保存的归属或问题处理决定");
+  if (draft.baseVersion !== expectedVersion) throw new Error("员工资料更新批次已变化，请重新读取");
 }

@@ -134,6 +134,7 @@ export function createMockImportRepository(): ImportRepository {
     },
     async resolveSourceLabel(_batchId, expectedVersion, type, sourceValue, targetId, decision) {
       assertVersion(expectedVersion);
+      if (!["mapped", "excluded", "deferred"].includes(decision)) throw new Error("来源归属决定无效");
       const item = labels[type].find(row => row.sourceValue === sourceValue);
       if (!item) throw new Error("来源归属记录不存在");
       if (decision === "mapped" && !targetId) throw new Error("映射决定必须选择正式归属");

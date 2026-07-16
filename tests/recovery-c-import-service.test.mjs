@@ -191,18 +191,34 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
   assert.equal(corrected.issues[0].resolutionStatus, "corrected");
   assert.equal(corrected.progress.currentStep, "preview");
 
+  const cleanDraft = createEmployeeUpdateDecisionDraft(corrected);
+  const dirtyDraft = updateEmployeeUpdateDecisionDraft(cleanDraft, {
+    sourceLabels: [{
+      type: "department",
+      sourceValue: "Front Office",
+      targetId: "department-2",
+      decision: "mapped",
+    }],
+  });
+  await assert.rejects(
+    () => service.preparePreview("batch-1", 8, {
+      statusTreatment: "retain_existing_set_additions_active",
+    }, dirtyDraft),
+    /未保存/,
+  );
   const preview = await service.preparePreview("batch-1", 8, {
     statusTreatment: "retain_existing_set_additions_active",
-  });
+  }, cleanDraft);
   assert.equal(preview.preview.additions, 194);
   assert.equal(preview.workflow.batch.status, "ready_for_review");
   assert.equal(repository.calls.some(call => call[0] === "commitBatch"), false);
+  const confirmationDraft = createEmployeeUpdateDecisionDraft(preview.workflow);
 
   await assert.rejects(
-    () => service.confirmUpdate("batch-1", preview.workflow.batch.version, false),
+    () => service.confirmUpdate("batch-1", preview.workflow.batch.version, false, confirmationDraft),
     /请先确认更新范围/,
   );
-  const committed = await service.confirmUpdate("batch-1", preview.workflow.batch.version, true);
+  const committed = await service.confirmUpdate("batch-1", preview.workflow.batch.version, true, confirmationDraft);
   assert.equal(committed.commitId, "commit-1");
   assert.equal(committed.batch.status, "completed");
   assert.equal(committed.audit.length, 1);
@@ -244,6 +260,28 @@ test("Recovery C progress derives only eligible next steps and keeps unresolved 
       canPreview: false,
       canConfirm: false,
     },
+  );
+  assert.deepEqual(
+    deriveEmployeeUpdateProgress({
+      status: "completed",
+      fieldMappingsConfirmed: true,
+      departmentUnresolved: 0,
+      positionUnresolved: 0,
+      blockingIssues: 0,
+      previewReady: false,
+    }),
+    { currentStep: "completed", canPreview: false, canConfirm: false },
+  );
+  assert.deepEqual(
+    deriveEmployeeUpdateProgress({
+      status: "reverted",
+      fieldMappingsConfirmed: true,
+      departmentUnresolved: 0,
+      positionUnresolved: 0,
+      blockingIssues: 0,
+      previewReady: false,
+    }),
+    { currentStep: "reverted", canPreview: false, canConfirm: false },
   );
 });
 
