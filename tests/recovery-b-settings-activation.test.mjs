@@ -151,3 +151,12 @@ test("local-review logo replacement survives an authoritative property re-read",
   assert.equal(reread.currentLogo?.id, asset.id);
   assert.equal(reread.currentLogo?.publicUrl, "data:image/png;base64,iVBORw==");
 });
+
+test("mobile hotel settings keep editable and maintenance actions at practical touch heights", async () => {
+  const css = await readFile(
+    new URL("../app/checkpoint-2c-a.css", import.meta.url),
+    "utf8",
+  );
+  assert.match(css, /\.number-input input\{min-height:44px\}/);
+  assert.match(css, /\.cleanup-button\{min-height:44px/);
+});

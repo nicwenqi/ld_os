@@ -11,3 +11,9 @@
 .settings-card header em,
 .logo-guidance small,
 .initialization-note{font-size:9px}
+
+/* Recovery B browser verification: preserve practical mobile touch surfaces. */
+@media(max-width:720px){
+  .number-input input{min-height:44px}
+  .cleanup-button{min-height:44px;padding:10px 0}
+}
