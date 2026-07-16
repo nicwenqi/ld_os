@@ -12,6 +12,7 @@ test("the shared shell has only truthful global actions", async () => {
     "管理设置",
     "aria-current",
     "aria-expanded",
+    "sidebar-close",
     "退出",
   ]) {
     assert.match(shell, new RegExp(token));
@@ -40,6 +41,7 @@ test("Recovery A visual layer retains the approved hotel console language", asyn
     "@media(max-width:1024px)",
     "min-height:44px",
     "focus-visible",
+    "sidebar-close",
   ]) {
     assert.match(css, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
   }

@@ -59,6 +59,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={`sidebar recovery-sidebar ${menuOpen ? "open" : ""}`}
           aria-label="应用导航"
         >
+          {menuOpen && (
+            <button
+              className="sidebar-close"
+              aria-label="关闭导航"
+              onClick={closeMenu}
+            >
+              关闭
+            </button>
+          )}
           <div className="brand brand-signature">
             <div className="brand-mark" aria-hidden="true">
               <span>澜</span>
