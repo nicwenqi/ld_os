@@ -62,11 +62,14 @@ test("trusted staging preserves private evidence and returns aggregate-only insp
   assert.equal(result.safeSummary.sourceRows, 1);
   assert.equal(result.safeSummary.selectedSheet, "Employee Master");
   assert.equal(result.sourceRows[0].normalizedValues.employee_number, "0007");
-  assert.equal(result.sourceRows[0].rawValues["CTC Completion"], 1);
+  assert.equal(result.sourceRows[0].rawValues["CTC Completion"], undefined);
+  assert.equal(result.sourceRows[0].rawValues.Gender, undefined);
   assert.equal("ctc_completion" in result.sourceRows[0].normalizedValues, false);
   assert.equal("gender" in result.sourceRows[0].normalizedValues, false);
   assert.equal(result.fieldMappings.some(mapping => mapping.sourceColumnName === "CTC Completion"), false);
   assert.equal(result.fieldMappings.some(mapping => mapping.sourceColumnName === "Gender"), false);
+  assert.equal(result.safeSummary.checksum, undefined);
+  assert.match(result.safeSummary.checksumPrefix, /^[0-9a-f]{12}$/);
   assert.doesNotMatch(JSON.stringify(result.safeSummary), /示例员工甲|0007|Synthetic Associate/);
 });
 
@@ -84,6 +87,8 @@ test("production routes use server-authorized property context and never accept 
   assert.match(contextRoute, /resolveRequestHostname/);
   assert.match(inspectionRoute, /requireProductionPropertyManager/);
   assert.match(inspectionRoute, /property-import-files/);
+  assert.match(inspectionRoute, /file_checksum:\s*prepared\.inspection\.checksum/);
+  assert.doesNotMatch(inspectionRoute, /file_checksum:\s*prepared\.safeSummary\.checksum/);
   assert.doesNotMatch(inspectionRoute, /form\.get\(["']propertyId["']\)/);
   assert.match(tokenRoute, /resolveAuthenticatedRequest/);
   assert.match(tokenRoute, /["']Cache-Control["']\s*:\s*["']no-store["']/);

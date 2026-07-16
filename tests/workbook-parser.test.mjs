@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as XLSX from "xlsx";
-import { inspectEmployeeMasterAggregate, inspectWorkbook, sanitizeWorkbookFilename, stableRowFingerprint } from "../app/services/import/workbook-parser.ts";
+import { MAX_IMPORT_BYTES, inspectEmployeeMasterAggregate, inspectWorkbook, sanitizeWorkbookFilename, stableRowFingerprint } from "../app/services/import/workbook-parser.ts";
 
 const mimeXlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 function syntheticWorkbook(bookType="xlsx") {
@@ -52,9 +52,25 @@ test("course-history-style columns are excluded from employee master mapping",()
   assert.equal(excluded["Leadership Journey"], true);
   assert.equal(excluded["First Aid"], true);
 });
-test("parser rejects mismatched formats and oversized files",()=>{
+test("parser rejects mismatched formats",()=>{
   assert.throws(()=>inspectWorkbook({fileName:"fake.xlsx",mimeType:mimeXlsx,bytes:new TextEncoder().encode("not zip")}),/签名/);
   assert.throws(()=>inspectWorkbook({fileName:"fake.exe",mimeType:"application/octet-stream",bytes:new Uint8Array([1])}),/仅支持/);
+});
+test("parser rejects an actual payload larger than 25 MB before workbook parsing",()=>{
+  assert.throws(
+    ()=>inspectWorkbook({fileName:"oversized.xlsx",mimeType:mimeXlsx,bytes:new Uint8Array(MAX_IMPORT_BYTES+1)}),
+    /1 字节与 25 MB/,
+  );
+});
+test("CSV extension and MIME type must align",()=>{
+  const csv=new TextEncoder().encode("Employee Number,Chinese Name,Department,Position\n0007,示例员工甲,Concierge,Associate\n");
+  for(const mimeType of ["text/csv","application/csv","text/plain"]){
+    assert.equal(inspectWorkbook({fileName:"synthetic.csv",mimeType,bytes:csv}).extension,"csv");
+  }
+  assert.throws(
+    ()=>inspectWorkbook({fileName:"synthetic.csv",mimeType:mimeXlsx,bytes:csv}),
+    /MIME 类型不一致/,
+  );
 });
 test("filename and row fingerprints are deterministic",()=>{
   assert.equal(sanitizeWorkbookFilename("../../员工 主表.xlsx"),"员工-主表.xlsx");

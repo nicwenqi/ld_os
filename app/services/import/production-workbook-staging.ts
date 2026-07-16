@@ -1,5 +1,13 @@
 import * as XLSX from "xlsx";
-import { inspectEmployeeMasterAggregate, inspectWorkbook, stableRowFingerprint, type WorkbookFile } from "./workbook-parser.ts";
+import {
+  inspectEmployeeMasterAggregate,
+  inspectWorkbook,
+  stableRowFingerprint,
+  type EmployeeMasterAggregate,
+  type SheetInspection,
+  type WorkbookFile,
+  type WorkbookInspection,
+} from "./workbook-parser.ts";
 import { isMissingSourceValue } from "./employee-staging-preview.ts";
 
 const requiredTargets = new Set(["employee_number", "name_zh", "department_source_label", "position_source_label"]);
@@ -30,7 +38,39 @@ export type PreparedSourceLabel = {
   sourceRowCount: number;
 };
 
-export function prepareEmployeeMasterStaging(input: WorkbookFile) {
+export type PreparedEmployeeMasterStaging = {
+  inspection: WorkbookInspection;
+  selectedSheet: SheetInspection;
+  sourceRows: PreparedSourceRow[];
+  fieldMappings: PreparedFieldMapping[];
+  sourceLabels: {
+    departments: PreparedSourceLabel[];
+    positions: PreparedSourceLabel[];
+  };
+  safeSummary: {
+    sanitizedFilename: string;
+    checksumPrefix: string;
+    sizeBytes: number;
+    detectedSheets: Array<{ name: string; rowCount: number; columnCount: number; hidden: boolean }>;
+    selectedSheet: string;
+    headerRow: number;
+    sourceRows: number;
+    structurallyValid: number;
+    blockedRows: number;
+    warningRows: number;
+    uniqueDepartmentLabels: number;
+    uniquePositionLabels: number;
+    exclusions: EmployeeMasterAggregate["exclusions"];
+    excludedColumns: Array<{ sourceColumnName: string; reason: string }>;
+    excludedSheets: Array<{ name: string; reason: string }>;
+    warnings: readonly string[];
+    employeesImported: 0;
+    trainingHistoryImported: false;
+    ctcGtcImported: false;
+  };
+};
+
+export function prepareEmployeeMasterStaging(input: WorkbookFile): PreparedEmployeeMasterStaging {
   const inspection = inspectWorkbook(input);
   const aggregate = inspectEmployeeMasterAggregate(input);
   const workbook = XLSX.read(input.bytes, { type: "array", cellDates: true, cellFormula: true, cellStyles: true, sheetStubs: true, raw: true });
@@ -43,7 +83,9 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile) {
   const headers = Array.from({ length: range.e.c - range.s.c + 1 }, (_, offset) =>
     String((sheet[XLSX.utils.encode_cell({ r: headerIndex, c: range.s.c + offset })] as XLSX.CellObject | undefined)?.v ?? `Column ${offset + 1}`).trim() || `Column ${offset + 1}`,
   );
-  const recognized = new Map(selectedInspection.suggestedMappings.filter(mapping => mapping.targetField && !mapping.excluded).map(mapping => [mapping.sourceColumn, mapping.targetField!]));
+  const approvedMappings = selectedInspection.suggestedMappings.filter(mapping => mapping.targetField && !mapping.excluded);
+  const approvedSourceColumns = new Set(approvedMappings.map(mapping => mapping.sourceColumn));
+  const recognized = new Map(approvedMappings.map(mapping => [mapping.sourceColumn, mapping.targetField!]));
   const fieldMappings: PreparedFieldMapping[] = headers.flatMap((sourceColumnName, sourceColumnIndex) => {
     const targetField = recognized.get(sourceColumnName);
     return targetField ? [{ sourceColumnName, sourceColumnIndex, targetField, transformationRule: { trim: true, preserveText: targetField === "employee_number" }, isRequired: requiredTargets.has(targetField) }] : [];
@@ -54,10 +96,11 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile) {
     const rawValues: Record<string, unknown> = {};
     const normalizedValues: Record<string, unknown> = {};
     headers.forEach((header, offset) => {
+      if (!approvedSourceColumns.has(header)) return;
       const cell = sheet[XLSX.utils.encode_cell({ r: rowIndex, c: range.s.c + offset })] as XLSX.CellObject | undefined;
       rawValues[header] = jsonValue(cell?.v);
-      const target = recognized.get(header);
-      if (target) normalizedValues[target] = normalizeTargetValue(target, cell);
+      const target = recognized.get(header)!;
+      normalizedValues[target] = normalizeTargetValue(target, cell);
     });
     if (Object.values(normalizedValues).every(isMissingSourceValue)) continue;
     const blockingIssues: string[] = [];
@@ -96,7 +139,7 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile) {
     sourceLabels,
     safeSummary: {
       sanitizedFilename: inspection.sanitizedFilename,
-      checksum: inspection.checksum,
+      checksumPrefix: inspection.checksum.slice(0, 12),
       sizeBytes: inspection.sizeBytes,
       detectedSheets: inspection.sheets.map(item => ({ name: item.name, rowCount: item.rowCount, columnCount: item.columnCount, hidden: item.hidden })),
       selectedSheet: aggregate.selectedSheet,
@@ -108,6 +151,17 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile) {
       uniqueDepartmentLabels: aggregate.mapping.uniqueDepartmentLabels,
       uniquePositionLabels: aggregate.mapping.uniquePositionLabels,
       exclusions: aggregate.exclusions,
+      excludedColumns: selectedInspection.suggestedMappings
+        .filter(mapping => mapping.excluded)
+        .map(mapping => ({ sourceColumnName: mapping.sourceColumn, reason: mapping.reason })),
+      excludedSheets: inspection.sheets
+        .filter(item => item.name !== aggregate.selectedSheet)
+        .map(item => ({
+          name: item.name,
+          reason: /^(?:ctc|gtc)(?:\s|$)/i.test(item.name.trim())
+            ? "CTC/GTC 跟踪工作表不进入员工主数据暂存"
+            : "非员工主数据工作表不进入员工主数据暂存",
+        })),
       warnings: aggregate.warnings,
       employeesImported: 0,
       trainingHistoryImported: false,

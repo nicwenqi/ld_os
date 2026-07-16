@@ -21,7 +21,7 @@ export async function POST(request: Request) {
     const { error: batchError } = await admin.from("import_batches").insert({
       id: batchId, tenant_id: actor.tenantId, property_id: actor.propertyId, import_type: "employee_master", source_system: "hotel_workbook",
       original_filename: file.name, sanitized_filename: prepared.safeSummary.sanitizedFilename, storage_object_path: objectPath,
-      file_checksum: prepared.safeSummary.checksum, file_size_bytes: prepared.safeSummary.sizeBytes, mime_type: file.type || mimeFor(file.name),
+      file_checksum: prepared.inspection.checksum, file_size_bytes: prepared.safeSummary.sizeBytes, mime_type: file.type || mimeFor(file.name),
       status: "inspecting", detected_sheet_count: prepared.inspection.sheets.length, total_source_rows: prepared.sourceRows.length,
       valid_rows: prepared.sourceRows.filter(row => row.processingStatus !== "error").length,
       warning_rows: prepared.sourceRows.filter(row => row.processingStatus === "warning").length,
