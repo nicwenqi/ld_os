@@ -27,7 +27,7 @@ export function createImportInspectionHandler(
   return async function handleImportInspection(request: Request) {
     let actorClient: ReturnType<typeof createServerActorClient> | null = null;
     let objectPath: string | null = null;
-    let uploadAttempted = false;
+    let objectUploaded = false;
     let databaseStaged = false;
     let batchId: string | null = null;
 
@@ -54,7 +54,6 @@ export function createImportInspectionHandler(
       ].join("/");
       actorClient = dependencies.actorClient(actor.accessToken);
 
-      uploadAttempted = true;
       const { error: uploadError } = await actorClient.storage
         .from(BUCKET)
         .upload(objectPath, bytes, {
@@ -62,6 +61,7 @@ export function createImportInspectionHandler(
           upsert: false,
         });
       if (uploadError) throw uploadError;
+      objectUploaded = true;
 
       const sheets = prepared.inspection.sheets.map(sheet => ({
         id: dependencies.randomUUID(),
@@ -172,13 +172,23 @@ export function createImportInspectionHandler(
         { status: 201, headers },
       );
     } catch (error) {
+      let cleanupFailed = false;
       if (
         actorClient &&
         objectPath &&
-        uploadAttempted &&
+        objectUploaded &&
         !databaseStaged
       ) {
-        await actorClient.storage.from(BUCKET).remove([objectPath]);
+        cleanupFailed = !await removeUploadedObject(
+          actorClient,
+          objectPath,
+        );
+      }
+      if (cleanupFailed) {
+        return failure(
+          500,
+          "工作簿暂存失败，临时文件清理未完成，请联系管理员",
+        );
       }
       if (error instanceof AuthorizationError) {
         return failure(error.status, error.message);
@@ -196,6 +206,28 @@ export function createImportInspectionHandler(
 }
 
 export const POST = createImportInspectionHandler();
+
+async function removeUploadedObject(
+  actorClient: ReturnType<typeof createServerActorClient>,
+  objectPath: string,
+) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const { data, error } = await actorClient.storage
+        .from(BUCKET)
+        .remove([objectPath]);
+      if (
+        !error &&
+        data?.some(object => object.name === objectPath)
+      ) {
+        return true;
+      }
+    } catch {
+      // A bounded second attempt handles transient transport failures.
+    }
+  }
+  return false;
+}
 
 function issueRow(
   sourceRowId: string,

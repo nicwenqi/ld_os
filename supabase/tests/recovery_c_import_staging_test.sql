@@ -121,12 +121,19 @@ select lives_ok(
         "targetField": "employee_number",
         "transformationRule": {"preserveLeadingZeros": true},
         "isRequired": true
+      }, {
+        "sheetId": "82000000-0000-0000-0000-000000000141",
+        "sourceColumnName": "CName",
+        "sourceColumnIndex": 1,
+        "targetField": "name_zh",
+        "transformationRule": {"trim": true},
+        "isRequired": false
       }],
       "rows": [{
         "id": "83000000-0000-0000-0000-000000000141",
         "sheetId": "82000000-0000-0000-0000-000000000141",
         "sourceRowNumber": 4,
-        "rawValues": {"Empid": "0007"},
+        "rawValues": {"Empid": "0007", "CName": "示例员工"},
         "normalizedValues": {"employee_number": "0007", "name_zh": "示例员工"},
         "rowFingerprint": "synthetic-row-fingerprint",
         "processingStatus": "warning",
@@ -233,7 +240,14 @@ select throws_ok(
         "selected": true,
         "purpose": "employee_master"
       }],
-      "fieldMappings": [],
+      "fieldMappings": [{
+        "sheetId": "82000000-0000-0000-0000-000000000149",
+        "sourceColumnName": "Empid",
+        "sourceColumnIndex": 0,
+        "targetField": "employee_number",
+        "transformationRule": {"preserveLeadingZeros": true},
+        "isRequired": true
+      }],
       "rows": [{
         "id": "83000000-0000-0000-0000-000000000149",
         "sheetId": "82000000-0000-0000-0000-000000000149",
@@ -280,6 +294,242 @@ select results_eq(
       and cmd = 'DELETE'$$,
   array[1::bigint],
   'a narrow Storage delete policy supports API cleanup after staging failure'
+);
+select results_eq(
+  $$select count(*)
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'import_files_manager_select'
+      and cmd = 'SELECT'
+      and qual like '%can_stage_property_import_object%'
+      and qual like '%owner_id%'
+      and qual like '%auth.uid%'$$,
+  array[1::bigint],
+  'pre-staging SELECT is narrowly bound to the authenticated object owner'
+);
+select results_eq(
+  $$select count(*)
+    from pg_policies
+    where schemaname = 'storage'
+      and tablename = 'objects'
+      and policyname = 'import_files_staging_cleanup_delete'
+      and cmd = 'DELETE'
+      and qual like '%can_stage_property_import_object%'
+      and qual like '%owner_id%'
+      and qual like '%auth.uid%'$$,
+  array[1::bigint],
+  'pre-staging cleanup DELETE is narrowly bound to the authenticated owner'
+);
+
+create function pg_temp.employee_staging_payload(
+  p_batch_id uuid,
+  p_filename text
+)
+returns jsonb
+language sql
+immutable
+as $$
+  select jsonb_build_object(
+    'batch', jsonb_build_object(
+      'originalFilename', p_filename,
+      'sanitizedFilename', p_filename,
+      'storageObjectPath',
+        '10000000-0000-0000-0000-000000000001/' ||
+        '20000000-0000-0000-0000-000000000011/imports/' ||
+        p_batch_id::text || '/' || p_filename,
+      'fileChecksum',
+        'cccccccccccccccccccccccccccccccc' ||
+        'cccccccccccccccccccccccccccccccc',
+      'fileSizeBytes', 128,
+      'mimeType',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'detectedSheetCount', 1,
+      'totalSourceRows', 1,
+      'validRows', 1,
+      'warningRows', 0,
+      'errorRows', 0
+    ),
+    'sheets', jsonb_build_array(jsonb_build_object(
+      'id', p_batch_id,
+      'name', 'Employee Master',
+      'index', 0,
+      'headerRow', 1,
+      'rowCount', 2,
+      'selected', true,
+      'purpose', 'employee_master'
+    )),
+    'fieldMappings', jsonb_build_array(jsonb_build_object(
+      'sheetId', p_batch_id,
+      'sourceColumnName', 'Empid',
+      'sourceColumnIndex', 0,
+      'targetField', 'employee_number',
+      'transformationRule', jsonb_build_object(
+        'preserveLeadingZeros', true
+      ),
+      'isRequired', true
+    )),
+    'rows', jsonb_build_array(jsonb_build_object(
+      'id', p_batch_id,
+      'sheetId', p_batch_id,
+      'sourceRowNumber', 2,
+      'rawValues', jsonb_build_object('Empid', '0007'),
+      'normalizedValues',
+        jsonb_build_object('employee_number', '0007'),
+      'rowFingerprint', 'allowlist-row',
+      'processingStatus', 'staged',
+      'proposedAction', 'unresolved',
+      'validationSummary', jsonb_build_object(
+        'blockingIssues', jsonb_build_array(),
+        'warningIssues', jsonb_build_array()
+      )
+    )),
+    'issues', jsonb_build_array(),
+    'sourceLabels', jsonb_build_array()
+  );
+$$;
+
+insert into storage.objects(bucket_id, name, owner_id)
+select
+  'property-import-files',
+  '10000000-0000-0000-0000-000000000001/' ||
+    '20000000-0000-0000-0000-000000000011/imports/' ||
+    fixture.batch_id::text || '/' || fixture.filename,
+  auth.uid()
+from (values
+  (
+    '81000000-0000-0000-0000-000000000151'::uuid,
+    'forbidden-source.xlsx'
+  ),
+  (
+    '81000000-0000-0000-0000-000000000152'::uuid,
+    'forbidden-target.xlsx'
+  ),
+  (
+    '81000000-0000-0000-0000-000000000153'::uuid,
+    'forbidden-normalized.xlsx'
+  ),
+  (
+    '81000000-0000-0000-0000-000000000154'::uuid,
+    'unmapped-raw.xlsx'
+  )
+) as fixture(batch_id, filename);
+
+select throws_ok(
+  $$select public.stage_employee_import(
+    '20000000-0000-0000-0000-000000000011',
+    '81000000-0000-0000-0000-000000000151',
+    jsonb_set(
+      pg_temp.employee_staging_payload(
+        '81000000-0000-0000-0000-000000000151',
+        'forbidden-source.xlsx'
+      ),
+      '{fieldMappings,0,sourceColumnName}',
+      '"CTC Completion"'::jsonb
+    )
+  )$$,
+  'P3220',
+  'IMPORT_STAGING_EXCLUDED_FIELD',
+  'CTC/GTC and completion source keys are rejected at the RPC boundary'
+);
+
+select throws_ok(
+  $$select public.stage_employee_import(
+    '20000000-0000-0000-0000-000000000011',
+    '81000000-0000-0000-0000-000000000152',
+    jsonb_set(
+      pg_temp.employee_staging_payload(
+        '81000000-0000-0000-0000-000000000152',
+        'forbidden-target.xlsx'
+      ),
+      '{fieldMappings,0,targetField}',
+      '"training_history"'::jsonb
+    )
+  )$$,
+  'P3220',
+  'IMPORT_STAGING_EXCLUDED_FIELD',
+  'training-history mapping targets are rejected before persistence'
+);
+
+select throws_ok(
+  $$select public.stage_employee_import(
+    '20000000-0000-0000-0000-000000000011',
+    '81000000-0000-0000-0000-000000000153',
+    jsonb_set(
+      pg_temp.employee_staging_payload(
+        '81000000-0000-0000-0000-000000000153',
+        'forbidden-normalized.xlsx'
+      ),
+      '{rows,0,normalizedValues}',
+      '{
+        "employee_number": "0007",
+        "gtc_completion": true,
+        "attendance": 1,
+        "feedback": "synthetic",
+        "risk": "synthetic",
+        "kpi_score": 99
+      }'::jsonb
+    )
+  )$$,
+  'P3220',
+  'IMPORT_STAGING_EXCLUDED_FIELD',
+  'completion attendance feedback risk and KPI normalized keys are rejected'
+);
+
+select throws_ok(
+  $$select public.stage_employee_import(
+    '20000000-0000-0000-0000-000000000011',
+    '81000000-0000-0000-0000-000000000154',
+    jsonb_set(
+      pg_temp.employee_staging_payload(
+        '81000000-0000-0000-0000-000000000154',
+        'unmapped-raw.xlsx'
+      ),
+      '{rows,0,rawValues}',
+      '{"Empid": "0007", "Unmapped Note": "synthetic"}'::jsonb
+    )
+  )$$,
+  'P3220',
+  'IMPORT_STAGING_FIELD_ALLOWLIST_INVALID',
+  'raw row keys must be allowlisted by the submitted field mappings'
+);
+
+select results_eq(
+  $$select
+      (select count(*)
+       from public.import_batches
+       where id in (
+         '81000000-0000-0000-0000-000000000151',
+         '81000000-0000-0000-0000-000000000152',
+         '81000000-0000-0000-0000-000000000153',
+         '81000000-0000-0000-0000-000000000154'
+       )),
+      (select count(*)
+       from public.import_sheets
+       where import_batch_id in (
+         '81000000-0000-0000-0000-000000000151',
+         '81000000-0000-0000-0000-000000000152',
+         '81000000-0000-0000-0000-000000000153',
+         '81000000-0000-0000-0000-000000000154'
+       )),
+      (select count(*)
+       from public.import_source_rows
+       where import_batch_id in (
+         '81000000-0000-0000-0000-000000000151',
+         '81000000-0000-0000-0000-000000000152',
+         '81000000-0000-0000-0000-000000000153',
+         '81000000-0000-0000-0000-000000000154'
+       )),
+      (select count(*)
+       from public.import_activity_events
+       where import_batch_id in (
+         '81000000-0000-0000-0000-000000000151',
+         '81000000-0000-0000-0000-000000000152',
+         '81000000-0000-0000-0000-000000000153',
+         '81000000-0000-0000-0000-000000000154'
+       ))$$,
+  $$values (0::bigint, 0::bigint, 0::bigint, 0::bigint)$$,
+  'every rejected excluded or unallowlisted payload is atomic'
 );
 
 select * from finish();

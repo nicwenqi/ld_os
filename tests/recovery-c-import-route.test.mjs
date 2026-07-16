@@ -17,11 +17,13 @@ const actorCalls = {
 let authorizationMode = "manager";
 let rpcFailure = null;
 let uploadFailure = null;
+let removalFailuresRemaining = 0;
 
 function resetState() {
   authorizationMode = "manager";
   rpcFailure = null;
   uploadFailure = null;
+  removalFailuresRemaining = 0;
   for (const value of Object.values(actorCalls)) value.length = 0;
 }
 
@@ -77,7 +79,20 @@ const actorClient = {
         async remove(paths) {
           actorCalls.events.push(`remove:${paths.join(",")}`);
           actorCalls.removals.push({ bucket, paths });
-          return { error: null };
+          if (removalFailuresRemaining > 0) {
+            removalFailuresRemaining -= 1;
+            return {
+              data: null,
+              error: {
+                code: "storage_cleanup_failure",
+                message: "synthetic cleanup failure",
+              },
+            };
+          }
+          return {
+            data: paths.map(name => ({ name })),
+            error: null,
+          };
         },
       };
     },
@@ -306,7 +321,7 @@ test("an atomic staging failure removes only the just-uploaded private object an
   assert.deepEqual(actorCalls.directTables, []);
 });
 
-test("a failed private upload never calls the database staging RPC", async () => {
+test("a failed private upload never calls the database staging RPC or attempts object deletion", async () => {
   resetState();
   uploadFailure = { code: "storage_failure", message: "synthetic upload failure" };
 
@@ -314,6 +329,49 @@ test("a failed private upload never calls the database staging RPC", async () =>
 
   assert.equal(response.status, 422);
   assert.deepEqual(actorCalls.rpcs, []);
-  assert.equal(actorCalls.removals.length, 1);
-  assert.deepEqual(actorCalls.removals[0].paths, [actorCalls.uploads[0].path]);
+  assert.deepEqual(actorCalls.removals, []);
+});
+
+test("cleanup retries once and preserves the ordinary staging failure when the exact second removal succeeds", async () => {
+  resetState();
+  rpcFailure = { code: "23514", message: "synthetic staging failure" };
+  removalFailuresRemaining = 1;
+
+  const response = await createHandler()(importRequest());
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.message, "工作簿暂存失败，请重试");
+  assert.equal(actorCalls.removals.length, 2);
+  assert.deepEqual(
+    actorCalls.removals.map(call => call.paths),
+    [
+      [actorCalls.uploads[0].path],
+      [actorCalls.uploads[0].path],
+    ],
+  );
+});
+
+test("exhausted exact-path cleanup returns a distinct aggregate-only failure without leaking object or row evidence", async () => {
+  resetState();
+  rpcFailure = { code: "23514", message: "synthetic staging failure" };
+  removalFailuresRemaining = 2;
+
+  const response = await createHandler()(importRequest());
+  const body = await response.json();
+  const serialized = JSON.stringify(body);
+
+  assert.equal(response.status, 500);
+  assert.equal(
+    body.message,
+    "工作簿暂存失败，临时文件清理未完成，请联系管理员",
+  );
+  assert.equal(actorCalls.removals.length, 2);
+  assert.doesNotMatch(serialized, /synthetic-recovery-c\.xlsx/);
+  assert.doesNotMatch(serialized, /0007|示例员工|Front Office/);
+  assert.doesNotMatch(serialized, /[0-9a-f]{64}/i);
+  assert.doesNotMatch(
+    serialized,
+    /00000000-0000-4000-8000-00000000000[23]/,
+  );
 });
