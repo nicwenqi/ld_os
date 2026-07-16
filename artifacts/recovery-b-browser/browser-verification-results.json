@@ -1,0 +1,1377 @@
+{
+  "preview": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app",
+  "startedAt": "2026-07-16T12:34:05.092Z",
+  "screenshots": [
+    {
+      "label": "Manager administration navigation · desktop",
+      "file": "01-manager-administration-navigation-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Hotel settings · desktop",
+      "file": "02-hotel-settings-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Hotel settings saved state · desktop",
+      "file": "03-hotel-settings-saved-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Hotel settings validation state · desktop",
+      "file": "04-hotel-settings-validation-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Official department hierarchy · desktop",
+      "file": "05-official-department-hierarchy-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Department detail and actions · desktop",
+      "file": "06-department-detail-actions-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Position management · desktop",
+      "file": "07-position-management-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Position-family management · desktop",
+      "file": "08-position-family-management-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Account and role management · desktop",
+      "file": "09-account-role-management-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Department-scope assignment · desktop",
+      "file": "10-department-scope-assignment-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Five-section activation flow · desktop",
+      "file": "11-five-section-activation-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Activation readiness review · desktop",
+      "file": "12-activation-readiness-review-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Manager administration navigation · tablet",
+      "file": "13-manager-administration-navigation-tablet.png",
+      "viewport": {
+        "width": 900,
+        "height": 1100
+      }
+    },
+    {
+      "label": "Hotel settings · tablet",
+      "file": "14-hotel-settings-tablet.png",
+      "viewport": {
+        "width": 900,
+        "height": 1100
+      }
+    },
+    {
+      "label": "Organization management · tablet",
+      "file": "15-organization-tablet.png",
+      "viewport": {
+        "width": 900,
+        "height": 1100
+      }
+    },
+    {
+      "label": "Department scope · tablet",
+      "file": "16-department-scope-tablet.png",
+      "viewport": {
+        "width": 900,
+        "height": 1100
+      }
+    },
+    {
+      "label": "Manager administration navigation · mobile",
+      "file": "17-manager-administration-navigation-mobile.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "label": "Hotel settings · mobile",
+      "file": "18-hotel-settings-mobile.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "label": "Department detail and actions · mobile",
+      "file": "19-department-detail-mobile.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "label": "Position management · mobile",
+      "file": "20-position-management-mobile.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "label": "Department-scope assignment · mobile",
+      "file": "21-department-scope-mobile.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "label": "Activation readiness · mobile",
+      "file": "22-activation-readiness-mobile.png",
+      "viewport": {
+        "width": 390,
+        "height": 844
+      }
+    },
+    {
+      "label": "Department workspace · desktop",
+      "file": "23-department-workspace-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    },
+    {
+      "label": "Department role forbidden administration · desktop",
+      "file": "24-department-forbidden-administration-desktop.png",
+      "viewport": {
+        "width": 1440,
+        "height": 1000
+      }
+    }
+  ],
+  "checks": [
+    {
+      "check": "manager login succeeds on first submit",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "manager login reaches approved workspace",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "manager navigation exposes dedicated administration routes",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "manager home desktop has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":1440,\"scrollWidth\":1440,\"bodyScrollWidth\":1440}"
+    },
+    {
+      "check": "manager home desktop has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 35,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "manager home desktop keyboard focus is visible",
+      "passed": true,
+      "detail": [
+        {
+          "tag": "A",
+          "label": "员工资料更新Employee data update",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "组织架构Organization",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "职位体系Positions",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "账号与部门授权Accounts & department scope",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "酒店设置Hotel settings",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        }
+      ]
+    },
+    {
+      "check": "manager navigation opens hotel settings",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/settings/hotel"
+    },
+    {
+      "check": "hotel settings desktop has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":1440,\"scrollWidth\":1440,\"bodyScrollWidth\":1440}"
+    },
+    {
+      "check": "hotel settings desktop has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 62,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "hotel settings dirty state is visible",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "hotel settings saved state is visible",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "hotel settings validation is business-readable",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "organization hierarchy shows arbitrary depth",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "department detail exposes save and move preview actions",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "organization desktop has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":1440,\"scrollWidth\":1440,\"bodyScrollWidth\":1440}"
+    },
+    {
+      "check": "organization desktop has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 32,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "position and family editors are both reachable",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "positions desktop has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":1440,\"scrollWidth\":1440,\"bodyScrollWidth\":1440}"
+    },
+    {
+      "check": "positions desktop has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 32,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "department account shows explicit authorized scope",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "accounts desktop has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":1440,\"scrollWidth\":1440,\"bodyScrollWidth\":1440}"
+    },
+    {
+      "check": "accounts desktop has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 32,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "desktop activation review step is reachable",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "activation is finite and escapable",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "activation return path reaches manager home",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "manager login succeeds on first submit",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "manager login reaches approved workspace",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "hotel settings tablet has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":900,\"scrollWidth\":900,\"bodyScrollWidth\":900}"
+    },
+    {
+      "check": "hotel settings tablet has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 61,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "organization tablet has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":900,\"scrollWidth\":900,\"bodyScrollWidth\":900}"
+    },
+    {
+      "check": "organization tablet has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 31,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "accounts tablet has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":900,\"scrollWidth\":900,\"bodyScrollWidth\":900}"
+    },
+    {
+      "check": "accounts tablet has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 31,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "manager login succeeds on first submit",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "manager login reaches approved workspace",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/"
+    },
+    {
+      "check": "manager navigation mobile has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390}"
+    },
+    {
+      "check": "manager navigation mobile has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 27,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "manager navigation mobile primary touch targets are practical",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "hotel settings mobile has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390}"
+    },
+    {
+      "check": "hotel settings mobile has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 60,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "hotel settings mobile primary touch targets are practical",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "hotel settings mobile keyboard focus is visible",
+      "passed": true,
+      "detail": [
+        {
+          "tag": "A",
+          "label": "跳到主要内容",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "运营工作台Operations home",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "培训日历Training calendar未接入",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "培训场次Training sessions未接入",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        },
+        {
+          "tag": "A",
+          "label": "出勤与反馈Attendance & feedback未接入",
+          "outlineStyle": "solid",
+          "outlineWidth": "3px"
+        }
+      ]
+    },
+    {
+      "check": "organization mobile has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390}"
+    },
+    {
+      "check": "organization mobile has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 30,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "organization mobile primary touch targets are practical",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "positions mobile has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390}"
+    },
+    {
+      "check": "positions mobile has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 30,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "positions mobile primary touch targets are practical",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "accounts mobile has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390}"
+    },
+    {
+      "check": "accounts mobile has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 30,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Daily operations",
+            "size": 9
+          },
+          {
+            "text": "Operations home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Employees",
+            "size": 9
+          },
+          {
+            "text": "Interventions & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "accounts mobile primary touch targets are practical",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "mobile activation review step is reachable",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "activation mobile has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":390,\"scrollWidth\":390,\"bodyScrollWidth\":390}"
+    },
+    {
+      "check": "activation mobile has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 21,
+        "examples": [
+          {
+            "text": "以服务器保存状态为准",
+            "size": 8.8
+          },
+          {
+            "text": "酒店启用",
+            "size": 9
+          },
+          {
+            "text": "✓",
+            "size": 9
+          },
+          {
+            "text": "Hotel Information & Rules",
+            "size": 9
+          },
+          {
+            "text": "已完成",
+            "size": 8
+          },
+          {
+            "text": "✓",
+            "size": 9
+          },
+          {
+            "text": "Official Departments",
+            "size": 9
+          },
+          {
+            "text": "已完成",
+            "size": 8
+          },
+          {
+            "text": "✓",
+            "size": 9
+          },
+          {
+            "text": "Manager Account",
+            "size": 9
+          },
+          {
+            "text": "已完成",
+            "size": 8
+          },
+          {
+            "text": "4",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "activation mobile primary touch targets are practical",
+      "passed": true,
+      "detail": []
+    },
+    {
+      "check": "department login succeeds on first submit",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/department"
+    },
+    {
+      "check": "department login reaches approved workspace",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/department"
+    },
+    {
+      "check": "department navigation hides hotel administration",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "department workspace shows authorized scope",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "department home desktop has no horizontal overflow",
+      "passed": true,
+      "detail": "{\"innerWidth\":1440,\"scrollWidth\":1440,\"bodyScrollWidth\":1440}"
+    },
+    {
+      "check": "department home desktop has no unreadable sub-8px text",
+      "passed": true,
+      "detail": {
+        "sub10Count": 17,
+        "examples": [
+          {
+            "text": "Hotel L&D Operations",
+            "size": 9
+          },
+          {
+            "text": "Department operations",
+            "size": 9
+          },
+          {
+            "text": "Department home",
+            "size": 9
+          },
+          {
+            "text": "Training calendar",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Training sessions",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Department employees",
+            "size": 9
+          },
+          {
+            "text": "Attendance & feedback",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          },
+          {
+            "text": "Make-up & reminders",
+            "size": 9
+          },
+          {
+            "text": "未接入",
+            "size": 9
+          }
+        ]
+      }
+    },
+    {
+      "check": "department direct hotel-settings route is denied",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/access-denied"
+    },
+    {
+      "check": "access-denied page provides a scoped return path",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "check": "department forbidden-route return reaches department home",
+      "passed": true,
+      "detail": "https://hotel-ld-d0ocqzgin-nicwenqis-projects.vercel.app/department"
+    }
+  ],
+  "consoleErrors": [],
+  "pageErrors": [],
+  "failedRequests": [],
+  "errorResponses": [],
+  "finishedAt": "2026-07-16T12:34:52.677Z",
+  "summary": {
+    "checks": 64,
+    "passed": 64,
+    "failed": 0,
+    "screenshots": 24,
+    "consoleErrors": 0,
+    "pageErrors": 0,
+    "failedRequests": 0,
+    "errorResponses": 0
+  }
+}
