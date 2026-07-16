@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(20);
+select plan(25);
 
 select has_table('public', 'property_brand_assets', 'property brand asset metadata exists');
 select results_eq(
@@ -24,6 +24,21 @@ select results_eq(
       and policyname like 'property_brand_assets_%' and cmd = 'SELECT'$$,
   array[1::bigint],
   'authenticated metadata SELECT exists for management operations, not public retrieval restriction'
+);
+
+reset role;
+insert into public.user_accounts (
+  id,user_id,auth_user_id,tenant_id,property_id,login_id,
+  account_status,must_change_password
+) values (
+  '70000000-0000-0000-0000-000000000103',
+  '00000000-0000-0000-0000-000000000103',
+  '00000000-0000-0000-0000-000000000103',
+  '10000000-0000-0000-0000-000000000001',
+  '20000000-0000-0000-0000-000000000011',
+  'storage-security-manager',
+  'active',
+  false
 );
 
 set local role anon;
@@ -153,6 +168,64 @@ select results_eq(
     where object_path like '%employees%' or mime_type not in ('image/png', 'image/jpeg', 'image/webp')$$,
   array[0::bigint],
   'branding metadata contains no workbook or private file'
+);
+select lives_ok(
+  $$insert into public.import_batches(
+      id,tenant_id,property_id,source_system,original_filename,
+      sanitized_filename,storage_object_path,file_checksum,file_size_bytes,
+      mime_type,status,created_by
+    ) values (
+      '81000000-0000-0000-0000-00000000f001',
+      '10000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000011',
+      'storage-retention-fixture',
+      'retained.csv',
+      'retained.csv',
+      '10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv',
+      'storage-retention',
+      100,
+      'text/csv',
+      'inspecting',
+      auth.uid()
+    )$$,
+  'manager creates a property-owned private workbook batch'
+);
+select lives_ok(
+  $$insert into storage.objects(bucket_id,name,owner_id)
+    values (
+      'property-import-files',
+      '10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv',
+      auth.uid()
+    )$$,
+  'manager may create the immutable private workbook object once'
+);
+select results_eq(
+  $$with attempted as (
+      update storage.objects
+      set metadata = '{"spoofed":true}'::jsonb
+      where bucket_id = 'property-import-files'
+        and name = '10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv'
+      returning id
+    )
+    select count(*) from attempted$$,
+  array[0::bigint],
+  'private workbook overwrite is denied by Storage RLS'
+);
+select throws_ok(
+  $$delete from storage.objects
+    where bucket_id = 'property-import-files'
+      and name = '10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv'$$,
+  '42501',
+  'Direct deletion from storage tables is not allowed. Use the Storage API instead.',
+  'private workbook delete is denied by Storage RLS'
+);
+select results_eq(
+  $$select count(*) from storage.objects
+    where bucket_id = 'property-import-files'
+      and name = '10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv'
+      and coalesce(metadata, '{}'::jsonb) = '{}'::jsonb$$,
+  array[1::bigint],
+  'private workbook evidence remains present and unchanged'
 );
 
 select * from finish();
