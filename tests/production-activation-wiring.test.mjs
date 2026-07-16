@@ -87,8 +87,8 @@ test("production routes use server-authorized property context and never accept 
   assert.match(contextRoute, /resolveRequestHostname/);
   assert.match(inspectionRoute, /requireProductionPropertyManager/);
   assert.match(inspectionRoute, /property-import-files/);
-  assert.match(inspectionRoute, /file_checksum:\s*prepared\.inspection\.checksum/);
-  assert.doesNotMatch(inspectionRoute, /file_checksum:\s*prepared\.safeSummary\.checksum/);
+  assert.match(inspectionRoute, /fileChecksum:\s*prepared\.inspection\.checksum/);
+  assert.doesNotMatch(inspectionRoute, /fileChecksum:\s*prepared\.safeSummary\.checksum/);
   assert.doesNotMatch(inspectionRoute, /form\.get\(["']propertyId["']\)/);
   assert.match(tokenRoute, /resolveAuthenticatedRequest/);
   assert.match(tokenRoute, /["']Cache-Control["']\s*:\s*["']no-store["']/);

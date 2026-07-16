@@ -1,6 +1,6 @@
 import { parseAppEnvironment } from "../lib/environment.ts";
 import { resolveRequestHostname } from "../lib/request-hostname.ts";
-import { createServerAdminClient } from "../lib/supabase/server-admin.ts";
+import { createServerActorClient } from "../lib/supabase/server-admin.ts";
 import { resolveAuthenticatedRequest } from "./request-authentication.ts";
 import { authCookies } from "../api/auth/cookies.ts";
 
@@ -33,8 +33,12 @@ export async function requirePropertyManager(request: Request): Promise<Property
   if (!resolved) throw new AuthorizationError(401, "登录已失效");
   const session = resolved.session;
   if (!session.authenticated || session.role !== "property_ld_manager" || !session.propertyId) throw new AuthorizationError(403, "仅酒店学习与发展经理可管理酒店后台设置");
-  const admin = createServerAdminClient();
-  const { data: property, error: propertyError } = await admin.from("properties").select("tenant_id,status").eq("id", session.propertyId).maybeSingle();
+  const actorClient = createServerActorClient(resolved.accessToken);
+  const { data: property, error: propertyError } = await actorClient
+    .from("properties")
+    .select("tenant_id,status")
+    .eq("id", session.propertyId)
+    .maybeSingle();
   if (propertyError || !property || property.status !== "active") throw new AuthorizationError(403, "当前酒店不可用");
   return {
     authUserId: session.userId!,

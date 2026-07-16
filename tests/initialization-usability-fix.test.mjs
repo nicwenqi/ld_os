@@ -63,8 +63,10 @@ test("activation requires only identity, rules, one active department, and one a
 
 test("production inspection stages source-label mappings but never employees", async () => {
   const route = await readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8");
-  assert.match(route, /department_aliases/);
-  assert.match(route, /position_aliases/);
-  assert.match(route, /source_batch_id/);
+  assert.match(route, /stage_employee_import/);
+  assert.match(route, /sourceLabels/);
+  assert.match(route, /resolutionType:\s*"department"/);
+  assert.match(route, /resolutionType:\s*"position"/);
+  assert.doesNotMatch(route, /department_aliases|position_aliases/);
   assert.doesNotMatch(route, /from\(["']employees["']\).*insert/s);
 });

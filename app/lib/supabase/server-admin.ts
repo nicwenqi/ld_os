@@ -21,9 +21,11 @@ export function createServerPasswordClient(): SupabaseClient {
 }
 
 export function createServerActorClient(accessToken: string): SupabaseClient {
+  const token = accessToken.trim();
+  if (!token) throw new Error("服务端用户访问令牌不可用");
   const environment = serverEnvironment();
   return createClient(environment.url, environment.publishableKey, {
     ...serverAuthOptions,
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+    global: { headers: { Authorization: `Bearer ${token}` } },
   });
 }
