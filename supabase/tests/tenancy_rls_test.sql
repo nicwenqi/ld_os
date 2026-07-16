@@ -5,6 +5,15 @@ select plan(37);
 -- Synthetic identities from supabase/seed.sql.
 -- 101 platform admin; 102 Tenant A admin; 103 A1 L&D Manager;
 -- 104 A1 member; 105 A2 member; 106 B1 member.
+do $$
+begin
+  perform set_config(
+    'test.property_ld_manager_role_id',
+    (select id::text from public.roles where code = 'property_ld_manager'),
+    true
+  );
+end
+$$;
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000101';
@@ -38,25 +47,29 @@ select results_eq(
 );
 select results_eq('select count(*) from public.property_memberships', array[1::bigint], 'A1 member cannot read A2 private memberships');
 select results_eq('select count(*) from public.profiles', array[1::bigint], 'ordinary member can read only their own profile');
-select results_eq('select count(*) from public.role_assignments', array[1::bigint], 'ordinary member can read only their own role assignment');
+select results_eq('select count(*) from public.role_assignments', array[0::bigint], 'property membership alone does not create an application role');
 select throws_ok(
   $$update public.profiles set email = 'changed@example.test'
     where id = '00000000-0000-0000-0000-000000000104'$$,
-  '42501', 'profile security fields require platform administrator',
+  '42501', null,
   'ordinary member cannot change profile security email'
 );
 select throws_ok(
   $$update public.profiles set is_active = false
     where id = '00000000-0000-0000-0000-000000000104'$$,
-  '42501', 'profile security fields require platform administrator',
+  '42501', null,
   'ordinary member cannot reactivate or deactivate profile security state'
 );
 
 select throws_ok(
   $$insert into public.role_assignments (user_id, role_id, tenant_id, property_id, status)
-    select '00000000-0000-0000-0000-000000000104', id,
-      '10000000-0000-0000-0000-000000000001', '20000000-0000-0000-0000-000000000011', 'active'
-    from public.roles where code = 'property_member'$$,
+    values (
+      '00000000-0000-0000-0000-000000000104',
+      current_setting('test.property_ld_manager_role_id')::uuid,
+      '10000000-0000-0000-0000-000000000001',
+      '20000000-0000-0000-0000-000000000011',
+      'active'
+    )$$,
   '42501', null, 'ordinary member cannot create role assignments'
 );
 

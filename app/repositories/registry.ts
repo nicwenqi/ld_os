@@ -1,5 +1,9 @@
 import type { AppDataMode } from "../lib/environment.ts";
-import { parseAppEnvironment, type AppEnvironment } from "../lib/environment.ts";
+import {
+  assertProductionDataBoundary,
+  parseAppEnvironment,
+  type AppEnvironment,
+} from "../lib/environment.ts";
 import { createBrowserSupabaseClient } from "../lib/supabase/browser.ts";
 import type { RepositoryDataSource } from "./contracts/models.ts";
 import type { PropertyRepository } from "./contracts/property-repository.ts";
@@ -59,6 +63,7 @@ export function createRepositoryRegistry(input?: {
   initializationRepository?: InitializationRepository;
 }) {
   const environment = input?.environment ?? parseAppEnvironment();
+  assertProductionDataBoundary(environment.appEnv, environment.dataMode);
   const needsSupabase = environment.dataMode !== "mock";
   const client = needsSupabase ? createBrowserSupabaseClient(environment) : null;
   const propertySource = dataSourceForModule("hotel-settings", environment.dataMode);

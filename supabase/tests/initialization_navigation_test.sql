@@ -7,7 +7,7 @@ select has_function('public','save_property_initialization_navigation',array['uu
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000104';
 select throws_ok(
-  $$select public.save_property_initialization_navigation('20000000-0000-0000-0000-000000000011'::uuid,8::smallint,null::bigint)$$,
+  $$select public.save_property_initialization_navigation('20000000-0000-0000-0000-000000000011'::uuid,5::smallint,null::bigint)$$,
   'P4021',null,'ordinary member cannot change wizard navigation state'
 );
 
@@ -17,12 +17,12 @@ select lives_ok(
   'manager can establish a confirmed step before navigation'
 );
 select lives_ok(
-  $$select public.save_property_initialization_navigation('20000000-0000-0000-0000-000000000011'::uuid,8::smallint,null::bigint)$$,
+  $$select public.save_property_initialization_navigation('20000000-0000-0000-0000-000000000011'::uuid,5::smallint,null::bigint)$$,
   'manager can navigate to readiness review'
 );
 select results_eq(
   $$select (public.get_property_initialization_progress('20000000-0000-0000-0000-000000000011')->>'lastActiveStep')::int$$,
-  array[8],
+  array[5],
   'navigation persists the last active step'
 );
 select results_eq(

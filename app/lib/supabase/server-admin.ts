@@ -19,3 +19,11 @@ export function createServerPasswordClient(): SupabaseClient {
   const environment = serverEnvironment();
   return createClient(environment.url, environment.publishableKey, serverAuthOptions);
 }
+
+export function createServerActorClient(accessToken: string): SupabaseClient {
+  const environment = serverEnvironment();
+  return createClient(environment.url, environment.publishableKey, {
+    ...serverAuthOptions,
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+}

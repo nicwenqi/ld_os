@@ -115,6 +115,20 @@ export function createMockPropertyRepository(): PropertyRepository {
     },
 
     async uploadLogo(input: UploadPropertyLogoInput) {
+      if (browserAvailable()) {
+        const dataUrl = await fileToDataUrl(input.file);
+        return propertyRequest("", {
+          action: "logo",
+          input: {
+            tenantId: input.tenantId,
+            propertyId: input.propertyId,
+            fileName: input.file.name,
+            mimeType: input.file.type,
+            byteSize: input.file.size,
+            dataUrl,
+          },
+        });
+      }
       if (input.tenantId !== tenantId || input.propertyId !== propertyId) throw new Error("无权写入其他酒店的品牌路径");
       const extension = extensionForMime(input.file.type);
       if (!extension) throw new Error("仅支持 PNG、JPEG 或 WebP 酒店标识");
@@ -144,6 +158,9 @@ export function createMockPropertyRepository(): PropertyRepository {
     },
 
     async cleanupExpiredLogos(candidatePropertyId) {
+      if (browserAvailable()) {
+        return propertyRequest("", { action: "cleanup", propertyId: candidatePropertyId });
+      }
       if (candidatePropertyId !== propertyId) throw new Error("未找到当前酒店资料");
       const now = Date.now();
       const expired = assets.filter(asset => !asset.isCurrent && asset.retentionUntil && Date.parse(asset.retentionUntil) <= now);
@@ -155,6 +172,7 @@ export function createMockPropertyRepository(): PropertyRepository {
 
 function browserAvailable(){return typeof window!=="undefined"}
 async function propertyRequest(path:string,body?:unknown){const response=await fetch(`/api/mock-property${path}`,body?{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}:{cache:"no-store"});const payload=await response.json();if(!response.ok){if(response.status===404)return null;throw new Error(payload.message??"无法读取本地酒店资料")}return payload}
+async function fileToDataUrl(file:File):Promise<string>{return new Promise((resolve,reject)=>{const reader=new FileReader();reader.addEventListener("load",()=>typeof reader.result==="string"?resolve(reader.result):reject(new Error("无法读取酒店标识")));reader.addEventListener("error",()=>reject(new Error("无法读取酒店标识")));reader.readAsDataURL(file)})}
 
 function required(value: string, label: string): string {
   const trimmed = value.trim();

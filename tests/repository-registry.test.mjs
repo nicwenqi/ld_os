@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { dataSourceForModule } from "../app/repositories/registry.ts";
+import {
+  createRepositoryRegistry,
+  dataSourceForModule,
+} from "../app/repositories/registry.ts";
 
 test("training operation modules are unavailable until repositories exist",()=>{
   for (const mode of ["mock","hybrid","supabase"]) {
@@ -18,4 +21,21 @@ test("hybrid and Supabase modes use real repositories only for validated foundat
   for (const mode of ["hybrid","supabase"]) {
     for (const moduleName of ["hotel-settings","organization-management","position-management","people","import"]) assert.equal(dataSourceForModule(moduleName,mode),"supabase");
   }
+});
+
+test("the registry rejects an injected production environment that requests mock repositories",()=>{
+  assert.throws(
+    () => createRepositoryRegistry({
+      environment: {
+        appEnv: "production",
+        dataMode: "mock",
+        appBaseDomain: "ldchub.cn",
+        devPropertyHostname: null,
+        previewPropertyHostname: null,
+        supabaseUrl: null,
+        supabasePublishableKey: null,
+      },
+    }),
+    /Production cannot use local-review repositories/,
+  );
 });

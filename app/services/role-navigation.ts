@@ -44,10 +44,11 @@ const managerGroups: NavigationGroup[] = [
     collapsible: true,
     items: [
       item("员工资料更新", "Employee data update", "/import", "foundation"),
-      item("组织与职位", "Organization & positions", "/permissions?section=organization", "foundation"),
-      item("账号与角色", "Accounts & roles", "/permissions?section=access", "foundation"),
+      item("组织架构", "Organization", "/organization", "foundation"),
+      item("职位体系", "Positions", "/positions", "foundation"),
+      item("账号与部门授权", "Accounts & department scope", "/accounts", "foundation"),
       item("酒店设置", "Hotel settings", "/settings/hotel", "foundation"),
-      item("启用与系统检查", "Activation & system check", "/initialize", "foundation"),
+      item("酒店启用", "Hotel activation", "/initialize", "foundation"),
     ],
   },
 ];

@@ -9,6 +9,7 @@ import { createRepositoryRegistry } from "./repositories/registry.ts";
 import {
   formatFoundationCount,
   loadFoundationReadiness,
+  organizationConfirmationDetail,
   type FoundationReadinessSnapshot,
 } from "./services/foundation-readiness.ts";
 import { useAuthSession } from "./state/auth-session";
@@ -84,6 +85,12 @@ function ManagerCommandCenter() {
         : "最低可用条件待完成";
   const verifiedPositive =
     snapshot.presentationState === "real" && snapshot.readiness.minimumReady === true;
+  const operatingBoundaryTitle =
+    snapshot.readiness.minimumReady === true
+      ? "酒店基础管理已可使用，培训运营判断等待真实事实"
+      : snapshot.readiness.minimumReady === false
+        ? "酒店基础仍在准备，培训运营判断等待真实事实"
+        : "酒店基础状态不完整，培训运营判断暂不可用";
 
   return (
     <AppShell>
@@ -113,8 +120,8 @@ function ManagerCommandCenter() {
         <section className="operating-verdict">
           <div className="verdict-copy">
             <DataStateBadge state="unavailable" />
-            <span className="verdict-kicker">当前运营判断</span>
-            <h2>当前无法判断酒店培训运营是否受控</h2>
+            <span className="verdict-kicker">当前数据边界</span>
+            <h2>{operatingBoundaryTitle}</h2>
             <p>
               酒店身份、组织、职位与员工主数据可用于基础管理；真实培训计划、场次、出勤、反馈与 KPI
               实际尚未接入，因此不显示健康分、风险、预测或干预结果。
@@ -143,7 +150,10 @@ function ManagerCommandCenter() {
             <FactCard
               value={formatFoundationCount(snapshot.facts.activeDepartments)}
               label="有效正式部门"
-              detail={factDetail(snapshot.facts.activeDepartments, "用于组织归属与权限范围")}
+              detail={organizationConfirmationDetail(
+                snapshot.facts.activeDepartments,
+                snapshot.readiness.organizationConfirmed,
+              )}
             />
             <FactCard
               value={formatFoundationCount(snapshot.facts.activeEmployees)}
@@ -228,7 +238,8 @@ function ManagerCommandCenter() {
           </div>
           <nav aria-label="酒店基础管理快捷入口">
             <Link href="/settings/hotel">酒店设置</Link>
-            <Link href="/permissions?section=organization">组织与职位</Link>
+            <Link href="/organization">组织架构</Link>
+            <Link href="/positions">职位体系</Link>
             <Link href="/import">员工资料更新</Link>
             <Link href="/people">员工主数据</Link>
           </nav>

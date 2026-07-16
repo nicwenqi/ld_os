@@ -14,13 +14,17 @@ export type AuthenticatedRequest = {
 
 export type RequestAuthIdentity = Omit<AuthenticatedRequest, "session"> & { userId: string; hostname: string };
 
-export function canReleaseBrowserAccessToken(session: AuthSession) {
+function isApprovedBackendSession(session: AuthSession) {
   return Boolean(
     session.authenticated &&
       session.propertyId &&
       (session.role === "property_ld_manager" ||
         session.role === "department_training_responsible"),
   );
+}
+
+export function canReleaseBrowserAccessToken(session: AuthSession) {
+  return isApprovedBackendSession(session) && !session.mustChangePassword;
 }
 
 export async function resolveRequestAuthIdentity(request: Request): Promise<RequestAuthIdentity | null> {
@@ -53,9 +57,21 @@ export async function resolveRequestAuthIdentity(request: Request): Promise<Requ
 }
 
 export async function resolveAuthenticatedRequest(request: Request): Promise<AuthenticatedRequest | null> {
+  return resolveBackendRequest(request, false);
+}
+
+export async function resolvePasswordChangeRequest(request: Request): Promise<AuthenticatedRequest | null> {
+  return resolveBackendRequest(request, true);
+}
+
+async function resolveBackendRequest(
+  request: Request,
+  allowPasswordChangeRequired: boolean,
+): Promise<AuthenticatedRequest | null> {
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) return null;
   const session = await resolveSessionForAuthUser(identity.userId, identity.hostname);
-  if (!canReleaseBrowserAccessToken(session)) return null;
+  if (!isApprovedBackendSession(session)) return null;
+  if (!allowPasswordChangeRequired && session.mustChangePassword) return null;
   return { session, accessToken: identity.accessToken, refreshToken: identity.refreshToken, refreshed: identity.refreshed };
 }

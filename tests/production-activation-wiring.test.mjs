@@ -111,8 +111,9 @@ test("access-token release is limited by the server-resolved workspace role", as
   );
   assert.match(
     requestAuthentication,
-    /canReleaseBrowserAccessToken\(session\)/,
+    /resolveBackendRequest\(request, false\)/,
   );
+  assert.match(requestAuthentication, /!session\.mustChangePassword/);
   assert.match(requestAuthentication, /session\.role === ["']property_ld_manager["']/);
   assert.match(
     requestAuthentication,

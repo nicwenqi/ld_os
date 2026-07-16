@@ -17,6 +17,7 @@ export type FoundationReadinessSnapshot = {
   readiness: {
     minimumReady: boolean | null;
     foundationReady: boolean | null;
+    organizationConfirmed: boolean | null;
     blockers: string[];
     nextAction: { title: string; detail: string; href: string };
   };
@@ -76,6 +77,10 @@ export async function loadFoundationReadiness(
   const progress = fulfilled(progressResult) ? progressResult.value : null;
   const access = fulfilled(accessResult) ? accessResult.value : null;
   const activeDepartments = tree ? tree.filter(node => node.isActive).length : null;
+  const organizationConfirmed =
+    activeDepartments === null || progress === null
+      ? null
+      : activeDepartments > 0 && Boolean(progress.steps.organization?.explicitlyConfirmed);
   const activePositions = positions ? positions.filter(position => position.isActive).length : null;
   const activeEmployees = employees ? employees.length : null;
   const unresolvedMappings =
@@ -140,8 +145,13 @@ export async function loadFoundationReadiness(
     readiness: {
       minimumReady: wizard?.minimumReady ?? null,
       foundationReady: wizard?.operationalReady ?? null,
+      organizationConfirmed,
       blockers: wizard?.operationalBlockingReasons ?? errors,
-      nextAction: nextAction(wizard?.nextRecommendedAction, errors.length > 0),
+      nextAction: nextAction(
+        wizard?.nextRecommendedAction,
+        errors.length > 0,
+        activeDepartments,
+      ),
     },
     facts: {
       activeDepartments,
@@ -157,6 +167,19 @@ export async function loadFoundationReadiness(
 
 export function formatFoundationCount(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : String(value);
+}
+
+export function organizationConfirmationDetail(
+  activeDepartments: number | null,
+  organizationConfirmed: boolean | null,
+) {
+  if (activeDepartments === null || organizationConfirmed === null) {
+    return "确认状态无法读取";
+  }
+  if (activeDepartments === 0) return "尚未建立有效正式部门";
+  return organizationConfirmed
+    ? "已建立并确认，可用于组织归属与部门权限"
+    : "正式部门已建立 · 待经理完成启用确认";
 }
 
 export function foundationPresentationState(
@@ -176,7 +199,11 @@ async function resolvePropertyId(registry: Registry, session: AuthSession) {
   }
 }
 
-function nextAction(recommendation: string | undefined, hasErrors: boolean) {
+function nextAction(
+  recommendation: string | undefined,
+  hasErrors: boolean,
+  activeDepartments: number | null,
+) {
   if (hasErrors) {
     return {
       title: "检查基础数据连接",
@@ -195,13 +222,23 @@ function nextAction(recommendation: string | undefined, hasErrors: boolean) {
     return { title: recommendation, detail: "完善酒店身份与培训业务口径。", href: "/settings/hotel" };
   }
   if (/管理员|访问/.test(recommendation)) {
-    return { title: recommendation, detail: "确认酒店管理员及部门授权安排。", href: "/permissions?section=access" };
+    return { title: recommendation, detail: "确认酒店管理员及部门授权安排。", href: "/accounts" };
   }
   if (/工作簿|员工主数据/.test(recommendation)) {
     return { title: recommendation, detail: "检查员工资料文件，不导入培训历史。", href: "/import" };
   }
+  if (recommendation === "确认初始组织架构") {
+    return {
+      title: "核对并确认正式组织",
+      detail:
+        activeDepartments === null
+          ? "正式部门来源暂时无法读取，请恢复后再完成启用确认。"
+          : `${activeDepartments} 个有效部门已读取；请核对层级后完成启用确认。`,
+      href: "/initialize",
+    };
+  }
   if (/组织|职位|映射|来源标签/.test(recommendation)) {
-    return { title: recommendation, detail: "维护正式组织、职位与来源归属。", href: "/permissions?section=organization" };
+    return { title: recommendation, detail: "维护正式组织、职位与来源归属。", href: "/organization" };
   }
   return { title: recommendation, detail: "继续酒店基础启用检查。", href: "/initialize" };
 }
@@ -230,6 +267,7 @@ function failedSnapshot(
     readiness: {
       minimumReady: null,
       foundationReady: null,
+      organizationConfirmed: null,
       blockers: [error],
       nextAction: {
         title: "检查酒店访问上下文",

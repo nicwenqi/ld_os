@@ -11,41 +11,43 @@ const rules = { newEmployeeDays:90, probationFieldMeaning:"confirmation_date", e
 const progress = steps => ({ lastActiveStep:1, steps });
 const facts = overrides => ({ identity, rules, activeDepartments:1, activePositions:1, inspectedEmployeeMaster:true, unresolvedDepartmentLabels:0, unresolvedPositionLabels:0, activePropertyAdministrator:true, progress:progress({ organization:{explicitlyConfirmed:true}, positions:{explicitlyConfirmed:true}, upload:{explicitlyConfirmed:true}, mapping:{explicitlyConfirmed:true}, access:{explicitlyConfirmed:true} }), ...overrides });
 
-test("wizard progress is derived from persisted facts and explicit confirmations", () => {
-  const positionPending = deriveWizardState(facts({ progress: progress({ organization:{explicitlyConfirmed:true}, upload:{explicitlyConfirmed:true}, mapping:{explicitlyConfirmed:true}, access:{explicitlyConfirmed:true} }) }));
-  assert.equal(positionPending.steps[3].complete, false);
-  assert.equal(positionPending.progressPercent, 75);
-  const positionSaved = deriveWizardState(facts({}));
-  assert.equal(positionSaved.progressPercent, 100);
-  assert.equal(positionSaved.nextRecommendedAction, "进入系统");
+test("finite activation separates minimum activation from optional operational readiness", () => {
+  const employeePending = deriveWizardState(facts({ activePositions:0, inspectedEmployeeMaster:false, unresolvedDepartmentLabels:2 }));
+  assert.equal(employeePending.minimumReady, true);
+  assert.equal(employeePending.ready, true);
+  assert.equal(employeePending.operationalReady, false);
+  assert.equal(employeePending.steps[3].blocked, false);
+  assert.equal(employeePending.nextRecommendedAction, "完成酒店启用复核");
 });
 
-test("workbook inspection, mappings and administrator access each change persisted progress", () => {
+test("employee preparation facts change optional readiness without blocking activation", () => {
   const uploadPending = deriveWizardState(facts({ inspectedEmployeeMaster:false }));
-  assert.equal(uploadPending.steps[4].complete, false);
-  assert.equal(uploadPending.nextRecommendedAction, "检查员工主数据工作簿");
+  assert.equal(uploadPending.steps[3].complete, false);
+  assert.equal(uploadPending.ready, true);
   const mappingPending = deriveWizardState(facts({ unresolvedDepartmentLabels:2 }));
-  assert.equal(mappingPending.steps[5].blocked, true);
-  assert.match(mappingPending.nextRecommendedAction, /来源标签/);
+  assert.equal(mappingPending.steps[3].blocked, false);
+  assert.equal(mappingPending.operationalReady, false);
   const accessPending = deriveWizardState(facts({ activePropertyAdministrator:false }));
-  assert.equal(accessPending.steps[6].complete, false);
-  assert.match(accessPending.nextRecommendedAction, /管理员/);
+  assert.equal(accessPending.steps[2].complete, false);
+  assert.equal(accessPending.ready, false);
+  assert.match(accessPending.nextRecommendedAction, /管理员账号/);
 });
 
-test("organization completion requires both a valid tree and persisted administrator confirmation", () => {
-  const unconfirmed = deriveWizardState(facts({ progress: progress({ positions:{explicitlyConfirmed:true}, upload:{explicitlyConfirmed:true}, mapping:{explicitlyConfirmed:true}, access:{explicitlyConfirmed:true} }) }));
-  assert.equal(unconfirmed.steps[2].complete, false);
-  assert.equal(unconfirmed.nextRecommendedAction, "确认初始组织架构");
+test("official department completion follows the persisted tree fact", () => {
+  const complete = deriveWizardState(facts({ progress: progress({}) }));
+  assert.equal(complete.steps[1].complete, true);
+  assert.equal(complete.ready, true);
 });
 
 test("saved step confirmations survive repository reload and change the derived recommendation", async () => {
   const repository=createMockInitializationRepository();
   let saved=await repository.getProgress("20000000-0000-0000-0000-000000000011");
-  for(const [stepKey,lastActiveStep] of [["organization",4],["positions",5],["upload",6],["mapping",7],["access",8]]) saved=await repository.saveStep({propertyId:"20000000-0000-0000-0000-000000000011",stepKey,lastActiveStep,explicitlyConfirmed:true,expectedVersion:saved.version});
+  for(const [stepKey,lastActiveStep] of [["organization",2],["access",3],["upload",4]]) saved=await repository.saveStep({propertyId:"20000000-0000-0000-0000-000000000011",stepKey,lastActiveStep,explicitlyConfirmed:true,expectedVersion:saved.version});
   const reloaded=await repository.getProgress("20000000-0000-0000-0000-000000000011");
   const derived=deriveWizardState(facts({progress:reloaded}));
-  assert.equal(derived.progressPercent,100);
-  assert.equal(derived.nextRecommendedAction,"进入系统");
+  assert.equal(reloaded.lastActiveStep,4);
+  assert.equal(derived.ready,true);
+  assert.equal(derived.nextRecommendedAction,"完成酒店启用复核");
 });
 
 const mappings = [
@@ -90,26 +92,27 @@ test("staging preview distinguishes blank and whitespace-only required values", 
   assert.equal(preview.readyAfterMapping,1);
 });
 
-test("wizard UI has one save-later action and scalable setup workspaces", async () => {
+test("activation UI has one save-later action and a scalable official-department workspace", async () => {
   const page = await readFile(new URL("../app/initialize/page.tsx",import.meta.url),"utf8");
   const css = await readFile(new URL("../app/initialization-wizard.css",import.meta.url),"utf8");
   const organization = await readFile(new URL("../app/initialize/OrganizationSetupStep.tsx",import.meta.url),"utf8");
-  const workbook = await readFile(new URL("../app/initialize/WorkbookSetupStep.tsx",import.meta.url),"utf8");
-  const mapping = await readFile(new URL("../app/initialize/MappingSetupStep.tsx",import.meta.url),"utf8");
   const route = await readFile(new URL("../app/api/local-workbook-inspection/route.ts",import.meta.url),"utf8");
   const progressRoute = await readFile(new URL("../app/api/mock-initialization-progress/route.ts",import.meta.url),"utf8");
   const mockProgressRepository = await readFile(new URL("../app/repositories/mock/initialization-repository.ts",import.meta.url),"utf8");
-  const source = `${page}\n${organization}\n${workbook}\n${mapping}`;
+  const source = `${page}\n${organization}`;
   assert.equal((page.match(/保存并稍后继续/g) ?? []).length,1);
-  for (const token of ["新增一级部门","新增下级部门","移动影响预览","尚未选择文件","合成测试文件","已进入私有暂存，尚未提交","仅看未处理","批量接受高置信度建议","当前筛选结果"]) assert.match(source,new RegExp(token));
+  for (const token of ["新增一级部门","新增下级部门","移动影响预览","员工资料准备不会阻塞酒店启用","启用复核"]) assert.match(source,new RegExp(token));
   assert.match(css,/wizard-organization-editor/);
   assert.match(css,/@media\(max-width:980px\)/);
-  assert.match(route,/APP_DATA_MODE/);
-  assert.match(route,/APP_ENV/);
+  assert.match(route,/parseAppEnvironment/);
+  assert.match(route,/environment\.dataMode/);
+  assert.match(route,/environment\.appEnv/);
   assert.match(route,/Cache-Control/);
   assert.doesNotMatch(route,/service_role|SUPABASE_SERVICE/);
   assert.match(progressRoute,/Cache-Control/);
-  assert.match(progressRoute,/APP_ENV/);
+  assert.match(progressRoute,/parseAppEnvironment/);
+  assert.match(progressRoute,/environment\.appEnv/);
+  assert.match(progressRoute,/environment\.dataMode/);
   assert.match(progressRoute,/expectedVersion/);
   assert.match(mockProgressRepository,/mock-initialization-progress/);
 });

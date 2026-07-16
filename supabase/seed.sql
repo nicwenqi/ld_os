@@ -60,10 +60,7 @@ insert into public.role_assignments (user_id, role_id, tenant_id, property_id, s
 select fixture.user_id, roles.id, fixture.tenant_id, fixture.property_id, 'active', now()
 from (values
   ('00000000-0000-0000-0000-000000000102'::uuid, 'tenant_admin', '10000000-0000-0000-0000-000000000001'::uuid, null::uuid),
-  ('00000000-0000-0000-0000-000000000103'::uuid, 'property_ld_manager', '10000000-0000-0000-0000-000000000001'::uuid, '20000000-0000-0000-0000-000000000011'::uuid),
-  ('00000000-0000-0000-0000-000000000104'::uuid, 'property_member', '10000000-0000-0000-0000-000000000001'::uuid, '20000000-0000-0000-0000-000000000011'::uuid),
-  ('00000000-0000-0000-0000-000000000105'::uuid, 'property_member', '10000000-0000-0000-0000-000000000001'::uuid, '20000000-0000-0000-0000-000000000012'::uuid),
-  ('00000000-0000-0000-0000-000000000106'::uuid, 'property_member', '10000000-0000-0000-0000-000000000002'::uuid, '20000000-0000-0000-0000-000000000021'::uuid)
+  ('00000000-0000-0000-0000-000000000103'::uuid, 'property_ld_manager', '10000000-0000-0000-0000-000000000001'::uuid, '20000000-0000-0000-0000-000000000011'::uuid)
 ) as fixture(user_id, role_code, tenant_id, property_id)
 join public.roles on roles.code = fixture.role_code
 on conflict do nothing;

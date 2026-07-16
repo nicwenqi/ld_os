@@ -16,6 +16,17 @@ type EnvironmentInput = Record<string, string | undefined>;
 const appEnvironments = new Set<AppEnvironmentName>(["local", "preview", "production"]);
 const dataModes = new Set<AppDataMode>(["mock", "hybrid", "supabase"]);
 
+export function assertProductionDataBoundary(
+  appEnv: AppEnvironmentName,
+  dataMode: AppDataMode,
+) {
+  if (appEnv === "production" && dataMode === "mock") {
+    throw new Error(
+      "Production cannot use local-review repositories; set APP_DATA_MODE to hybrid or supabase",
+    );
+  }
+}
+
 export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironmentInput()): AppEnvironment {
   for (const [name, value] of Object.entries(input)) {
     if (name.startsWith("NEXT_PUBLIC_") && /(SERVICE_ROLE|SECRET)/i.test(name) && clean(value))
@@ -26,6 +37,13 @@ export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironment
   const dataMode = (input.APP_DATA_MODE || "mock") as AppDataMode;
   if (!appEnvironments.has(appEnv)) throw new Error("APP_ENV must be local, preview, or production");
   if (!dataModes.has(dataMode)) throw new Error("APP_DATA_MODE must be mock, hybrid, or supabase");
+  if (input.VERCEL_ENV === "production" && appEnv !== "production") {
+    throw new Error("Vercel Production must run with APP_ENV=production");
+  }
+  if (input.VERCEL_ENV === "production") {
+    assertProductionDataBoundary("production", dataMode);
+  }
+  assertProductionDataBoundary(appEnv, dataMode);
 
   const appBaseDomain = validateHostname("APP_BASE_DOMAIN", input.APP_BASE_DOMAIN || "ldchub.cn", false)!;
   const devPropertyHostname = validateHostname("DEV_PROPERTY_HOSTNAME", input.DEV_PROPERTY_HOSTNAME);

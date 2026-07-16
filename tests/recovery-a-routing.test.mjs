@@ -36,6 +36,10 @@ test("manager and department direct-route matrices do not cross", () => {
     "/effectiveness",
     "/data-quality",
     "/import",
+    "/organization",
+    "/positions",
+    "/accounts",
+    "/change-password",
     "/permissions",
     "/settings/hotel",
     "/initialize",
@@ -50,6 +54,7 @@ test("manager and department direct-route matrices do not cross", () => {
     "/department/attendance-feedback",
     "/department/remediation",
     "/department/data",
+    "/change-password",
   ]) {
     assert.equal(
       canRoleAccessPath("department_training_responsible", pathname),

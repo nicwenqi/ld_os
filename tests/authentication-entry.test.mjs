@@ -36,7 +36,7 @@ test("minimum readiness does not hijack operational entry",()=>{
   const state=deriveWizardState({identity,rules,activeDepartments:1,activePositions:0,inspectedEmployeeMaster:false,unresolvedDepartmentLabels:2,unresolvedPositionLabels:3,activePropertyAdministrator:true,progress});
   assert.equal(state.minimumReady,true);
   assert.equal(state.operationalReady,false);
-  assert.equal(state.ready,false);
+  assert.equal(state.ready,true);
 });
 
 test("login is Chinese-first User ID and password with no selectors or email",async()=>{
@@ -94,13 +94,30 @@ test("browser repository tokens are released only to the two approved applicatio
     canReleaseBrowserAccessToken({ ...base, propertyId: null, role: "property_ld_manager" }),
     false,
   );
+  assert.equal(
+    canReleaseBrowserAccessToken({
+      ...base,
+      role: "property_ld_manager",
+      mustChangePassword: true,
+    }),
+    false,
+  );
+  assert.equal(
+    canReleaseBrowserAccessToken({
+      ...base,
+      role: "department_training_responsible",
+      mustChangePassword: true,
+    }),
+    false,
+  );
 
   const [route, guard] = await Promise.all([
     read("../app/api/auth/access-token/route.ts"),
     read("../app/services/request-authentication.ts"),
   ]);
   assert.match(route, /resolveAuthenticatedRequest/);
-  assert.match(guard, /canReleaseBrowserAccessToken\(session\)/);
+  assert.match(guard, /resolveBackendRequest\(request, false\)/);
+  assert.match(guard, /!session\.mustChangePassword/);
 });
 
 test("local login resolves the same hotel-branded property context as authentication",async()=>{
@@ -111,7 +128,9 @@ test("local login resolves the same hotel-branded property context as authentica
 
 test("approved landing pages are truthful and obsolete workspaces are absent",async()=>{
   const [root,department,denied,shell]=await Promise.all([read("../app/page.tsx"),read("../app/department/page.tsx"),read("../app/access-denied/page.tsx"),read("../app/components/shell/AppShell.tsx")]);
-  assert.match(root,/当前无法判断酒店培训运营是否受控/);
+  assert.match(root,/培训运营判断等待真实事实/);
+  assert.match(root,/尚未接入的培训运营事实/);
+  assert.doesNotMatch(root,/当前无法判断酒店培训运营是否受控/);
   assert.doesNotMatch(root,/InitializationStatusCard|replace\([^)]*initialize/);
   assert.match(department,/部门工作台/);
   assert.match(denied,/当前账号没有可用的酒店后台角色/);
@@ -131,5 +150,5 @@ test("initialization remains a manager tool with a real return and save states",
   const [page,saveState]=await Promise.all([read("../app/initialize/page.tsx"),read("../app/services/save-state.ts")]);
   assert.match(page,/返回运营首页/);
   assert.doesNotMatch(page,/tenant_admin|platform_admin/);
-  for(const token of ["未修改","有未保存更改","保存中","已保存","保存失败，点击重试"]) assert.match(saveState,new RegExp(token));
+  for(const token of ["未修改","有未保存更改","保存中","已保存","保存失败，点击重试","保存冲突，请重新读取"]) assert.match(saveState,new RegExp(token));
 });

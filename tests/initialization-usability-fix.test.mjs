@@ -25,24 +25,18 @@ test("trusted workbook staging extracts auditable department and position label 
 });
 
 test("initialization UI replaces prototype actions with operational components", async () => {
-  const [page, workbook, mapping, positions, access, settings] = await Promise.all([
+  const [page, access, settings] = await Promise.all([
     readFile(new URL("../app/initialize/page.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/initialize/WorkbookSetupStep.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/initialize/MappingSetupStep.tsx", import.meta.url), "utf8"),
-    readFile(new URL("../app/initialize/PositionSetupStep.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/initialize/AccessSetupStep.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/settings/hotel/page.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(page, /uploadLogo/);
-  assert.match(page, /PositionSetupStep/);
   assert.match(page, /AccessSetupStep/);
-  assert.match(workbook, /\/api\/import\/inspect/);
-  assert.doesNotMatch(workbook, /local-workbook-inspection/);
-  for (const token of ["选择现有部门", "创建一级部门", "分类为运营单元", "选择正式职位", "仅作为外部 LMS 角色"]) assert.match(mapping, new RegExp(token));
-  assert.doesNotMatch(`${page}\n${mapping}\n${settings}`, /本地示范|面板已打开|不上传生产环境/);
-  assert.match(positions, /savePositionFamily/);
-  assert.match(positions, /assignPositionToDepartments/);
+  assert.doesNotMatch(page, /PositionSetupStep|WorkbookSetupStep|MappingSetupStep/);
+  assert.match(page, /员工资料准备不会阻塞酒店启用/);
+  assert.doesNotMatch(`${page}\n${settings}`, /本地示范|面板已打开|不上传生产环境/);
   assert.match(access, /activePropertyManagers/);
+  assert.match(access, /\/accounts/);
 });
 
 test("administrator access is loaded through a restricted server boundary", async () => {
@@ -51,19 +45,18 @@ test("administrator access is loaded through a restricted server boundary", asyn
     readFile(new URL("../app/repositories/contracts/initialization-repository.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/repositories/supabase/initialization-repository.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(route, /requireProductionPropertyManager/);
+  assert.match(route, /requirePropertyManager/);
   assert.match(route, /property_ld_manager/);
   assert.doesNotMatch(route, /service.role|user_metadata/i);
   assert.match(contract, /getAccessSummary/);
   assert.match(repository, /\/api\/initialization\/access/);
 });
 
-test("readiness blocks false completion when any persisted operational fact is absent", () => {
-  const completeProgress = { lastActiveStep:8, steps:{ organization:{explicitlyConfirmed:true}, positions:{explicitlyConfirmed:true}, upload:{explicitlyConfirmed:true}, mapping:{explicitlyConfirmed:true}, access:{explicitlyConfirmed:true} } };
+test("activation requires only identity, rules, one active department, and one active manager", () => {
+  const completeProgress = { lastActiveStep:5, steps:{} };
   const base = { identity, rules, activeDepartments:1, activePositions:1, inspectedEmployeeMaster:true, unresolvedDepartmentLabels:0, unresolvedPositionLabels:0, activePropertyAdministrator:true, progress:completeProgress };
-  assert.equal(deriveWizardState({...base,activePositions:0}).ready,false);
-  assert.equal(deriveWizardState({...base,inspectedEmployeeMaster:false}).ready,false);
-  assert.equal(deriveWizardState({...base,unresolvedDepartmentLabels:1}).ready,false);
+  assert.equal(deriveWizardState({...base,activePositions:0,inspectedEmployeeMaster:false,unresolvedDepartmentLabels:1}).ready,true);
+  assert.equal(deriveWizardState({...base,activeDepartments:0}).ready,false);
   assert.equal(deriveWizardState({...base,activePropertyAdministrator:false}).ready,false);
   assert.equal(deriveWizardState(base).ready,true);
 });

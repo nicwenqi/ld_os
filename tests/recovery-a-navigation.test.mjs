@@ -21,7 +21,7 @@ test("manager navigation is ordered by operating frequency", () => {
   );
   assert.deepEqual(
     navigation.groups[2].items.map(item => item.zh),
-    ["员工资料更新", "组织与职位", "账号与角色", "酒店设置", "启用与系统检查"],
+    ["员工资料更新", "组织架构", "职位体系", "账号与部门授权", "酒店设置", "酒店启用"],
   );
 });
 

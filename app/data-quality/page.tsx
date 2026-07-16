@@ -133,7 +133,7 @@ function DataQualityContent() {
           <nav aria-label="酒店基础数据处理入口">
             <Link href="/people">查看员工主数据</Link>
             <Link href="/import">员工资料更新</Link>
-            <Link href="/permissions?section=organization">维护组织与职位</Link>
+            <Link href="/organization">维护组织架构</Link>
           </nav>
         </section>
 

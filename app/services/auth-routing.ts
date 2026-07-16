@@ -19,6 +19,10 @@ export const managerRoutes = [
   "/effectiveness",
   "/data-quality",
   "/import",
+  "/organization",
+  "/positions",
+  "/accounts",
+  "/change-password",
   "/permissions",
   "/settings/hotel",
   "/initialize",
@@ -32,6 +36,7 @@ export const departmentRoutes = [
   "/department/attendance-feedback",
   "/department/remediation",
   "/department/data",
+  "/change-password",
 ] as const;
 
 const publicRoutes = ["/login", "/access-denied"] as const;

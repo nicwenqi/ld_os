@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { ApproveDepartmentMappingInput, CreateDepartmentInput, CreateOperationalUnitInput, DepartmentRepository, UpdateDepartmentInput } from "../contracts/department-repository.ts";
+import type { ApproveDepartmentMappingInput, CreateDepartmentInput, CreateOperationalUnitInput, DepartmentRepository, SaveOperationalUnitInput, UpdateDepartmentInput } from "../contracts/department-repository.ts";
 import type { DepartmentAlias, DepartmentNode, OperationalUnit } from "../contracts/organization-models.ts";
 
 type Client = Pick<SupabaseClient, "from" | "rpc" | "auth">;
@@ -23,14 +23,37 @@ export function createSupabaseDepartmentRepository(client: Client): DepartmentRe
       const resolution = input.action === "department" ? input.resolutionType ?? "mapped" : input.action === "ignore" ? "ignored" : input.action === "merge" ? "merged" : "deferred";
       const { data, error } = await client.from("department_aliases").update({ target_department_id: input.action === "department" || input.action === "merge" ? input.targetDepartmentId ?? null : null, resolution_type: resolution, approved_by: resolution === "deferred" ? null : userId, approved_at: resolution === "deferred" ? null : new Date().toISOString(), is_active: true }).eq("id", input.aliasId).select("*").single(); if (error) throw businessError(error, "无法保存部门映射"); return mapAlias(data);
     },
-    async createOperationalUnit(input: CreateOperationalUnitInput) { const { data, error } = await client.from("operational_units").insert({ tenant_id: input.tenantId, property_id: input.propertyId, department_id: input.departmentId, parent_operational_unit_id: input.parentOperationalUnitId, unit_type: input.unitType, code: input.code || null, name_zh: input.nameZh, name_en: input.nameEn || null, sort_order: input.sortOrder }).select("*").single(); if (error) throw businessError(error, "无法创建运营单元"); return mapUnit(data); },
+    async createOperationalUnit(input: CreateOperationalUnitInput) {
+      return this.saveOperationalUnit({ ...input, isActive: true });
+    },
+    async saveOperationalUnit(input: SaveOperationalUnitInput) {
+      const { data, error } = await client.rpc("save_operational_unit", {
+        p_property_id: input.propertyId,
+        p_operational_unit_id: input.id ?? null,
+        p_expected_version: input.expectedVersion ?? 0,
+        p_department_id: input.departmentId,
+        p_parent_operational_unit_id: input.parentOperationalUnitId,
+        p_unit_type: input.unitType,
+        p_code: input.code,
+        p_name_zh: input.nameZh,
+        p_name_en: input.nameEn,
+        p_sort_order: input.sortOrder,
+        p_is_active: input.isActive,
+      });
+      if (error) throw businessError(error, "无法保存运营单元");
+      return mapUnit(data);
+    },
     async listOperationalUnits(propertyId) { const { data, error } = await client.from("operational_units").select("*").eq("property_id", propertyId).order("sort_order"); if (error) throw businessError(error, "无法读取运营单元"); return (data ?? []).map(mapUnit); },
   };
 }
 function rpcCreate(input: CreateDepartmentInput) { return { p_tenant_id: input.tenantId, p_property_id: input.propertyId, p_parent_id: input.parentId, p_node_type: input.nodeType, p_code: input.code, p_name_zh: input.nameZh, p_name_en: input.nameEn, p_sort_order: input.sortOrder }; }
+// Supabase rows are runtime-shaped until generated database types are introduced.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapNode(row: any): DepartmentNode { return { id: row.id, tenantId: row.tenant_id, propertyId: row.property_id, parentId: row.parent_id, nodeType: row.node_type, code: row.code, nameZh: row.name_zh, nameEn: row.name_en, sortOrder: row.sort_order, depth: row.depth, pathIds: row.path_ids, isActive: row.is_active, version: Number(row.version), syntheticEmployeeCount: 0 }; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapAlias(row: any): DepartmentAlias { return { id: row.id, propertyId: row.property_id, sourceSystem: row.source_system, sourceSheet: row.source_sheet ?? "历史批准来源", sourceValue: row.source_value, normalizedSourceValue: row.normalized_source_value, sourceRowCount: Number(row.source_row_count??0), syntheticEmployeeCount: Number(row.source_row_count??0), suggestedTargetId: row.target_department_id, suggestionLabel: row.target_department_id?"复用已批准映射":"等待选择正式部门", confidence: row.approved_at ? 100 : 0, suggestionReason: row.approved_at ? "来自已确认的历史映射" : "尚未建立批准规则", targetDepartmentId: row.target_department_id, operationalUnitId: null, resolutionType: row.resolution_type, isActive: row.is_active }; }
-function mapUnit(row: any): OperationalUnit { return { id: row.id, tenantId: row.tenant_id, propertyId: row.property_id, departmentId: row.department_id, parentOperationalUnitId: row.parent_operational_unit_id, unitType: row.unit_type, code: row.code, nameZh: row.name_zh, nameEn: row.name_en, sortOrder: row.sort_order, isActive: row.is_active }; }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapUnit(row: any): OperationalUnit { return { id: row.id ?? row.operationalUnitId, tenantId: row.tenant_id ?? row.tenantId, propertyId: row.property_id ?? row.propertyId, departmentId: row.department_id ?? row.departmentId, parentOperationalUnitId: row.parent_operational_unit_id ?? row.parentOperationalUnitId ?? null, unitType: row.unit_type ?? row.unitType, code: row.code ?? null, nameZh: row.name_zh ?? row.nameZh, nameEn: row.name_en ?? row.nameEn ?? null, sortOrder: Number(row.sort_order ?? row.sortOrder), isActive: row.is_active ?? row.isActive, version: Number(row.version ?? 1) }; }
 function treeOrder(a: DepartmentNode, b: DepartmentNode, nodes: DepartmentNode[]) { const byId = new Map(nodes.map(node => [node.id, node])); const length = Math.min(a.pathIds.length, b.pathIds.length); for (let index = 0; index < length; index += 1) { if (a.pathIds[index] === b.pathIds[index]) continue; const left = byId.get(a.pathIds[index])!, right = byId.get(b.pathIds[index])!; return left.sortOrder - right.sortOrder || left.nameZh.localeCompare(right.nameZh, "zh-CN"); } return a.pathIds.length - b.pathIds.length; }
 async function currentUserId(client: Client) { const { data, error } = await client.auth.getUser(); if (error || !data.user) throw new Error("登录状态已失效，请重新登录"); return data.user.id; }
-function businessError(error: { code?: string; message: string }, fallback: string) { const message = error.message.includes(":") ? error.message.split(":").slice(1).join(":").trim() : error.message; return new Error(message || fallback); }
+function businessError(error: { code?: string; message: string }, fallback: string) { const message = error.message.includes(":") ? error.message.split(":").slice(1).join(":").trim() : error.message; const result = new Error(message || fallback); if (/stale|version|concurrent|更新|版本/.test(error.message)) result.name = "ConflictError"; return result; }

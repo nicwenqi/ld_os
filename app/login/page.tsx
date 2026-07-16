@@ -35,8 +35,10 @@ function LoginExperience() {
   }, []);
 
   useEffect(() => {
-    if (status === "authenticated") router.replace(destination(session.role));
-  }, [router, session.role, status]);
+    if (status === "authenticated") {
+      router.replace(destination(session.role, session.mustChangePassword));
+    }
+  }, [router, session.mustChangePassword, session.role, status]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -52,7 +54,7 @@ function LoginExperience() {
         password,
         hostname: window.location.hostname,
       });
-      router.replace(destination(next.role));
+      router.replace(destination(next.role, next.mustChangePassword));
     } catch {
       setError("账号或密码错误");
     } finally {
@@ -131,7 +133,8 @@ function LoginExperience() {
   );
 }
 
-function destination(role: EffectiveRole) {
+function destination(role: EffectiveRole, mustChangePassword: boolean) {
+  if (mustChangePassword) return "/change-password";
   const returnTo = new URLSearchParams(window.location.search).get("returnTo");
   return safeReturnToForRole(role, returnTo);
 }

@@ -1,4 +1,4 @@
-import type { ApproveDepartmentMappingInput, CreateDepartmentInput, CreateOperationalUnitInput, DepartmentRepository, UpdateDepartmentInput } from "../contracts/department-repository.ts";
+import type { ApproveDepartmentMappingInput, CreateDepartmentInput, CreateOperationalUnitInput, DepartmentRepository, SaveOperationalUnitInput, UpdateDepartmentInput } from "../contracts/department-repository.ts";
 import type { DepartmentAlias, DepartmentMovePreview, DepartmentNode, OperationalUnit } from "../contracts/organization-models.ts";
 
 const tenantId = "10000000-0000-0000-0000-000000000001";
@@ -21,9 +21,10 @@ function fixtureNodes(): DepartmentNode[] {
 }
 
 export function createMockDepartmentRepository(): DepartmentRepository {
-  let nodes = fixtureNodes();
-  let units: OperationalUnit[] = [{ id: "63000000-0000-0000-0000-000000000011", tenantId, propertyId, departmentId: ids.food, parentOperationalUnitId: null, unitType: "outlet", code: "bar-168", nameZh: "示范酒吧 168", nameEn: "Bar 168", sortOrder: 10, isActive: true }];
-  let aliases: DepartmentAlias[] = [
+  if (typeof window !== "undefined") return createHttpMockDepartmentRepository();
+  const nodes = fixtureNodes();
+  const units: OperationalUnit[] = [{ id: "63000000-0000-0000-0000-000000000011", tenantId, propertyId, departmentId: ids.food, parentOperationalUnitId: null, unitType: "outlet", code: "bar-168", nameZh: "示范酒吧 168", nameEn: "Bar 168", sortOrder: 10, isActive: true, version: 1 }];
+  const aliases: DepartmentAlias[] = [
     alias("a-rooms", "Rooms Division Administration", 8, 18, ids.rooms, "房务部 Rooms", 96, "名称与房务部管理范围高度一致", "mapped"),
     alias("a-floor", "Floor", 12, 61, ids.floor, "房务部 / 客房部 / 楼层", 99, "与正式部门中英文名称完全匹配", "mapped"),
     alias("a-bar", "Bar 168", 6, 14, ids.food, "运营单元 · Bar 168", 94, "更像营业场所，而非正式 HR 部门", "deferred"),
@@ -75,15 +76,88 @@ export function createMockDepartmentRepository(): DepartmentRepository {
       if (input.action === "merge") current.resolutionType = "merged";
       return { ...current };
     },
-    async createOperationalUnit(input: CreateOperationalUnitInput) { node(input.departmentId); const created: OperationalUnit = { ...input, id: crypto.randomUUID(), code: input.code || null, nameEn: input.nameEn || null, isActive: true }; units.push(created); return { ...created }; },
+    async createOperationalUnit(input: CreateOperationalUnitInput) {
+      return this.saveOperationalUnit({ ...input, isActive: true });
+    },
+    async saveOperationalUnit(input: SaveOperationalUnitInput) {
+      node(input.departmentId);
+      const current = input.id ? units.find(item => item.id === input.id) : undefined;
+      if (current) {
+        if (current.version !== input.expectedVersion) throw conflict("运营单元资料已被其他操作更新");
+        Object.assign(current, {
+          departmentId: input.departmentId,
+          parentOperationalUnitId: input.parentOperationalUnitId,
+          unitType: input.unitType,
+          code: input.code || null,
+          nameZh: input.nameZh.trim(),
+          nameEn: input.nameEn.trim() || null,
+          sortOrder: input.sortOrder,
+          isActive: input.isActive,
+          version: current.version + 1,
+        });
+        return { ...current };
+      }
+      const created: OperationalUnit = {
+        ...input,
+        id: crypto.randomUUID(),
+        code: input.code || null,
+        nameEn: input.nameEn || null,
+        version: 1,
+      };
+      units.push(created);
+      return { ...created };
+    },
     async listOperationalUnits(candidate) { return candidate === propertyId ? units.map(item => ({ ...item })) : []; },
   };
+}
+
+function createHttpMockDepartmentRepository(): DepartmentRepository {
+  return {
+    listTree: propertyId => mockOrganizationRequest("listTree", { propertyId }),
+    getNode: id => mockOrganizationRequest("getNode", { id }),
+    getAncestors: id => mockOrganizationRequest("getAncestors", { id }),
+    getDescendants: id => mockOrganizationRequest("getDescendants", { id }),
+    createNode: input => mockOrganizationRequest("createNode", input),
+    updateNode: input => mockOrganizationRequest("updateNode", input),
+    previewMove: (id, newParentId) => mockOrganizationRequest("previewMove", { id, newParentId }),
+    moveNode: (id, newParentId, expectedVersion) =>
+      mockOrganizationRequest("moveNode", { id, newParentId, expectedVersion }),
+    setActive: (id, expectedVersion, active) =>
+      mockOrganizationRequest("setActive", { id, expectedVersion, active }),
+    listAliases: propertyId => mockOrganizationRequest("listAliases", { propertyId }),
+    approveMapping: input => mockOrganizationRequest("approveMapping", input),
+    createOperationalUnit: input => mockOrganizationRequest("createOperationalUnit", input),
+    saveOperationalUnit: input => mockOrganizationRequest("saveOperationalUnit", input),
+    listOperationalUnits: propertyId =>
+      mockOrganizationRequest("listOperationalUnits", { propertyId }),
+  };
+}
+
+async function mockOrganizationRequest<T>(
+  action: string,
+  input: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch("/api/mock-organization", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, input }),
+  });
+  const payload = await response.json() as T & { message?: string };
+  if (!response.ok) {
+    const error = new Error(payload.message ?? "本地组织验证服务不可用");
+    if (response.status === 409) error.name = "ConflictError";
+    throw error;
+  }
+  return payload;
 }
 
 function alias(id: string, sourceValue: string, sourceRowCount: number, employees: number, target: string | null, suggestion: string, confidence: number, reason: string, resolutionType: DepartmentAlias["resolutionType"]): DepartmentAlias {
   return { id, propertyId, sourceSystem: "synthetic-workbook", sourceSheet: "Synthetic Department Labels", sourceValue, normalizedSourceValue: sourceValue.trim().toLowerCase(), sourceRowCount, syntheticEmployeeCount: employees, suggestedTargetId: target, suggestionLabel: suggestion, confidence, suggestionReason: reason, targetDepartmentId: resolutionType === "mapped" ? target : null, operationalUnitId: null, resolutionType, isActive: true };
 }
 function stale(node: DepartmentNode, version: number) { if (node.version !== version) throw new Error("部门资料已更新，请刷新后重试"); }
+function conflict(message: string) { const error = new Error(message); error.name = "ConflictError"; return error; }
 function preview(nodes: DepartmentNode[], aliases: DepartmentAlias[], units: OperationalUnit[], moving: DepartmentNode, target: DepartmentNode | null): DepartmentMovePreview {
   if (target && (target.id === moving.id || target.pathIds.includes(moving.id))) throw new Error("不能移动到自身或下级部门");
   const subtree = nodes.filter(item => item.pathIds.includes(moving.id)); const path = (node: DepartmentNode) => node.pathIds.map(id => nodes.find(item => item.id === id)?.nameZh).join(" / ");

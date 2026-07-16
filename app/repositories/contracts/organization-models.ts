@@ -25,12 +25,13 @@ export type DepartmentAlias = {
 export type OperationalUnit = {
   id: string; tenantId: string; propertyId: string; departmentId: string;
   parentOperationalUnitId: string | null; unitType: OperationalUnitType; code: string | null;
-  nameZh: string; nameEn: string | null; sortOrder: number; isActive: boolean;
+  nameZh: string; nameEn: string | null; sortOrder: number; isActive: boolean; version: number;
 };
 
 export type PositionFamily = {
   id: string; tenantId: string; propertyId: string; code: string; nameZh: string;
   nameEn: string | null; description: string | null; sortOrder: number; isActive: boolean;
+  version: number;
 };
 
 export type OfficialPosition = {

@@ -1,9 +1,11 @@
 import { createServerAdminClient } from "../../../lib/supabase/server-admin.ts";
-import { AuthorizationError, requireProductionPropertyManager } from "../../../services/production-authorization.ts";
+import { AuthorizationError, requirePropertyManager } from "../../../services/production-authorization.ts";
+
+type RoleRelation = { code?: string } | Array<{ code?: string }> | null;
 
 export async function GET(request:Request){
   try{
-    const actor=await requireProductionPropertyManager(request);
+    const actor=await requirePropertyManager(request);
     const requested=new URL(request.url).searchParams.get("propertyId");
     if(requested&&requested!==actor.propertyId)return failure(403,"不能读取其他酒店的管理员状态");
     const admin=createServerAdminClient();
@@ -15,7 +17,7 @@ export async function GET(request:Request){
     if(assignmentError||membershipError||accountError)throw new Error("管理员状态读取失败");
     const activeMembers=new Set((memberships??[]).map(item=>item.user_id));
     const activeAccounts=new Map((accounts??[]).filter(item=>item.account_status==="active"&&relationOne(item.profiles)?.is_active===true).map(item=>[item.user_id,item]));
-    const roleCode=(assignment:any)=>relationOne(assignment.roles)?.code;
+    const roleCode=(assignment:{roles:RoleRelation})=>relationOne(assignment.roles)?.code;
     const activeAssignments=(assignments??[]).filter(item=>activeMembers.has(item.user_id)&&activeAccounts.has(item.user_id));
     const current=(accounts??[]).find(item=>item.auth_user_id===actor.authUserId)??null;
     const profile=relationOne(current?.profiles);

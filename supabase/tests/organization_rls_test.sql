@@ -83,9 +83,9 @@ select throws_ok(
 );
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000107';
-select results_eq('select count(*) from public.departments', array[9::bigint], 'department admin can read the property organization tree');
-select results_eq('select count(*) from public.operational_units', array[1::bigint], 'department admin reads operational units as inherited organization context');
-select results_eq('select count(*) from public.positions', array[5::bigint], 'department admin can read official positions');
+select results_eq('select count(*) from public.departments', array[4::bigint], 'department responsible reads only breadcrumb, assigned branch, and configured descendants');
+select results_eq('select count(*) from public.operational_units', array[0::bigint], 'department responsible cannot read unrelated operational units');
+select results_eq('select count(*) from public.positions', array[3::bigint], 'department responsible reads positions assigned inside the authorized branch');
 select is_empty('select * from public.department_aliases', 'department admin cannot read source mapping administration');
 select is_empty('select * from public.position_aliases', 'department admin cannot read position mapping administration');
 select throws_ok(
@@ -106,15 +106,16 @@ select throws_ok(
   '42501', null,
   'department admin cannot approve or create department aliases'
 );
-select is_empty(
+select throws_ok(
   $$update public.positions set name_zh = '不可修改'
-    where id = '65000000-0000-0000-0000-000000000011' returning id$$,
-  'department admin cannot modify positions'
+    where id = '65000000-0000-0000-0000-000000000011'$$,
+  '42501', null,
+  'department responsible cannot modify positions directly'
 );
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000104';
-select is_empty('select * from public.departments', 'ordinary employee participant has no broad organization read');
-select is_empty('select * from public.positions', 'ordinary employee participant has no position-management read');
+select is_empty('select * from public.departments', 'membership without an approved application role has no organization read');
+select is_empty('select * from public.positions', 'membership without an approved application role has no position-management read');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000105';
 select results_eq('select count(*) from public.departments', array[0::bigint], 'A2 member with no organization role cannot read A1 or organization management data');

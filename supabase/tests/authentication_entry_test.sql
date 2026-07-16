@@ -67,13 +67,10 @@ select throws_ok(
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000104';
-select results_eq(
-  $$with changed as (
-      update public.user_accounts set account_status = 'active'
-      where id = '91000000-0000-0000-0000-000000000104'
-      returning id
-    ) select count(*) from changed$$,
-  array[0::bigint], 'ordinary user cannot modify account status'
+select throws_ok(
+  $$update public.user_accounts set account_status = 'active'
+      where id = '91000000-0000-0000-0000-000000000104'$$,
+  '42501', null, 'ordinary user cannot modify account status directly'
 );
 select throws_ok(
   $$insert into public.user_accounts (
@@ -89,7 +86,7 @@ set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select throws_ok(
   $$update public.user_accounts set tenant_id = '10000000-0000-0000-0000-000000000002'
       where id = '91000000-0000-0000-0000-000000000104'$$,
-  '23514', 'account tenant and property identity is immutable', 'property manager cannot move an account across tenancy'
+  '42501', null, 'property manager cannot bypass the account administration RPC'
 );
 
 select * from finish();

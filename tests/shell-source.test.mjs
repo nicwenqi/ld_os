@@ -12,6 +12,8 @@ test("application shell exposes Chinese-first frequency navigation",async()=>{
 test("manager home uses an operations command-center hierarchy",async()=>{
   const page=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
   for (const token of ["manager-command-center","operating-verdict","foundation-facts-grid","availability-grid"]) assert.match(page,new RegExp(token));
-  assert.match(page,/当前无法判断酒店培训运营是否受控/);
+  assert.match(page,/培训运营判断等待真实事实/);
+  assert.match(page,/当前数据边界/);
+  assert.doesNotMatch(page,/当前无法判断酒店培训运营是否受控/);
   assert.doesNotMatch(page,/health-hero|KPI 目标完成|培训健康度为/);
 });

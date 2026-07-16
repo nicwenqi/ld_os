@@ -23,6 +23,6 @@ export async function POST(request:Request){
   }catch{return failure()}
 }
 
-function success(session:AuthSession,token:string,refreshToken:string|null,secure:boolean){const headers=new Headers({"Cache-Control":"no-store"});for(const value of authCookies(token,refreshToken,secure))headers.append("Set-Cookie",value);return Response.json({...session,destination:homeForRole(session.role)},{headers})}
+function success(session:AuthSession,token:string,refreshToken:string|null,secure:boolean){const headers=new Headers({"Cache-Control":"no-store"});for(const value of authCookies(token,refreshToken,secure))headers.append("Set-Cookie",value);return Response.json({...session,destination:session.mustChangePassword?"/change-password":homeForRole(session.role)},{headers})}
 function failure(){return Response.json({message:"账号或密码错误"},{status:401,headers:{"Cache-Control":"no-store"}})}
 async function safeJson(request:Request):Promise<Record<string,unknown>>{try{return await request.json()}catch{return{}}}

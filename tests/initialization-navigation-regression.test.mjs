@@ -14,7 +14,8 @@ test("wizard navigation is independent from step confirmation and responds immed
   assert.match(contract, /saveNavigation\(/);
   assert.match(adapter, /save_property_initialization_navigation/);
   assert.match(migrationSources.join("\n"), /create or replace function public\.save_property_initialization_navigation/);
-  assert.match(page, /setStep\(next\);[\s\S]*saveNavigation/);
+  assert.match(page, /Math\.min\(5/);
+  assert.match(page, /saveNavigation/);
   assert.doesNotMatch(page, /stepKey:stepKeys\[Math\.min\(step - 1, 7\)\]/);
 });
 

@@ -19,10 +19,25 @@ test("visible primary actions navigate, retry or change real local view state",a
   assert.doesNotMatch(`${home}${people}${unavailable}${shell}`,/showToast/);
 });
 
-test("employee drawer and administration dialogs remain dismissible",async()=>{
-  const [hook,people,permissions]=await Promise.all([read("../app/lib/use-escape-dismiss.ts"),read("../app/people/page.tsx"),read("../app/permissions/page.tsx")]);
+test("employee drawer remains dismissible and inline administration protects unsaved edits",async()=>{
+  const [hook,people,organization,positions,accounts,saveState]=await Promise.all([
+    read("../app/lib/use-escape-dismiss.ts"),
+    read("../app/people/page.tsx"),
+    read("../app/organization/page.tsx"),
+    read("../app/positions/page.tsx"),
+    read("../app/accounts/page.tsx"),
+    read("../app/components/administration/AdministrationSaveState.tsx"),
+  ]);
   assert.match(hook,/Escape/);
-  for (const page of [people,permissions]) { assert.match(page,/useEscapeDismiss/); assert.match(page,/aria-modal="true"/); }
+  assert.match(people,/useEscapeDismiss/);
+  assert.match(people,/aria-modal="true"/);
+  for (const page of [organization,positions,accounts]) {
+    assert.match(page,/useUnsavedChangesWarning/);
+    assert.match(page,/AdministrationSaveState/);
+    assert.doesNotMatch(page,/aria-modal="true"/);
+  }
+  assert.match(saveState,/beforeunload/);
+  assert.match(saveState,/读取最新资料/);
 });
 
 test("Recovery A visual layer preserves touch targets and focus visibility",async()=>{

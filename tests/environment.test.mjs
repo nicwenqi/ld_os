@@ -16,6 +16,25 @@ test("mock mode remains the safe default without Supabase credentials", () => {
   });
 });
 
+test("production can never fall back to local-review mock data", () => {
+  assert.throws(
+    () => parseAppEnvironment({ VERCEL_ENV: "production" }),
+    /Production cannot use local-review repositories/,
+  );
+  assert.throws(
+    () => parseAppEnvironment({ APP_ENV: "production", APP_DATA_MODE: "mock" }),
+    /Production cannot use local-review repositories/,
+  );
+  assert.throws(
+    () => parseAppEnvironment({
+      APP_ENV: "local",
+      APP_DATA_MODE: "mock",
+      VERCEL_ENV: "production",
+    }),
+    /Vercel Production must run with APP_ENV=production/,
+  );
+});
+
 test("Supabase data modes require a URL and publishable key", () => {
   assert.throws(
     () => parseAppEnvironment({ APP_DATA_MODE: "supabase" }),

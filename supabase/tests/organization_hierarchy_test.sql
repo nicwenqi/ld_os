@@ -187,8 +187,8 @@ select throws_ok(
       '65000000-0000-0000-0000-000000000011',
       '61000000-0000-0000-0000-000000000021', false
     )$$,
-  '23503', null,
-  'position assignment cannot cross property ownership'
+  '42501', null,
+  'direct position assignment mutation is revoked in favor of the versioned administration RPC'
 );
 
 select * from finish();

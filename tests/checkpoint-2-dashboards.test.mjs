@@ -12,13 +12,17 @@ test("periodic review modules are truthful until training facts exist", async ()
   }
 });
 
-test("obsolete organization and risk dashboards are removed", async () => {
-  await assert.rejects(access(new URL("../app/organization/page.tsx",import.meta.url)));
+test("dedicated organization administration replaces the obsolete organization dashboard", async () => {
+  const organization = await read("../app/organization/page.tsx");
+  for (const token of ["OrganizationAdministration", "正式部门架构", "运营单元", "registry.department"]) {
+    assert.match(organization, new RegExp(token.replace(".", "\\.")));
+  }
   await assert.rejects(access(new URL("../app/risk/page.tsx",import.meta.url)));
 });
 
 test("frequency navigation points to approved periodic routes", async () => {
   const navigation = await read("../app/services/role-navigation.ts");
   for (const route of ["/department-performance","/effectiveness","/interventions"]) assert.match(navigation,new RegExp(route.replaceAll("/","\\/")));
-  assert.doesNotMatch(navigation,/href:\s*["']\/(organization|risk)["']/);
+  assert.match(navigation,/\/organization/);
+  assert.doesNotMatch(navigation,/["']\/risk["']/);
 });
