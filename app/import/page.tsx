@@ -131,7 +131,7 @@ function EmployeeDataUpdateContent() {
       <DataStateBadge state="demo"/><h2>本地环境不接受真实工作簿</h2><p>这里仅验证员工资料更新的产品入口。请勿把下方示例批次理解为当前酒店的真实更新记录。</p>
     </section>}
 
-    <section className="import-history">
+    <section className="import-history" id="update-history">
       <header><div><h2>更新记录</h2><p>{isRealMode ? "来自当前酒店的员工资料批次。" : "本地验证数据，明确与真实酒店记录隔离。"}</p></div>{historyState === "failed" && <button onClick={() => void loadHistory()}>重新读取</button>}</header>
       {historyState === "loading" && <div className="truthful-empty">正在读取更新记录…</div>}
       {historyState === "failed" && <div className="truthful-empty" role="alert"><strong>更新记录读取失败</strong><p>这不代表当前酒店没有历史记录。</p></div>}

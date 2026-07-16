@@ -16,6 +16,22 @@ const read = async path => {
   }
 };
 
+const optionalImport = async path => {
+  try {
+    return await import(path);
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ERR_MODULE_NOT_FOUND"
+    ) {
+      return null;
+    }
+    throw error;
+  }
+};
+
 const departmentSession = {
   authenticated: true,
   userId: "department-user",
@@ -96,6 +112,220 @@ test("manager People Center uses current-property paginated authority and truthf
   assert.doesNotMatch(page, /\.listEmployees\(/);
   assert.doesNotMatch(`${page}\n${drawer}`, /完成率|培训时数|课程|签到|反馈|风险标签/);
   assert.doesNotMatch(`${page}\n${drawer}`, /externalIdentifierTypes|外部资料标识/);
+});
+
+test("manager filter facets load independently from active current-property organization authority", async () => {
+  const peopleFoundation = await optionalImport(
+    "../app/services/people-foundation.ts",
+  );
+  assert.ok(
+    peopleFoundation,
+    "manager People facets need a dedicated organization-backed service",
+  );
+
+  const calls = [];
+  const facets = await peopleFoundation.loadManagerPeopleFacets(
+    {
+      department: {
+        async listTree(propertyId) {
+          calls.push(["departments", propertyId]);
+          return [
+            {
+              id: "rooms",
+              propertyId,
+              nameZh: "房务部",
+              nameEn: "Rooms",
+              sortOrder: 20,
+              isActive: true,
+            },
+            {
+              id: "front-office",
+              propertyId,
+              nameZh: "前厅部",
+              nameEn: "Front Office",
+              sortOrder: 10,
+              isActive: true,
+            },
+            {
+              id: "inactive-department",
+              propertyId,
+              nameZh: "停用部门",
+              nameEn: null,
+              sortOrder: 0,
+              isActive: false,
+            },
+            {
+              id: "foreign-department",
+              propertyId: "property-b",
+              nameZh: "其他酒店部门",
+              nameEn: null,
+              sortOrder: 0,
+              isActive: true,
+            },
+          ];
+        },
+      },
+      position: {
+        async listPositions(propertyId) {
+          calls.push(["positions", propertyId]);
+          return [
+            {
+              id: "supervisor",
+              propertyId,
+              nameZh: "主管",
+              nameEn: "Supervisor",
+              isActive: true,
+            },
+            {
+              id: "associate",
+              propertyId,
+              nameZh: "宾客服务专员",
+              nameEn: "Guest Service Associate",
+              isActive: true,
+            },
+            {
+              id: "inactive-position",
+              propertyId,
+              nameZh: "停用职位",
+              nameEn: null,
+              isActive: false,
+            },
+          ];
+        },
+        async listPositionFamilies(propertyId) {
+          calls.push(["position-families", propertyId]);
+          return [
+            {
+              id: "leadership",
+              propertyId,
+              nameZh: "管理岗位",
+              nameEn: "Leadership",
+              sortOrder: 20,
+              isActive: true,
+            },
+            {
+              id: "frontline",
+              propertyId,
+              nameZh: "一线员工",
+              nameEn: "Frontline",
+              sortOrder: 10,
+              isActive: true,
+            },
+            {
+              id: "inactive-family",
+              propertyId,
+              nameZh: "停用职位族",
+              nameEn: null,
+              sortOrder: 0,
+              isActive: false,
+            },
+          ];
+        },
+      },
+      employee: {
+        async listEmployees() {
+          throw new Error("facet loading must not scan employee rows");
+        },
+      },
+    },
+    "property-a",
+  );
+
+  assert.deepEqual(calls, [
+    ["departments", "property-a"],
+    ["positions", "property-a"],
+    ["position-families", "property-a"],
+  ]);
+  assert.deepEqual(facets, {
+    departments: [
+      { id: "front-office", label: "前厅部" },
+      { id: "rooms", label: "房务部" },
+    ],
+    positions: [
+      { id: "associate", label: "宾客服务专员" },
+      { id: "supervisor", label: "主管" },
+    ],
+    positionFamilies: [
+      { id: "frontline", label: "一线员工" },
+      { id: "leadership", label: "管理岗位" },
+    ],
+  });
+
+  const page = await read("../app/people/page.tsx");
+  assert.match(page, /loadManagerPeopleFacets\(registry, propertyId\)/);
+  assert.match(page, /facetOptions\.departments/);
+  assert.match(page, /facetOptions\.positions/);
+  assert.match(page, /facetOptions\.positionFamilies/);
+  assert.doesNotMatch(page, /uniqueOptions\(\s*rows\.map/);
+});
+
+test("manager profile refresh ignores stale requests after selection, close, and unmount", async () => {
+  const requestGateModule = await optionalImport(
+    "../app/lib/latest-request-gate.ts",
+  );
+  assert.ok(
+    requestGateModule,
+    "profile refresh needs a reusable latest-request gate",
+  );
+
+  const gate = requestGateModule.createLatestRequestGate();
+  const requestA = gate.begin();
+  assert.equal(gate.isCurrent(requestA), true);
+  const requestB = gate.begin();
+  assert.equal(gate.isCurrent(requestA), false);
+  assert.equal(gate.isCurrent(requestB), true);
+  gate.invalidate();
+  assert.equal(gate.isCurrent(requestB), false);
+
+  const page = await read("../app/people/page.tsx");
+  assert.match(page, /createLatestRequestGate\(\)/);
+  assert.match(page, /const requestToken = profileRequestGate\.begin\(\)/);
+  assert.ok(
+    (page.match(/profileRequestGate\.isCurrent\(requestToken\)/g) ?? [])
+      .length >= 2,
+    "success and failure paths must both correlate the active request",
+  );
+  assert.ok(
+    (page.match(/profileRequestGate\.invalidate\(\)/g) ?? []).length >= 2,
+    "close and unmount must both invalidate pending profile requests",
+  );
+});
+
+test("People directory responsive CSS preserves avatar sizing and explicit tablet placement", async () => {
+  const css = await read("../app/recovery-a.css");
+
+  assert.match(css, /\.employee-identity-cell\s*>\s*span:first-child\s*\{/);
+  assert.doesNotMatch(css, /\.employee-identity-cell\s*>\s*span\s*\{/);
+  assert.match(css, /\.employee-identity-cell\s*>\s*span:last-child\s*\{[^}]*min-width:0/);
+  assert.match(css, /overflow-wrap:anywhere/);
+  assert.match(
+    css,
+    /@media\s*\(min-width:651px\)\s*and\s*\(max-width:1000px\)/,
+  );
+  assert.match(
+    css,
+    /\.employee-directory-manager\s+\.people-list\s+article\s*>\s*span:first-child\s*\{[^}]*grid-column:1/,
+  );
+  assert.match(
+    css,
+    /\.employee-directory-manager\s+\.identity-cell\s*\{[^}]*grid-column:2/,
+  );
+  assert.match(
+    css,
+    /\.employee-directory-manager\s+\.dept-cell\s*\{[^}]*grid-column:3/,
+  );
+  assert.match(
+    css,
+    /\.employee-directory-manager\s+\.next-cell\s*\{[^}]*grid-column:2\s*\/\s*-1/,
+  );
+});
+
+test("employee update history deep link resolves to the real history section", async () => {
+  const page = await read("../app/import/page.tsx");
+  assert.match(
+    page,
+    /<section className="import-history" id="update-history">/,
+  );
 });
 
 test("department foundation calls only the server-scoped directory and strips forged scope", async () => {

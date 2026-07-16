@@ -18,11 +18,21 @@ import type {
   EmployeeDirectoryPage,
   EmployeeRecord,
 } from "../repositories/contracts/employee-repository";
+import { createLatestRequestGate } from "../lib/latest-request-gate";
 import { createRepositoryRegistry } from "../repositories/registry";
 import { createEmployeeService } from "../services/employee-service";
+import {
+  loadManagerPeopleFacets,
+  type ManagerPeopleFacets,
+} from "../services/people-foundation";
 import { useAuthSession } from "../state/auth-session";
 
 const PAGE_SIZE = 25;
+const EMPTY_MANAGER_PEOPLE_FACETS: ManagerPeopleFacets = {
+  departments: [],
+  positions: [],
+  positionFamilies: [],
+};
 
 type LoadState = "loading" | "ready" | "error";
 type ManagerFilters = Pick<
@@ -41,8 +51,13 @@ function Page() {
     () => createEmployeeService(registry.employee),
     [registry.employee],
   );
+  const profileRequestGate = useMemo(() => createLatestRequestGate(), []);
   const { session } = useAuthSession();
   const [directory, setDirectory] = useState<EmployeeDirectoryPage | null>(null);
+  const [facetOptions, setFacetOptions] = useState<ManagerPeopleFacets>(
+    EMPTY_MANAGER_PEOPLE_FACETS,
+  );
+  const [facetError, setFacetError] = useState<string | null>(null);
   const [filters, setFilters] = useState<ManagerFilters>({});
   const [queryDraft, setQueryDraft] = useState("");
   const [offset, setOffset] = useState(0);
@@ -98,8 +113,47 @@ function Page() {
     };
   }, [attempt, employeeService, filters, offset, session.propertyId]);
 
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      await Promise.resolve();
+      if (!active) return;
+      const propertyId = session.propertyId;
+      setFacetOptions(EMPTY_MANAGER_PEOPLE_FACETS);
+      setFacetError(null);
+
+      if (!propertyId) {
+        setFacetError("当前账号尚未解析到有效酒店范围");
+        return;
+      }
+
+      try {
+        const next = await loadManagerPeopleFacets(registry, propertyId);
+        if (!active) return;
+        setFacetOptions(next);
+      } catch (reason) {
+        if (!active) return;
+        setFacetError(
+          reason instanceof Error ? reason.message : "组织筛选条件读取失败",
+        );
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [registry, session.propertyId]);
+
+  useEffect(
+    () => () => {
+      profileRequestGate.invalidate();
+    },
+    [profileRequestGate],
+  );
+
   const refreshProfile = useCallback(
     async (employeeId: string) => {
+      const requestToken = profileRequestGate.begin();
       const propertyId = session.propertyId;
       if (!propertyId) {
         setProfileState("error");
@@ -110,6 +164,7 @@ function Page() {
       setProfileError(null);
       try {
         const authoritative = await employeeService.refreshEmployee(employeeId);
+        if (!profileRequestGate.isCurrent(requestToken)) return;
         if (!authoritative || authoritative.propertyId !== propertyId) {
           throw new Error("员工档案重新读取结果不在当前酒店范围");
         }
@@ -117,17 +172,19 @@ function Page() {
         setProfileRefreshedAt(new Date().toISOString());
         setProfileState("ready");
       } catch (reason) {
+        if (!profileRequestGate.isCurrent(requestToken)) return;
         setProfileState("error");
         setProfileError(
           reason instanceof Error ? reason.message : "员工档案重新读取失败",
         );
       }
     },
-    [employeeService, session.propertyId],
+    [employeeService, profileRequestGate, session.propertyId],
   );
 
   const openProfile = useCallback(
     (employee: EmployeeRecord, trigger: HTMLElement) => {
+      profileRequestGate.invalidate();
       setSelected(employee);
       setReturnFocus(trigger);
       setProfileState("idle");
@@ -135,14 +192,15 @@ function Page() {
       setProfileRefreshedAt(directory?.refreshedAt ?? null);
       void refreshProfile(employee.id);
     },
-    [directory?.refreshedAt, refreshProfile],
+    [directory?.refreshedAt, profileRequestGate, refreshProfile],
   );
 
   const closeProfile = useCallback(() => {
+    profileRequestGate.invalidate();
     setSelected(null);
     setProfileError(null);
     setProfileState("idle");
-  }, []);
+  }, [profileRequestGate]);
 
   const applySearch = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -168,24 +226,6 @@ function Page() {
   };
 
   const rows = directory?.rows ?? [];
-  const departmentOptions = uniqueOptions(
-    rows.map(employee => ({
-      id: employee.departmentId,
-      label: employee.departmentName,
-    })),
-  );
-  const positionOptions = uniqueOptions(
-    rows.map(employee => ({
-      id: employee.positionId,
-      label: employee.positionName,
-    })),
-  );
-  const positionFamilyOptions = uniqueOptions(
-    rows.map(employee => ({
-      id: employee.positionFamilyId,
-      label: employee.positionFamilyName,
-    })),
-  );
   const sourceState =
     registry.environment.dataMode === "mock" ? ("demo" as const) : ("real" as const);
   const activeOnPage = rows.filter(
@@ -272,7 +312,7 @@ function Page() {
               onChange={event => updateFilter("departmentId", event.target.value)}
             >
               <option value="">全部部门</option>
-              {departmentOptions.map(option => (
+              {facetOptions.departments.map(option => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -286,7 +326,7 @@ function Page() {
               onChange={event => updateFilter("positionId", event.target.value)}
             >
               <option value="">全部职位</option>
-              {positionOptions.map(option => (
+              {facetOptions.positions.map(option => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -302,7 +342,7 @@ function Page() {
               }
             >
               <option value="">全部职位族</option>
-              {positionFamilyOptions.map(option => (
+              {facetOptions.positionFamilies.map(option => (
                 <option key={option.id} value={option.id}>
                   {option.label}
                 </option>
@@ -332,6 +372,12 @@ function Page() {
             </button>
           </div>
         </form>
+
+        {facetError && (
+          <p className="people-filter-source-error" role="status">
+            正式部门与职位筛选暂时无法读取：{facetError}
+          </p>
+        )}
 
         {loadState === "loading" && (
           <div className="people-empty" role="status" aria-live="polite">
@@ -411,16 +457,6 @@ function Page() {
       </div>
     </AppShell>
   );
-}
-
-function uniqueOptions(
-  values: Array<{ id: string | null; label: string | null }>,
-) {
-  const options = new Map<string, string>();
-  for (const value of values) {
-    if (value.id && value.label) options.set(value.id, value.label);
-  }
-  return Array.from(options, ([id, label]) => ({ id, label }));
 }
 
 export default function People() {
