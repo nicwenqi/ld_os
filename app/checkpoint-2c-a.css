@@ -5,3 +5,9 @@
 .settings-field>span,.rule-list strong{font-size:11px}.settings-field input,.settings-field select,.rule-list select,.number-input{font-size:12px;min-height:43px}.rule-list small{font-size:9px;line-height:1.45}.settings-card header p{font-size:10px;line-height:1.45}.settings-card h2{font-size:21px}.settings-hero p{font-size:11px}.initialization-list strong{font-size:10px}.initialization-list small{font-size:9px;line-height:1.45}.settings-alert strong{font-size:11px}.settings-alert button{text-decoration:underline;cursor:pointer}
 @media(max-width:1100px){.settings-overview{grid-template-columns:1fr 1fr}.settings-completeness{grid-column:2}.settings-status{grid-column:1/-1}}
 @media(max-width:720px){.settings-hero h1{font-size:28px}.settings-overview{grid-template-columns:1fr;padding:19px}.settings-completeness,.settings-status{grid-column:auto}.settings-card{padding:20px}.settings-card>footer{flex-direction:column;align-items:stretch}.settings-card>footer>button:not(.settings-save-state){width:100%}.settings-save-state{min-height:24px!important}.settings-alert{align-items:flex-start;flex-wrap:wrap}.settings-alert button{margin-left:0}.logo-stage{height:145px}}
+
+/* Recovery B browser verification: keep secondary administration guidance readable at normal zoom. */
+.settings-status small,
+.settings-card header em,
+.logo-guidance small,
+.initialization-note{font-size:9px}
