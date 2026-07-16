@@ -153,10 +153,20 @@ test("local-review logo replacement survives an authoritative property re-read",
 });
 
 test("mobile hotel settings keep editable and maintenance actions at practical touch heights", async () => {
-  const css = await readFile(
-    new URL("../app/checkpoint-2c-a.css", import.meta.url),
-    "utf8",
+  const [settingsCss, administrationCss, activationCss] = await Promise.all([
+    readFile(new URL("../app/checkpoint-2c-a.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/recovery-b.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/initialization-wizard.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(settingsCss, /\.number-input input\{min-height:44px\}/);
+  assert.match(settingsCss, /\.cleanup-button\{min-height:44px/);
+  assert.match(settingsCss, /\.logo-upload-button\{min-height:44px/);
+  assert.match(
+    administrationCss,
+    /\.department-scope-editor article>label:first-child,.scope-descendants\{min-height:44px\}/,
   );
-  assert.match(css, /\.number-input input\{min-height:44px\}/);
-  assert.match(css, /\.cleanup-button\{min-height:44px/);
+  assert.match(
+    activationCss,
+    /\.wizard-top-status,.wizard-return,.wizard-top-actions button,.wizard-save-alert button,.readiness-list button\{min-height:44px/,
+  );
 });

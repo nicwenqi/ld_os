@@ -339,4 +339,5 @@
   .account-password-reset-panel footer{display:grid}.account-password-reset-panel footer button{width:100%}
   .administration-boundary-note{display:block;padding:20px}.administration-boundary-note p{margin:13px 0}.administration-boundary-note a{justify-content:center}
   .position-family-panel>button,.administration-related-panel>button,.account-list-panel>button{min-height:60px}
+  .department-scope-editor article>label:first-child,.scope-descendants{min-height:44px}
 }
