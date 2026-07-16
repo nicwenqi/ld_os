@@ -100,6 +100,59 @@ test("real-mode department scope never broad-loads organization or silently repo
   assert.doesNotMatch(employees, /snapshot \? `\$\{snapshot\.employees\.length\} 条可见记录`/);
 });
 
+test("local-review department scope does not call manager-only organization or employee sources", async () => {
+  let departmentReads = 0;
+  let employeeReads = 0;
+  const snapshot = await loadScopedDepartmentEmployees(
+    {
+      environment: { dataMode: "mock" },
+      property: {
+        async resolveContext() {
+          return { propertyId: "synthetic-property-a1" };
+        },
+      },
+      department: {
+        async listTree() {
+          departmentReads += 1;
+          return [];
+        },
+      },
+      employee: {
+        async listEmployees() {
+          employeeReads += 1;
+          return [];
+        },
+      },
+    },
+    {
+      authenticated: true,
+      userId: "synthetic-department-responsible",
+      displayName: "部门培训负责人（本地验证）",
+      propertyId: "synthetic-property-a1",
+      propertyNameZh: "示范酒店",
+      propertyNameEn: "Synthetic Hotel",
+      propertyLogoUrl: null,
+      role: "department_training_responsible",
+      departmentScopes: [
+        {
+          departmentId: "front-office",
+          departmentNameZh: "前厅部",
+          departmentNameEn: "Front Office",
+          breadcrumb: ["房务部", "前厅部"],
+          breadcrumbEn: ["Rooms", "Front Office"],
+          includeDescendants: true,
+        },
+      ],
+      mustChangePassword: false,
+    },
+  );
+
+  assert.equal(snapshot.presentationState, "unavailable");
+  assert.equal(snapshot.employees.length, 0);
+  assert.equal(departmentReads, 0);
+  assert.equal(employeeReads, 0);
+});
+
 test("department operational routes explain unavailable facts and return home", async () => {
   for (const route of [
     "calendar",
