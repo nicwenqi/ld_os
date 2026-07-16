@@ -1,10 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
-import { AppShell } from "../../components/shell/AppShell";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
 import { DataStateBadge } from "../../components/operations/DataStateBadge";
+import { EmployeeDirectory } from "../../components/people/EmployeeDirectory";
+import { EmployeeProfileDrawer } from "../../components/people/EmployeeProfileDrawer";
+import { AppShell } from "../../components/shell/AppShell";
 import { ProtectedAppProviders } from "../../providers";
+import type { EmployeeRecord } from "../../repositories/contracts/employee-repository";
 import { createRepositoryRegistry } from "../../repositories/registry.ts";
 import {
   loadScopedDepartmentEmployees,
@@ -12,216 +21,243 @@ import {
 } from "../../services/department-foundation.ts";
 import { useAuthSession } from "../../state/auth-session";
 
+const PAGE_SIZE = 25;
+
 function DepartmentEmployees() {
   const registry = useMemo(() => createRepositoryRegistry(), []);
   const { session } = useAuthSession();
-  const scopes = session.departmentScopes;
   const [snapshot, setSnapshot] = useState<ScopedDepartmentEmployees | null>(null);
+  const [queryDraft, setQueryDraft] = useState("");
   const [query, setQuery] = useState("");
+  const [offset, setOffset] = useState(0);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
-  const employeeDataAvailable = Boolean(
-    snapshot && snapshot.presentationState !== "unavailable",
-  );
+  const [selected, setSelected] = useState<EmployeeRecord | null>(null);
+  const [returnFocus, setReturnFocus] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
     let active = true;
-    setLoadError(null);
-    void loadScopedDepartmentEmployees(registry, session)
-      .then(next => {
+    void (async () => {
+      await Promise.resolve();
+      if (!active) return;
+      setSnapshot(null);
+      setLoadError(null);
+      try {
+        const next = await loadScopedDepartmentEmployees(registry, session, {
+          query: query || undefined,
+          limit: PAGE_SIZE,
+          offset,
+        });
         if (active) setSnapshot(next);
-      })
-      .catch(reason => {
+      } catch (reason) {
         if (!active) return;
-        setLoadError(reason instanceof Error ? reason.message : "本部门员工读取失败");
-      });
+        setLoadError(
+          reason instanceof Error ? reason.message : "本部门员工读取失败",
+        );
+      }
+    })();
     return () => {
       active = false;
     };
-  }, [attempt, registry, session]);
+  }, [attempt, offset, query, registry, session]);
 
-  const normalizedQuery = query.trim().toLocaleLowerCase("zh-CN");
-  const employees = (snapshot?.employees ?? []).filter(employee => {
-    if (!normalizedQuery) return true;
-    return [
-      employee.employeeNumber,
-      employee.nameZh,
-      employee.nameEn,
-      employee.departmentName,
-      employee.positionName,
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLocaleLowerCase("zh-CN")
-      .includes(normalizedQuery);
-  });
-  const breadcrumb = scopes[0]?.breadcrumb.join(" › ") ?? "授权范围待确认";
+  const scopes = snapshot ? snapshot.scopes : session.departmentScopes;
+  const applySearch = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setQuery(queryDraft.trim());
+    setOffset(0);
+  };
+  const clearSearch = () => {
+    setQueryDraft("");
+    setQuery("");
+    setOffset(0);
+  };
+  const openProfile = useCallback(
+    (employee: EmployeeRecord, trigger: HTMLElement) => {
+      setSelected(employee);
+      setReturnFocus(trigger);
+    },
+    [],
+  );
+  const closeProfile = useCallback(() => setSelected(null), []);
+  const presentationState = loadError
+    ? "failed"
+    : snapshot?.presentationState ?? "unavailable";
 
   return (
     <AppShell>
       <div className="page-wrap department-employees-page">
-        <nav className="page-breadcrumb" aria-label="面包屑导航">
-          <Link href="/department">返回部门工作台</Link>
+        <nav className="page-breadcrumb" aria-label="页面面包屑">
+          <Link href="/department">部门工作台</Link>
           <span aria-hidden="true">/</span>
           <span>本部门员工</span>
         </nav>
 
         <header className="department-employees-heading">
           <div>
-            <span>AUTHORIZED EMPLOYEE FOUNDATION</span>
+            <span>AUTHORIZED EMPLOYEE DIRECTORY</span>
             <h1>本部门员工</h1>
-            <p>{breadcrumb}</p>
+            <p>只显示服务器为当前账号确认的部门分支及其员工主数据。</p>
           </div>
-          <DataStateBadge
-            state={snapshot?.presentationState ?? (loadError ? "failed" : "unavailable")}
-          />
+          <DataStateBadge state={presentationState} />
         </header>
 
-        <section className="department-employee-boundary">
-          <div>
-            <span>授权范围</span>
-            <strong>
-              {scopes.length > 1 ? `${scopes.length} 个部门分支` : breadcrumb}
-            </strong>
-            <small>
-              {scopes.some(scope => scope.includeDescendants)
-                ? "包含明确授权的下级部门"
-                : "仅限授权部门本级"}
-            </small>
-          </div>
-          <div>
-            <span>培训数据状态</span>
-            <strong>培训历史尚未接入</strong>
-            <small>不显示虚构完成率、培训时数或风险状态</small>
+        <section
+          className="department-authorized-scope"
+          aria-labelledby="authorized-scope-title"
+        >
+          <header>
+            <div>
+              <span>服务器确认范围</span>
+              <h2 id="authorized-scope-title">授权部门范围</h2>
+            </div>
+            <strong>{scopes.length} 个授权分支</strong>
+          </header>
+          <div className="department-scope-list">
+            {scopes.map(scope => (
+              <article className="department-scope-card" key={scope.departmentId}>
+                <nav aria-label={`${scope.departmentNameZh} 授权层级`}>
+                  {scope.breadcrumb.map((part, index) => (
+                    <span key={`${scope.departmentId}-${part}-${index}`}>
+                      {part}
+                      {index < scope.breadcrumb.length - 1 && (
+                        <b aria-hidden="true">›</b>
+                      )}
+                    </span>
+                  ))}
+                </nav>
+                <strong>{scope.departmentNameZh}</strong>
+                <small>
+                  {scope.includeDescendants
+                    ? "包含此分支下明确授权的下级部门"
+                    : "仅限此部门本级，不包含下级部门"}
+                </small>
+              </article>
+            ))}
+            {scopes.length === 0 && (
+              <div className="scoped-employee-empty">
+                <strong>授权范围尚未确认</strong>
+                <span>请联系酒店学习与发展经理核对账号的部门授权。</span>
+              </div>
+            )}
           </div>
         </section>
 
-        <section className="scoped-employee-panel" aria-labelledby="employee-list-title">
+        <section className="department-employee-boundary">
+          <div>
+            <span>授权范围内可见记录</span>
+            <strong>{snapshot ? snapshot.total : "—"}</strong>
+            <small>数量由服务器范围查询返回，不接受浏览器选择部门。</small>
+          </div>
+          <div>
+            <span>资料边界</span>
+            <strong>培训历史尚未接入</strong>
+            <small>当前页面仅呈现获准查看的员工主数据字段。</small>
+          </div>
+        </section>
+
+        <section
+          className="scoped-employee-panel"
+          aria-labelledby="employee-list-title"
+        >
           <header>
             <div>
-              <span>范围内员工主数据</span>
-              <h2 id="employee-list-title">
-                {employeeDataAvailable
-                  ? `${snapshot?.employees.length ?? 0} 条可见记录`
-                  : snapshot?.presentationState === "unavailable"
-                    ? "员工数据尚未接入"
-                    : "正在确认可见记录"}
-              </h2>
+              <span>服务器范围搜索</span>
+              <h2 id="employee-list-title">授权范围内员工目录</h2>
             </div>
-            <label>
-              <span>搜索范围内员工</span>
-              <input
-                type="search"
-                value={query}
-                onChange={event => setQuery(event.target.value)}
-                disabled={!employeeDataAvailable}
-                placeholder={
-                  employeeDataAvailable
-                    ? "员工编号、姓名、部门或职位"
-                    : "安全范围数据源接入后可搜索"
-                }
-              />
-            </label>
+            <form
+              className="department-directory-search"
+              aria-label="搜索授权范围内员工"
+              onSubmit={applySearch}
+            >
+              <label>
+                <span>员工编号或姓名</span>
+                <input
+                  type="search"
+                  value={queryDraft}
+                  onChange={event => setQueryDraft(event.target.value)}
+                  placeholder="员工编号、中文名或英文名"
+                />
+              </label>
+              <button type="submit">搜索</button>
+              <button type="button" disabled={!query} onClick={clearSearch}>
+                清除
+              </button>
+            </form>
           </header>
 
           {Boolean(loadError || snapshot?.errors.length) && (
             <div className="department-employee-error" role="alert">
               <div>
-                <strong>部分员工基础事实暂时无法读取</strong>
-                <span>未读取的记录不会被解释为零，也不会扩大授权范围。</span>
+                <strong>授权范围内员工资料暂时无法完整读取</strong>
+                <span>
+                  未读取的记录不会显示为零，也不会扩大当前账号的可见范围。
+                </span>
               </div>
-              <button onClick={() => setAttempt(value => value + 1)}>重新读取</button>
+              <button
+                type="button"
+                onClick={() => setAttempt(value => value + 1)}
+              >
+                重新读取
+              </button>
             </div>
           )}
 
           {!snapshot && !loadError && (
-            <div className="scoped-employee-empty" role="status">
-              <strong>正在读取授权范围内的员工基础</strong>
-              <span>只加载当前账号获准查看的部门分支。</span>
+            <div className="scoped-employee-empty" role="status" aria-live="polite">
+              <strong>正在读取授权范围内员工</strong>
+              <span>搜索和分页均由服务器范围边界执行。</span>
             </div>
           )}
 
-          {snapshot?.presentationState === "unavailable" && (
+          {snapshot && snapshot.employees.length === 0 && (
             <div className="scoped-employee-empty">
-              <strong>尚未接入安全的部门员工数据源</strong>
+              <strong>{query ? "没有匹配员工" : "当前授权范围没有可见员工"}</strong>
               <span>
-                当前仅显示服务器确认的授权范围；系统不会读取全酒店组织与员工数据，也不会将缺失来源解释为零。
+                {query
+                  ? "请调整搜索内容，搜索仍只在授权分支内执行。"
+                  : "这里只表示员工主数据目录中没有可见记录。"}
               </span>
+              {query && (
+                <button type="button" onClick={clearSearch}>
+                  清除搜索
+                </button>
+              )}
             </div>
           )}
 
-          {employeeDataAvailable && employees.length === 0 && (
-            <div className="scoped-employee-empty">
-              <strong>{normalizedQuery ? "没有匹配的范围内员工" : "当前范围没有可见员工记录"}</strong>
-              <span>
-                {normalizedQuery
-                  ? "请调整搜索条件。"
-                  : "这不是培训完成为零；这里只表示当前员工主数据中没有可见记录。"}
-              </span>
-            </div>
-          )}
-
-          {employees.length > 0 && (
-            <div className="scoped-employee-list">
-              <div className="scoped-employee-table-head" aria-hidden="true">
-                <span>员工</span>
-                <span>部门归属</span>
-                <span>职位</span>
-                <span>员工状态</span>
-                <span>培训数据</span>
-              </div>
-              {employees.map(employee => (
-                <article key={employee.id}>
-                  <div className="employee-identity-cell">
-                    <span aria-hidden="true">{(employee.nameZh ?? employee.nameEn ?? "员").slice(0, 1)}</span>
-                    <div>
-                      <strong>{employee.nameZh ?? employee.nameEn ?? "姓名未提供"}</strong>
-                      <small>
-                        {employee.employeeNumber}
-                        {employee.nameZh && employee.nameEn ? ` · ${employee.nameEn}` : ""}
-                      </small>
-                    </div>
-                  </div>
-                  <div>
-                    <strong>{employee.departmentName || "部门名称未提供"}</strong>
-                    <small>{employee.operationalUnitName ?? "无运营单元"}</small>
-                  </div>
-                  <div>
-                    <strong>{employee.positionName ?? "职位待确认"}</strong>
-                    <small>{employee.positionFamilyName ?? "职位族待确认"}</small>
-                  </div>
-                  <div>
-                    <strong>{employmentStatus(employee.employmentStatus)}</strong>
-                    <small>{employee.isNewEmployee ? "新员工记录" : "在职员工记录"}</small>
-                  </div>
-                  <div>
-                    <DataStateBadge state="unavailable" />
-                    <small>培训历史尚未接入</small>
-                  </div>
-                </article>
-              ))}
-            </div>
+          {snapshot && snapshot.employees.length > 0 && (
+            <EmployeeDirectory
+              audience="department"
+              rows={snapshot.employees}
+              total={snapshot.total}
+              offset={offset}
+              pageSize={PAGE_SIZE}
+              onOpenProfile={openProfile}
+              onPageChange={nextOffset => setOffset(Math.max(0, nextOffset))}
+            />
           )}
         </section>
 
         <footer className="department-employees-footer">
-          <p>发现员工部门归属问题时，请联系酒店学习与发展经理进行基础数据维护。</p>
+          <p>发现员工归属问题时，请联系酒店学习与发展经理维护员工主数据。</p>
           <Link href="/department">返回部门工作台</Link>
         </footer>
+
+        {selected && (
+          <EmployeeProfileDrawer
+            audience="department"
+            employee={selected}
+            sourceLabel="服务器授权的部门员工目录记录。"
+            refreshedAt={snapshot?.refreshedAt ?? null}
+            refreshState="ready"
+            returnFocus={returnFocus}
+            onClose={closeProfile}
+          />
+        )}
       </div>
     </AppShell>
   );
-}
-
-function employmentStatus(status: string) {
-  const labels: Record<string, string> = {
-    active: "在职",
-    inactive: "非在职",
-    leave: "休假中",
-    terminated: "已离职",
-    unknown: "待确认",
-  };
-  return labels[status] ?? "待确认";
 }
 
 export default function DepartmentEmployeesPage() {

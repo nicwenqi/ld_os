@@ -21,17 +21,18 @@ test("visible primary actions navigate, retry or change real local view state",a
 });
 
 test("employee drawer remains dismissible and inline administration protects unsaved edits",async()=>{
-  const [hook,people,organization,positions,accounts,saveState]=await Promise.all([
-    read("../app/lib/use-escape-dismiss.ts"),
+  const [drawer,people,organization,positions,accounts,saveState]=await Promise.all([
+    read("../app/components/people/EmployeeProfileDrawer.tsx"),
     read("../app/people/page.tsx"),
     read("../app/organization/page.tsx"),
     read("../app/positions/page.tsx"),
     read("../app/accounts/page.tsx"),
     read("../app/components/administration/AdministrationSaveState.tsx"),
   ]);
-  assert.match(hook,/Escape/);
-  assert.match(people,/useEscapeDismiss/);
-  assert.match(people,/aria-modal="true"/);
+  assert.match(people,/EmployeeProfileDrawer/);
+  assert.match(drawer,/Escape/);
+  assert.match(drawer,/aria-modal="true"/);
+  assert.match(drawer,/returnFocus\?\.focus\(\)/);
   for (const page of [organization,positions,accounts]) {
     assert.match(page,/useUnsavedChangesWarning/);
     assert.match(page,/AdministrationSaveState/);

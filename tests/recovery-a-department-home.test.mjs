@@ -43,9 +43,10 @@ test("department employee view applies authorized branch and descendant boundari
   assert.doesNotMatch(page, /synthetic-property-a1|useDepartmentScope/);
 });
 
-test("real-mode department scope never broad-loads organization or silently reports zero employees", async () => {
+test("real-mode department scope uses only the narrow employee directory boundary", async () => {
   let departmentReads = 0;
-  let employeeReads = 0;
+  let managerEmployeeReads = 0;
+  let scopedEmployeeReads = 0;
   const snapshot = await loadScopedDepartmentEmployees(
     {
       environment: { dataMode: "supabase" },
@@ -57,8 +58,24 @@ test("real-mode department scope never broad-loads organization or silently repo
       },
       employee: {
         async listEmployees() {
-          employeeReads += 1;
+          managerEmployeeReads += 1;
           return [];
+        },
+        async listEmployeesPage() {
+          managerEmployeeReads += 1;
+          return { rows: [], total: 0, refreshedAt: "2026-07-16T09:00:00.000Z" };
+        },
+        async listDepartmentEmployees() {
+          scopedEmployeeReads += 1;
+          return {
+            rows: [],
+            total: 0,
+            refreshedAt: "2026-07-16T09:00:00.000Z",
+          };
+        },
+        async getEmployee() {
+          managerEmployeeReads += 1;
+          return null;
         },
       },
     },
@@ -85,24 +102,18 @@ test("real-mode department scope never broad-loads organization or silently repo
     },
   );
 
-  assert.equal(snapshot.presentationState, "unavailable");
+  assert.equal(snapshot.presentationState, "real");
   assert.equal(snapshot.employees.length, 0);
+  assert.equal(snapshot.total, 0);
   assert.equal(departmentReads, 0);
-  assert.equal(employeeReads, 0);
-
-  const [home, employees] = await Promise.all([
-    read("../app/department/page.tsx"),
-    read("../app/department/employees/page.tsx"),
-  ]);
-  assert.match(home, /presentationState !== "unavailable"/);
-  assert.match(employees, /presentationState === "unavailable"/);
-  assert.doesNotMatch(home, /snapshot \? snapshot\.employees\.length : "—"/);
-  assert.doesNotMatch(employees, /snapshot \? `\$\{snapshot\.employees\.length\} 条可见记录`/);
+  assert.equal(managerEmployeeReads, 0);
+  assert.equal(scopedEmployeeReads, 1);
 });
 
-test("local-review department scope does not call manager-only organization or employee sources", async () => {
+test("local-review department scope also stays on the scoped employee source", async () => {
   let departmentReads = 0;
-  let employeeReads = 0;
+  let managerEmployeeReads = 0;
+  let scopedEmployeeReads = 0;
   const snapshot = await loadScopedDepartmentEmployees(
     {
       environment: { dataMode: "mock" },
@@ -119,8 +130,24 @@ test("local-review department scope does not call manager-only organization or e
       },
       employee: {
         async listEmployees() {
-          employeeReads += 1;
+          managerEmployeeReads += 1;
           return [];
+        },
+        async listEmployeesPage() {
+          managerEmployeeReads += 1;
+          return { rows: [], total: 0, refreshedAt: "2026-07-16T09:00:00.000Z" };
+        },
+        async listDepartmentEmployees() {
+          scopedEmployeeReads += 1;
+          return {
+            rows: [],
+            total: 0,
+            refreshedAt: "2026-07-16T09:00:00.000Z",
+          };
+        },
+        async getEmployee() {
+          managerEmployeeReads += 1;
+          return null;
         },
       },
     },
@@ -147,10 +174,12 @@ test("local-review department scope does not call manager-only organization or e
     },
   );
 
-  assert.equal(snapshot.presentationState, "unavailable");
+  assert.equal(snapshot.presentationState, "demo");
   assert.equal(snapshot.employees.length, 0);
+  assert.equal(snapshot.total, 0);
   assert.equal(departmentReads, 0);
-  assert.equal(employeeReads, 0);
+  assert.equal(managerEmployeeReads, 0);
+  assert.equal(scopedEmployeeReads, 1);
 });
 
 test("department operational routes explain unavailable facts and return home", async () => {

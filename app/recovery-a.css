@@ -212,3 +212,73 @@
   .data-quality-return{align-items:flex-start;flex-direction:column;padding:24px 22px}
   .data-quality-return>a{width:100%}
 }
+
+/* Recovery C authoritative People Center */
+.people-filter-form{display:grid;grid-template-columns:minmax(260px,1.5fr) repeat(4,minmax(128px,.7fr)) auto;align-items:end;gap:9px}
+.people-filter-form>label:not(.people-search){display:grid;gap:4px}
+.people-filter-form select{width:100%;min-height:44px;margin-top:0}
+.people-filter-actions{display:flex;gap:7px}
+.people-filter-actions button,.department-directory-search button,.employee-directory-pagination button,.scoped-employee-empty button{min-height:44px;padding:0 13px;border:1px solid rgba(29,57,73,.12);border-radius:10px;background:#fffefa;color:var(--ink);font-size:10px;font-weight:680;cursor:pointer}
+.people-filter-actions button:first-child,.department-directory-search button[type="submit"]{background:var(--ink);color:#fff}
+.people-filter-actions button:disabled,.department-directory-search button:disabled,.employee-directory-pagination button:disabled,.scoped-employee-empty button:disabled{cursor:not-allowed;opacity:.46}
+.employee-record-state .not-connected{background:rgba(83,139,131,.1);color:#3f776f}
+.employee-directory-pagination{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:12px;padding:13px 15px;border-radius:13px;background:rgba(255,254,250,.68)}
+.employee-directory-pagination>span{font-size:10px;color:var(--muted)}
+.employee-directory-pagination>div{display:flex;gap:7px}
+.employee-profile-trigger{border:0;background:transparent;color:var(--ink);cursor:pointer;text-align:left;padding:0}
+.employee-profile-trigger.next-cell{min-height:44px;padding:0 4px;color:#8f7245}
+.employee-profile-drawer>header>button{min-width:44px;min-height:44px;border-radius:10px;font-size:10px;font-weight:700;cursor:pointer}
+.employee-profile-drawer dl{margin:0}
+.employee-profile-drawer dl>div{gap:22px}
+.employee-profile-drawer dd{text-align:right;line-height:1.55}
+.profile-source-evidence>p{font-size:10px;line-height:1.7;color:var(--muted)}
+.profile-source-evidence .people-import-link{margin:8px 8px 0 0;min-height:44px;font-size:10px}
+.profile-source-evidence .profile-refresh{cursor:pointer}
+.employee-profile-drawer .truthful-empty{margin-top:0}
+.department-authorized-scope{margin-bottom:14px;overflow:hidden;border-radius:19px;background:rgba(255,254,250,.8);box-shadow:0 12px 38px rgba(33,49,55,.04)}
+.department-authorized-scope>header{display:flex;align-items:flex-end;justify-content:space-between;gap:20px;padding:22px 24px;border-bottom:1px solid var(--border)}
+.department-authorized-scope>header span{font-size:10px;color:#9d8559;letter-spacing:.08em}
+.department-authorized-scope>header h2{font-family:var(--serif);font-size:20px;font-weight:600;margin:6px 0 0}
+.department-authorized-scope>header>strong{font-size:11px;color:var(--muted)}
+.department-scope-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1px;background:var(--border)}
+.department-scope-card{min-height:112px;padding:20px 22px;background:#fffefa}
+.department-scope-card nav{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.department-scope-card nav span{font-size:9px;color:#8b9698}
+.department-scope-card nav b{margin-left:7px;color:#b9a77f}
+.department-scope-card>strong,.department-scope-card>small{display:block}
+.department-scope-card>strong{font-size:13px;margin-top:11px}
+.department-scope-card>small{font-size:10px;line-height:1.55;color:var(--muted);margin-top:5px}
+.department-directory-search{display:grid;grid-template-columns:minmax(220px,1fr) auto auto;align-items:end;gap:7px}
+.scoped-employee-panel>header .department-directory-search label{min-width:0;width:100%}
+.scoped-employee-panel>header .department-directory-search input{min-width:220px}
+.department-directory-search button{white-space:nowrap}
+
+@media(max-width:1240px){
+  .people-filter-form{grid-template-columns:minmax(260px,1.5fr) repeat(2,minmax(150px,.75fr))}
+  .people-filter-actions{grid-column:auto}
+}
+@media(max-width:900px){
+  .people-filter-form{grid-template-columns:1fr 1fr}
+  .people-filter-form .people-search{grid-column:1/-1}
+  .people-filter-actions{align-self:end}
+  .department-scope-list{grid-template-columns:1fr}
+  .department-directory-search{width:100%;grid-template-columns:1fr auto auto}
+}
+@media(max-width:760px){
+  .people-filter-form{grid-template-columns:1fr}
+  .people-filter-form .people-search{grid-column:auto;min-height:48px}
+  .people-filter-actions{display:grid;grid-template-columns:1fr 1fr}
+  .people-filter-actions button{width:100%}
+  .employee-directory-pagination{align-items:stretch;flex-direction:column}
+  .employee-directory-pagination>div{display:grid;grid-template-columns:1fr 1fr}
+  .department-authorized-scope>header{align-items:flex-start;flex-direction:column}
+  .department-directory-search{grid-template-columns:1fr 1fr}
+  .department-directory-search label{grid-column:1/-1}
+  .scoped-employee-panel>header .department-directory-search input{min-width:0}
+  .employee-profile-drawer{width:100%;padding:22px 18px}
+  .employee-profile-drawer>header{grid-template-columns:48px 1fr auto}
+  .employee-profile-drawer .profile-avatar{width:46px;height:46px}
+  .employee-profile-drawer dl>div{align-items:flex-start;flex-direction:column;gap:4px}
+  .employee-profile-drawer dd{text-align:left}
+  .profile-source-evidence .people-import-link{width:100%;justify-content:center;margin-right:0}
+}

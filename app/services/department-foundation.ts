@@ -2,10 +2,17 @@ import type {
   AuthSession,
   AuthorizedDepartmentScope,
 } from "../repositories/contracts/auth-repository.ts";
-import type { EmployeeRecord } from "../repositories/contracts/employee-repository.ts";
+import type {
+  DepartmentEmployeeDirectoryOptions,
+  EmployeeRecord,
+} from "../repositories/contracts/employee-repository.ts";
 import type { DepartmentNode } from "../repositories/contracts/organization-models.ts";
 import type { createRepositoryRegistry } from "../repositories/registry.ts";
-import type { FoundationPresentationState } from "./foundation-readiness.ts";
+import { createEmployeeService } from "./employee-service.ts";
+import {
+  foundationPresentationState,
+  type FoundationPresentationState,
+} from "./foundation-readiness.ts";
 
 type Registry = ReturnType<typeof createRepositoryRegistry>;
 
@@ -15,48 +22,62 @@ export type ScopedDepartmentEmployees = {
   scopes: AuthorizedDepartmentScope[];
   authorizedDepartments: DepartmentNode[];
   employees: readonly EmployeeRecord[];
+  total: number;
   errors: string[];
 };
 
 /**
  * Loads employee foundation facts for the department branches resolved by the
- * authenticated server session. It never accepts a department selected by the
- * browser and it applies a second scope boundary after repository/RLS filtering.
+ * authenticated server session. It accepts search and pagination only; the
+ * repository RPC derives department scope from the authenticated actor.
  */
 export async function loadScopedDepartmentEmployees(
   registry: Registry,
   session: AuthSession,
+  options: DepartmentEmployeeDirectoryOptions & Record<string, unknown> = {},
 ): Promise<ScopedDepartmentEmployees> {
-  void registry;
   const scopes = session.departmentScopes;
   const propertyId = session.propertyId;
-  if (!propertyId || scopes.length === 0) {
+  if (
+    session.role !== "department_training_responsible" ||
+    !propertyId ||
+    scopes.length === 0
+  ) {
     return {
       presentationState: "partial",
       refreshedAt: new Date().toISOString(),
       scopes,
       authorizedDepartments: [],
       employees: [],
+      total: 0,
       errors: [
-        propertyId
-          ? "当前账号没有可读取的授权部门范围"
-          : "当前酒店上下文无法读取",
+        session.role !== "department_training_responsible"
+          ? "当前账号不是部门培训负责人"
+          : propertyId
+            ? "当前账号没有可读取的授权部门范围"
+            : "当前酒店上下文无法读取",
       ],
     };
   }
 
-  // Recovery A/B has no server-scoped employee endpoint and the validated RLS
-  // foundation does not yet grant department responsible persons employee
-  // reads. This is also true in local review: the synthetic department account
-  // must not call manager-only organization or employee repositories. The
-  // authorized scope summary in the server session remains usable while
-  // employee facts stay explicitly unavailable.
+  const directory = await createEmployeeService(
+    registry.employee,
+  ).listDepartmentDirectory({
+    ...options,
+    limit: options.limit ?? 100,
+    offset: options.offset ?? 0,
+  });
+
   return {
-    presentationState: "unavailable",
-    refreshedAt: new Date().toISOString(),
+    presentationState: foundationPresentationState(
+      registry.environment.dataMode,
+      false,
+    ),
+    refreshedAt: directory.refreshedAt,
     scopes,
     authorizedDepartments: [],
-    employees: [],
+    employees: directory.rows,
+    total: directory.total,
     errors: [],
   };
 }
