@@ -33,6 +33,9 @@ const batch = {
 function fakeRepository() {
   const calls = [];
   let current = structuredClone(batch);
+  let departmentDecision = "pending";
+  let positionDecision = "pending";
+  let issueStatus = "unresolved";
   return {
     calls,
     async getBatch(id) {
@@ -50,7 +53,7 @@ function fakeRepository() {
         field: "Department",
         value: null,
         message: "缺少部门来源值",
-        resolutionStatus: "unresolved",
+        resolutionStatus: issueStatus,
       }];
     },
     async listFieldMappings(id) {
@@ -67,8 +70,8 @@ function fakeRepository() {
     async listSourceLabelResolutions(id, type) {
       calls.push(["listSourceLabelResolutions", id, type]);
       return type === "department"
-        ? [{ sourceValue: "Front Office", sourceRowCount: 8, decision: "pending" }]
-        : [{ sourceValue: "Associate", sourceRowCount: 8, decision: "pending" }];
+        ? [{ sourceValue: "Front Office", sourceRowCount: 8, decision: departmentDecision }]
+        : [{ sourceValue: "Associate", sourceRowCount: 8, decision: positionDecision }];
     },
     async confirmFieldMappings(id, version, mappings) {
       calls.push(["confirmFieldMappings", id, version, mappings]);
@@ -77,11 +80,14 @@ function fakeRepository() {
     },
     async resolveSourceLabel(id, version, type, sourceValue, targetId, decision) {
       calls.push(["resolveSourceLabel", id, version, type, sourceValue, targetId, decision]);
+      if (type === "department") departmentDecision = decision;
+      else positionDecision = decision;
       current = { ...current, version: version + 1 };
       return { version: current.version, status: current.status };
     },
     async resolveIssue(id, version, issueId, resolution) {
       calls.push(["resolveIssue", id, version, issueId, resolution]);
+      issueStatus = resolution.status;
       current = { ...current, version: version + 1 };
       return { version: current.version, status: current.status };
     },
@@ -165,14 +171,27 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
     "mapped",
   );
   assert.equal(attributed.batch.version, 6);
+  assert.equal(attributed.departmentLabels[0].decision, "mapped");
 
-  const corrected = await service.resolveIssue("batch-1", 6, "issue-1", {
+  const position = await service.resolveSourceLabel(
+    "batch-1",
+    6,
+    "position",
+    "Associate",
+    "position-1",
+    "mapped",
+  );
+  assert.equal(position.batch.version, 7);
+
+  const corrected = await service.resolveIssue("batch-1", 7, "issue-1", {
     status: "corrected",
     payload: { corrections: { department_id: "department-1" } },
   });
-  assert.equal(corrected.batch.version, 7);
+  assert.equal(corrected.batch.version, 8);
+  assert.equal(corrected.issues[0].resolutionStatus, "corrected");
+  assert.equal(corrected.progress.currentStep, "preview");
 
-  const preview = await service.preparePreview("batch-1", 7, {
+  const preview = await service.preparePreview("batch-1", 8, {
     statusTreatment: "retain_existing_set_additions_active",
   });
   assert.equal(preview.preview.additions, 194);
