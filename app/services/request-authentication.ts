@@ -14,6 +14,15 @@ export type AuthenticatedRequest = {
 
 export type RequestAuthIdentity = Omit<AuthenticatedRequest, "session"> & { userId: string; hostname: string };
 
+export function canReleaseBrowserAccessToken(session: AuthSession) {
+  return Boolean(
+    session.authenticated &&
+      session.propertyId &&
+      (session.role === "property_ld_manager" ||
+        session.role === "department_training_responsible"),
+  );
+}
+
 export async function resolveRequestAuthIdentity(request: Request): Promise<RequestAuthIdentity | null> {
   const environment = parseAppEnvironment();
   if (environment.appEnv === "local" && environment.dataMode === "mock") return null;
@@ -47,6 +56,6 @@ export async function resolveAuthenticatedRequest(request: Request): Promise<Aut
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) return null;
   const session = await resolveSessionForAuthUser(identity.userId, identity.hostname);
-  if (!session.authenticated || session.role === "unauthorized" || !session.propertyId) return null;
+  if (!canReleaseBrowserAccessToken(session)) return null;
   return { session, accessToken: identity.accessToken, refreshToken: identity.refreshToken, refreshed: identity.refreshed };
 }

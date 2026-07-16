@@ -16,13 +16,14 @@ test("Hotel Settings Center covers synthetic identity, branding, rules, and init
   assert.match(page, /uploadLogo/);
 });
 
-test("application shell exposes Hotel Settings without changing existing module routes", async () => {
+test("application shell exposes Hotel Settings within the approved Recovery A route set", async () => {
   const shell = await read("../app/components/shell/AppShell.tsx");
   const navigation = await read("../app/services/role-navigation.ts");
   assert.match(navigation, /酒店设置/);
   assert.match(navigation, /\/settings\/hotel/);
-  for (const route of ["/calendar", "/organization", "/people", "/kpi", "/risk", "/effectiveness"])
+  for (const route of ["/calendar", "/sessions", "/people", "/kpi", "/interventions", "/effectiveness"])
     assert.match(navigation, new RegExp(route.replaceAll("/", "\\/")));
+  assert.doesNotMatch(navigation, /href:\s*["']\/(organization|risk)["']/);
   assert.match(shell,/navigationForRole/);
 });
 

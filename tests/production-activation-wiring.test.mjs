@@ -97,6 +97,36 @@ test("production routes use server-authorized property context and never accept 
   assert.match(importPage, /type="file"/);
 });
 
+test("access-token release is limited by the server-resolved workspace role", async () => {
+  const [tokenRoute, requestAuthentication, authenticationService] = await Promise.all([
+    readFile(new URL("../app/api/auth/access-token/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/services/request-authentication.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/services/authentication-service.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(tokenRoute, /resolveAuthenticatedRequest\(request\)/);
+  assert.match(
+    requestAuthentication,
+    /resolveSessionForAuthUser\(identity\.userId, identity\.hostname\)/,
+  );
+  assert.match(
+    requestAuthentication,
+    /canReleaseBrowserAccessToken\(session\)/,
+  );
+  assert.match(requestAuthentication, /session\.role === ["']property_ld_manager["']/);
+  assert.match(
+    requestAuthentication,
+    /session\.role === ["']department_training_responsible["']/,
+  );
+  assert.match(authenticationService, /role\?\.code === ["']property_ld_manager["']/);
+  assert.match(authenticationService, /role\?\.code === ["']department_training_admin["']/);
+  assert.match(authenticationService, /role: ["']department_training_responsible["']/);
+  assert.doesNotMatch(
+    authenticationService,
+    /role\?\.code === ["'](?:platform_admin|tenant_admin)["']/,
+  );
+});
+
 test("production auth keeps refresh credentials HttpOnly, renews an expired access cookie, and clears both cookies", async () => {
   const [cookies, loginRoute, sessionRoute, logoutRoute] = await Promise.all([
     readFile(new URL("../app/api/auth/cookies.ts", import.meta.url), "utf8"),

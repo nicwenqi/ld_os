@@ -1,10 +1,16 @@
 export type EffectiveRole =
-  | "platform_admin"
-  | "tenant_admin"
   | "property_ld_manager"
-  | "department_training_admin"
-  | "employee"
+  | "department_training_responsible"
   | "unauthorized";
+
+export type AuthorizedDepartmentScope = {
+  departmentId: string;
+  departmentNameZh: string;
+  departmentNameEn: string | null;
+  breadcrumb: string[];
+  breadcrumbEn: string[];
+  includeDescendants: boolean;
+};
 
 export type AuthSession = {
   authenticated: boolean;
@@ -15,6 +21,7 @@ export type AuthSession = {
   propertyNameEn: string | null;
   propertyLogoUrl: string | null;
   role: EffectiveRole;
+  departmentScopes: AuthorizedDepartmentScope[];
   mustChangePassword: boolean;
 };
 
@@ -35,5 +42,6 @@ export const anonymousSession: AuthSession = {
   propertyNameEn: null,
   propertyLogoUrl: null,
   role: "unauthorized",
+  departmentScopes: [],
   mustChangePassword: false,
 };

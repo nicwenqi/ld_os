@@ -2,6 +2,7 @@ import { parseAppEnvironment } from "../../../lib/environment.ts";
 import { resolveRequestHostname } from "../../../lib/request-hostname.ts";
 import { absolutePublicLogoUrl } from "../../../repositories/supabase/property-repository.ts";
 import { createServerPasswordClient } from "../../../lib/supabase/server-admin.ts";
+import { getMockPropertyContext } from "../../mock-property/store.ts";
 
 export async function GET(request: Request) {
   const environment = parseAppEnvironment();
@@ -11,6 +12,19 @@ export async function GET(request: Request) {
     localOverride: environment.appEnv === "local" ? environment.devPropertyHostname : environment.appEnv === "preview" ? environment.previewPropertyHostname : null,
   });
   if (!hostname) return noStore({ configured: false });
+  if (environment.appEnv === "local" && environment.dataMode === "mock") {
+    const context = getMockPropertyContext(hostname);
+    return context
+      ? noStore({
+          configured: true,
+          hostname: context.hostname,
+          nameZh: context.nameZh,
+          nameEn: context.nameEn,
+          shortName: context.shortName,
+          logoUrl: context.logoUrl,
+        })
+      : noStore({ configured: false });
+  }
   try {
     const client = createServerPasswordClient();
     const { data, error } = await client.rpc("resolve_property_context", { p_hostname: hostname });

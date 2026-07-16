@@ -1,16 +1,288 @@
 "use client";
+
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "./components/shell/AppShell";
-import { AppProviders } from "./providers";
-import { useDepartmentScope } from "./state/department-scope";
-import { usePrototypeFeedback } from "./state/prototype-feedback";
-import { InitializationStatusCard } from "./components/initialization/InitializationStatusCard";
-const scopeProfiles:Record<string,{score:number;trend:number;people:number;coverage:number;risks:number;insight:string;kpis:number[];departments:[string,number,string][]}>={rooms:{score:86,trend:3.2,people:32,coverage:91.8,risks:3,insight:"前厅部必修覆盖是当前首要关注",kpis:[4.2,91.8,94,88.6],departments:[["前厅部",84,"3 项风险"],["客房部",91,"1 项风险"]]},"front-office":{score:82,trend:1.4,people:18,coverage:88.4,risks:3,insight:"礼宾部消防培训逾期需要本周处置",kpis:[3.8,88.4,91,86.2],departments:[["前台",88,"1 项风险"],["礼宾部",76,"2 项风险"],["宾客关系",91,"健康"]]},concierge:{score:76,trend:-2.1,people:6,coverage:78.5,risks:2,insight:"3 名员工必修培训临近或已经逾期",kpis:[3.1,78.5,83,80],departments:[["礼宾部",76,"2 项风险"]]}};
-const definitions=[{name:"人均培训时数",unit:"小时",target:4},{name:"必修培训覆盖率",unit:"%",target:95},{name:"新员工完成率",unit:"%",target:92},{name:"计划完成率",unit:"%",target:90}];
-function ExecutiveDashboard(){const{breadcrumb,departmentId}=useDepartmentScope();const{showToast}=usePrototypeFeedback();const current=breadcrumb.at(-1)!;const profile=scopeProfiles[departmentId]??scopeProfiles.rooms;const kpis=definitions.map((item,index)=>{const actual=profile.kpis[index];const completion=Math.round(actual/item.target*1000)/10;const gap=Math.round((actual-item.target)*10)/10;return{...item,actual,completion,gap,status:completion>=100?"healthy":completion>=90?"watch":"risk",statusLabel:completion>=100?"达标":completion>=90?"关注":"风险",trend:index===1?profile.trend:index%2?1.2:2.4}});return <AppShell><div className="page-wrap executive-cockpit"><div className="page-intro"><div><span className="date-line">2026 年 7 月 · {breadcrumb.map(d=>d.nameZh).join(" / ")}</span><h1>学习与发展运营总览</h1><p>Executive Learning &amp; Development Overview · 演示数据</p></div><div className="period-control"><button className="active">本月</button><button onClick={()=>showToast("已切换季度视图（原型）")}>本季度</button><button onClick={()=>showToast("已切换年度视图（原型）")}>本年度</button></div></div><InitializationStatusCard/>
-<section className="cockpit-hero"><div className="conclusion"><span>管理结论</span><h2>{current.nameZh}培训健康度为 {profile.score} 分，<br/><em>{profile.insight}</em>。</h2><p>当前范围覆盖 {profile.people} 名员工，较上月{profile.trend>=0?"提升":"下降"} {Math.abs(profile.trend)} 分。建议优先处理高风险必修培训，再跟进反馈回收。</p><button onClick={()=>showToast(`${current.nameZh}管理建议已展开`)}>查看管理建议 <b>→</b></button></div><div className="health-hero"><div className="health-orbit" style={{background:`conic-gradient(var(--champagne) 0 ${profile.score}%,rgba(191,161,106,.12) ${profile.score}%)`}}><div><strong>{profile.score}</strong><span>/ 100</span><small>培训健康分</small></div></div><div className="health-caption"><span><i/> {profile.score>=85?"运营状态良好":profile.score>=80?"需要关注":"存在风险"}</span><small>较上月 <em>{profile.trend>0?"+":""}{profile.trend}</em></small></div></div><div className="hero-trend"><div className="trend-head"><span>近 6 个月趋势</span><strong>{profile.trend>=0?"稳定向好":"需要干预"}</strong></div><div className="sparkline"><i style={{height:"38%"}}/><i style={{height:"48%"}}/><i style={{height:"45%"}}/><i style={{height:"61%"}}/><i style={{height:"70%"}}/><i className="active" style={{height:`${profile.score-8}%`}}/><span className="target-line">目标 85</span></div><div className="month-row"><span>2月</span><span>3月</span><span>4月</span><span>5月</span><span>6月</span><span>7月</span></div></div></section>
-<div className="section-heading"><div><h3>KPI 目标完成</h3><p>Actual versus target · 本月</p></div><button onClick={()=>showToast("KPI 指标详情已打开")}>查看指标详情 →</button></div><section className="signal-grid">{kpis.map(kpi=><button className={`signal ${kpi.status}`} key={kpi.name} onClick={()=>showToast(`${kpi.name}详情已打开`)}><div className="signal-top"><span>{kpi.name}</span><em>{kpi.statusLabel}</em></div><div className="signal-value"><strong>{kpi.actual}</strong><small>{kpi.unit}</small></div><div className="kpi-contract"><span>实际值 <b>{kpi.actual}{kpi.unit}</b></span><span>目标值 <b>{kpi.target}{kpi.unit}</b></span><span>达成率 <b>{kpi.completion}%</b></span></div><div className="signal-track"><i style={{width:`${Math.min(kpi.completion,100)}%`}}/></div><div className="signal-foot"><span>目标差距 {kpi.gap>0?"+":""}{kpi.gap}{kpi.unit}</span><span>本月 · 较上月 {kpi.trend>=0?"↑":"↓"} {Math.abs(kpi.trend)}</span></div></button>)}</section>
-<div className="dashboard-grid"><section className="tailored-card department-comparison"><div className="card-heading"><div><h3>部门表现对比</h3><p>Department comparison · 健康分与目标 85</p></div><button className="text-action" onClick={()=>showToast("部门对比详情已打开")}>查看详情</button></div><div className="comparison-list">{profile.departments.map(([name,score,risk])=><button key={name} onClick={()=>showToast(`${name}范围已准备切换`)}><div><strong>{name}</strong><small>{risk}</small></div><div className="comparison-track"><i style={{width:`${score}%`}}/><span style={{left:"85%"}}/></div><b>{score}</b></button>)}</div></section>
-<section className="tailored-card effectiveness-list"><div className="card-heading"><div><h3>课程成效</h3><p>Course effectiveness · 满意度与反馈率</p></div><button className="text-action" onClick={()=>showToast("课程成效详情已打开")}>查看详情</button></div>{[["奢华服务沟通","4.8","92%"],["消防安全与应急响应","4.6","87%"],["宾客投诉处理","4.3","74%"]].map(([name,score,response],i)=><button className="course-row" key={name} onClick={()=>showToast(`${name}成效摘要已打开`)}><span>{i+1}</span><div><strong>{name}</strong><small>反馈回收 {response}</small></div><b>{score}<small>/5</small></b></button>)}</section>
-<section className="tailored-card risk-ranking"><div className="card-heading"><div><h3>部门风险</h3><p>Risk ranking · 需要管理介入</p></div><span className="risk-count">{profile.risks} 项</span></div>{[["礼宾部","必修培训逾期","3 人","critical"],["前台","新员工进度低于目标","2 人","warning"],["宴会部","反馈回收率偏低","8 份","warning"]].slice(0,profile.risks).map(([dept,title,count,tone],i)=><button className="risk-row" key={title} onClick={()=>showToast(`${dept}风险处置已打开`)}><span>{i+1}</span><i className={tone}/><div><strong>{dept}</strong><small>{title}</small></div><b>{count}</b></button>)}</section>
-<section className="tailored-card priority-panel"><div className="card-heading"><div><h3>行动优先级</h3><p>Action priorities · 本周</p></div><button className="text-action" onClick={()=>showToast("行动计划已刷新")}>刷新</button></div><div className="priority-callout"><span>01</span><div><strong>创建礼宾部消防安全补训</strong><small>建议完成时间：7 月 15 日前</small></div><button onClick={()=>showToast("补训创建面板已打开")}>立即处理 →</button></div><div className="mini-actions"><button onClick={()=>showToast("提醒发送面板已打开")}>发送必修提醒 <span>3 人</span></button><button onClick={()=>showToast("反馈跟进列表已打开")}>跟进课程反馈 <span>8 份</span></button></div></section></div></div></AppShell>}
-export default function Home(){return <AppProviders><ExecutiveDashboard/></AppProviders>}
+import { DataStateBadge } from "./components/operations/DataStateBadge";
+import { ProtectedAppProviders } from "./providers";
+import { createRepositoryRegistry } from "./repositories/registry.ts";
+import {
+  formatFoundationCount,
+  loadFoundationReadiness,
+  type FoundationReadinessSnapshot,
+} from "./services/foundation-readiness.ts";
+import { useAuthSession } from "./state/auth-session";
+
+const unavailableModules = [
+  ["培训日历与场次", "真实培训场次、培训师、场地与受众尚未接入。", "/calendar"],
+  ["出勤与反馈", "尚无可信签到、出勤关闭或反馈回收事实。", "/attendance-feedback"],
+  ["KPI、轨迹与预测", "目标实际、所需速度和预测结果当前无法计算。", "/kpi"],
+  ["部门表现", "没有真实训练事实时，不生成部门排名或健康结论。", "/department-performance"],
+  ["干预与提醒", "真实风险与行动生命周期尚未建立，不生成假任务。", "/interventions"],
+  ["课程成效", "反馈样本、满意度和课程应用证据尚未接入。", "/effectiveness"],
+] as const;
+
+function ManagerCommandCenter() {
+  const registry = useMemo(() => createRepositoryRegistry(), []);
+  const { session } = useAuthSession();
+  const [snapshot, setSnapshot] = useState<FoundationReadinessSnapshot | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+
+  useEffect(() => {
+    let active = true;
+    void loadFoundationReadiness(registry, session)
+      .then(next => {
+        if (active) setSnapshot(next);
+      })
+      .catch(reason => {
+        if (active) setLoadError(reason instanceof Error ? reason.message : "酒店基础状态读取失败");
+      });
+    return () => {
+      active = false;
+    };
+  }, [attempt, registry, session]);
+
+  const retry = () => {
+    setLoadError(null);
+    setAttempt(value => value + 1);
+  };
+
+  if (!snapshot && !loadError) {
+    return (
+      <AppShell>
+        <div className="page-wrap manager-command-center manager-loading" role="status">
+          <span>正在读取酒店基础事实</span>
+          <h1>运营工作台</h1>
+          <p>系统只会在来源确认后显示结果。</p>
+        </div>
+      </AppShell>
+    );
+  }
+
+  if (!snapshot) {
+    return (
+      <AppShell>
+        <div className="page-wrap manager-command-center">
+          <section className="source-load-failure" role="alert">
+            <DataStateBadge state="failed" />
+            <h1>酒店基础状态暂时无法读取</h1>
+            <p>{loadError}。系统没有用零值或演示指标替代失败的来源。</p>
+            <button onClick={retry}>重新读取</button>
+          </section>
+        </div>
+      </AppShell>
+    );
+  }
+
+  const refreshedAt = formatTimestamp(snapshot.refreshedAt, snapshot.hotel.timezone);
+  const readinessLabel =
+    snapshot.readiness.minimumReady === null
+      ? "无法判断"
+      : snapshot.readiness.minimumReady
+        ? "最低可用条件已满足"
+        : "最低可用条件待完成";
+  const verifiedPositive =
+    snapshot.presentationState === "real" && snapshot.readiness.minimumReady === true;
+
+  return (
+    <AppShell>
+      <div className="page-wrap manager-command-center">
+        <header className="manager-page-heading">
+          <div>
+            <span>{snapshot.hotel.nameZh} · HOTEL TRAINING OPERATIONS</span>
+            <h1>运营工作台</h1>
+            <p>判断在前，事实为证；当前只呈现已经连接并可追溯的酒店基础数据。</p>
+          </div>
+          <div className="source-summary">
+            <DataStateBadge state={snapshot.presentationState} />
+            <small>数据更新于 {refreshedAt}</small>
+          </div>
+        </header>
+
+        {snapshot.errors.length > 0 && (
+          <section className="partial-source-notice" role="alert">
+            <div>
+              <strong>部分酒店基础来源读取失败</strong>
+              <span>受影响的项目显示为“—”，不会被解释为零或正常。</span>
+            </div>
+            <button onClick={retry}>重新读取</button>
+          </section>
+        )}
+
+        <section className="operating-verdict">
+          <div className="verdict-copy">
+            <DataStateBadge state="unavailable" />
+            <span className="verdict-kicker">当前运营判断</span>
+            <h2>当前无法判断酒店培训运营是否受控</h2>
+            <p>
+              酒店身份、组织、职位与员工主数据可用于基础管理；真实培训计划、场次、出勤、反馈与 KPI
+              实际尚未接入，因此不显示健康分、风险、预测或干预结果。
+            </p>
+            <Link href="/data-quality">查看数据接入边界</Link>
+          </div>
+          <aside className="next-foundation-action">
+            <span>下一步</span>
+            <h3>{snapshot.readiness.nextAction.title}</h3>
+            <p>{snapshot.readiness.nextAction.detail}</p>
+            <Link href={snapshot.readiness.nextAction.href}>前往处理</Link>
+          </aside>
+        </section>
+
+        <section className="foundation-section" aria-labelledby="foundation-heading">
+          <header className="section-title-row">
+            <div>
+              <span>酒店基础准备</span>
+              <h2 id="foundation-heading">现在可以信任的管理基础</h2>
+            </div>
+            <span className={`readiness-label ${verifiedPositive ? "verified" : ""}`}>
+              {readinessLabel}
+            </span>
+          </header>
+          <div className="foundation-facts-grid">
+            <FactCard
+              value={formatFoundationCount(snapshot.facts.activeDepartments)}
+              label="有效正式部门"
+              detail={factDetail(snapshot.facts.activeDepartments, "用于组织归属与权限范围")}
+            />
+            <FactCard
+              value={formatFoundationCount(snapshot.facts.activeEmployees)}
+              label="在职员工主数据"
+              detail={factDetail(snapshot.facts.activeEmployees, "员工是业务记录，不是登录账号")}
+            />
+            <FactCard
+              value={formatFoundationCount(snapshot.facts.activePositions)}
+              label="有效正式职位"
+              detail={factDetail(snapshot.facts.activePositions, "用于职位归属与后续培训对象")}
+            />
+            <FactCard
+              value={formatFoundationCount(snapshot.facts.unresolvedMappings)}
+              label="待确认归属"
+              detail={factDetail(snapshot.facts.unresolvedMappings, "部门与职位来源标签")}
+            />
+          </div>
+          <div className="foundation-context-row">
+            <article>
+              <span>最近员工资料更新</span>
+              <strong>
+                {snapshot.facts.latestEmployeeUpdate
+                  ? importStatus(snapshot.facts.latestEmployeeUpdate.status)
+                  : "尚无更新记录"}
+              </strong>
+              <small>
+                {snapshot.facts.latestEmployeeUpdate
+                  ? formatTimestamp(
+                      snapshot.facts.latestEmployeeUpdate.createdAt,
+                      snapshot.hotel.timezone,
+                    )
+                  : "可从“员工资料更新”开始文件检查"}
+              </small>
+            </article>
+            <article>
+              <span>有效酒店学习与发展经理</span>
+              <strong>{formatFoundationCount(snapshot.facts.activeManagers)}</strong>
+              <small>
+                {snapshot.facts.activeManagers === null
+                  ? "账号来源无法读取"
+                  : "仅后台授权账号，不为普通员工创建账户"}
+              </small>
+            </article>
+            <article>
+              <span>启用与系统检查</span>
+              <strong>
+                {snapshot.readiness.foundationReady === null
+                  ? "无法判断"
+                  : snapshot.readiness.foundationReady
+                    ? "已完成"
+                    : "仍有可选准备项"}
+              </strong>
+              <small>不会阻挡经理返回日常运营首页</small>
+            </article>
+          </div>
+        </section>
+
+        <section className="availability-section" aria-labelledby="availability-heading">
+          <header className="section-title-row">
+            <div>
+              <span>运营数据边界</span>
+              <h2 id="availability-heading">尚未接入的培训运营事实</h2>
+              <p>每项均标记为“尚未接入真实数据”，保留清晰入口与所需证据，但不会展示演示指标或执行假动作。</p>
+            </div>
+          </header>
+          <div className="availability-grid">
+            {unavailableModules.map(([title, detail, href]) => (
+              <Link href={href} key={title}>
+                <DataStateBadge state="unavailable" />
+                <h3>{title}</h3>
+                <p>{detail}</p>
+                <span>查看接入要求</span>
+              </Link>
+            ))}
+          </div>
+        </section>
+
+        <section className="foundation-work-links">
+          <div>
+            <span>基础管理</span>
+            <h2>继续真实可用的酒店准备工作</h2>
+          </div>
+          <nav aria-label="酒店基础管理快捷入口">
+            <Link href="/settings/hotel">酒店设置</Link>
+            <Link href="/permissions?section=organization">组织与职位</Link>
+            <Link href="/import">员工资料更新</Link>
+            <Link href="/people">员工主数据</Link>
+          </nav>
+        </section>
+      </div>
+    </AppShell>
+  );
+}
+
+function FactCard({ value, label, detail }: { value: string; label: string; detail: string }) {
+  return (
+    <article>
+      <strong>{value}</strong>
+      <span>{label}</span>
+      <small>{detail}</small>
+    </article>
+  );
+}
+
+function factDetail(value: number | null, detail: string) {
+  return value === null ? "当前来源无法读取" : detail;
+}
+
+function formatTimestamp(value: string, timezone: string) {
+  try {
+    return new Intl.DateTimeFormat("zh-CN", {
+      month: "long",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+      timeZone: timezone,
+    }).format(new Date(value));
+  } catch {
+    return "更新时间不可用";
+  }
+}
+
+function importStatus(status: string) {
+  const labels: Record<string, string> = {
+    completed: "已完成",
+    completed_with_warnings: "已完成，存在提示",
+    ready_for_review: "等待更新预览",
+    mapping_required: "等待归属确认",
+    validating: "正在检查",
+    importing: "正在更新",
+  };
+  return labels[status] ?? "已记录";
+}
+
+export default function Home() {
+  return (
+    <ProtectedAppProviders>
+      <ManagerCommandCenter />
+    </ProtectedAppProviders>
+  );
+}

@@ -2,21 +2,14 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-test("executive dashboard KPI contract is complete", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  for (const field of ["实际值","目标值","达成率","目标差距","本月","较上月","statusLabel"]) {
-    assert.match(page, new RegExp(field));
-  }
-  assert.match(page, /scopeProfiles/);
-  assert.match(page, /departmentId/);
+test("manager home leads with a truthful operating judgment",async()=>{
+  const page=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  for (const token of ["当前无法判断酒店培训运营是否受控","酒店基础准备","尚未接入的培训运营事实","下一步","数据更新于"]) assert.match(page,new RegExp(token));
+  assert.doesNotMatch(page,/healthScore|培训健康度为|实际值|较上月|风险排名|showToast/);
 });
 
-test("executive dashboard contains management-purpose views", async () => {
-  const page = await readFile(new URL("../app/page.tsx", import.meta.url), "utf8");
-  for (const section of ["部门表现对比","课程成效","部门风险","行动优先级"]) {
-    assert.match(page, new RegExp(section));
-  }
-  assert.match(page, /department-comparison/);
-  assert.match(page, /effectiveness-list/);
-  assert.match(page, /risk-ranking/);
+test("home synthesizes connected foundations without inventing training results",async()=>{
+  const page=await readFile(new URL("../app/page.tsx",import.meta.url),"utf8");
+  for (const token of ["activeDepartments","activeEmployees","activePositions","unresolvedMappings","DataStateBadge"]) assert.match(page,new RegExp(token));
+  for (const fake of ["4.2","91.8","scopeProfiles","department-comparison","risk-ranking"]) assert.doesNotMatch(page,new RegExp(fake));
 });

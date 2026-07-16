@@ -1,4 +1,22 @@
-import assert from"node:assert/strict";import{readFile}from"node:fs/promises";import test from"node:test";const read=p=>readFile(new URL(p,import.meta.url),"utf8");
-test("People Center is an identity-first employee operations workspace",async()=>{const p=await read("../app/people/page.tsx");for(const x of ["员工运营中心","员工编号、中文名或英文名","部门层级筛选","员工档案","编辑部门与职位","在职状态","新员工","必修培训状态","培训历史","风险标签","批量操作","分配培训","创建补训","导入员工","下一步行动"])assert.match(p,new RegExp(x));assert.match(p,/filteredEmployees/);});
-test("KPI Target Center models targets overrides inheritance and health score",async()=>{const p=await read("../app/kpi/page.tsx");for(const x of ["KPI 目标中心","指标目录","公式说明","月度目标","季度目标","年度目标","预警阈值","严重阈值","健康分权重","启用状态","酒店级目标","部门覆盖目标","继承目标预览","培训健康分","权重合计必须为 100%","departmentTree"])assert.match(p,new RegExp(x));});
-test("shell navigates to Checkpoint 4A modules",async()=>{const p=await read("../app/services/role-navigation.ts");assert.match(p,/href:"\/people"/);assert.match(p,/href:"\/kpi"/);});
+import assert from "node:assert/strict";
+import {readFile}from"node:fs/promises";
+import test from"node:test";
+const read=p=>readFile(new URL(p,import.meta.url),"utf8");
+
+test("Employee Center is a truthful identity-first foundation",async()=>{
+  const page=await read("../app/people/page.tsx");
+  for(const token of ["员工中心","员工主数据","员工不是后台登录账号","培训数据尚未接入","ProtectedAppProviders","session.propertyId"]) assert.match(page,new RegExp(token));
+  assert.doesNotMatch(page,/showToast|useDepartmentScope|synthetic-property-a1|分配培训|创建补训/);
+});
+
+test("KPI route suppresses actuals, forecasts and health until sources exist",async()=>{
+  const page=await read("../app/kpi/page.tsx");
+  assert.match(page,/UnavailableOperationalPage/);
+  assert.doesNotMatch(page,/healthScore|departmentTree|保存全部目标|showToast/);
+});
+
+test("navigation retains employee and KPI destinations with availability labels",async()=>{
+  const nav=await read("../app/services/role-navigation.ts");
+  assert.match(nav,/item\("员工"[^\n]*"\/people"[^\n]*"foundation"/);
+  assert.match(nav,/item\("KPI 与目标"[^\n]*"\/kpi"[^\n]*"unavailable"/);
+});

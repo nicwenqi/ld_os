@@ -19,11 +19,12 @@ test("position workspace supports families, official positions, and source mappi
   for (const phrase of ["职位族", "正式职位", "职位来源映射", "映射到现有职位", "仅映射职位族", "仅作为外部 LMS 角色", "受影响员工", "适用部门"]) assert.match(page, new RegExp(phrase));
 });
 
-test("page uses repositories while performance dashboards remain mock in hybrid mode", () => {
+test("page uses foundation repositories while training operations remain unavailable", () => {
   assert.match(page, /registry\.department/);
   assert.match(page, /registry\.position/);
   assert.doesNotMatch(page, /\.from\(|createClient|supabase/i);
   assert.match(registry, /organization-management/);
   assert.match(registry, /position-management/);
-  assert.match(registry, /"hotel-settings","organization-management","position-management","people","import"/);
+  assert.match(registry, /foundationModules/);
+  assert.match(registry, /return "unavailable"/);
 });

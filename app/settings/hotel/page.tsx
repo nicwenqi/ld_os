@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "../../components/shell/AppShell";
-import { AppProviders } from "../../providers";
+import { ProtectedAppProviders } from "../../providers";
 import { createRepositoryRegistry } from "../../repositories/registry.ts";
 import type { HotelPropertyRecord, PropertyIdentity, PropertySettings } from "../../repositories/contracts/models.ts";
 import { getInitializationSteps } from "../../services/property-settings-service.ts";
@@ -190,4 +190,4 @@ function Toggle({ label, detail, checked, onChange }: { label: string; detail: s
 function errorMessage(reason: unknown) { return reason instanceof Error ? reason.message : "操作未完成，请重试"; }
 function formatUpdatedAt(value: string) { return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(value)); }
 
-export default function HotelSettingsPage() { return <AppProviders><HotelSettingsContent/></AppProviders>; }
+export default function HotelSettingsPage() { return <ProtectedAppProviders><HotelSettingsContent/></ProtectedAppProviders>; }

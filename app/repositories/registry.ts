@@ -38,9 +38,15 @@ export type ModuleName =
   | "import";
 
 export function dataSourceForModule(moduleName: ModuleName, dataMode: AppDataMode): RepositoryDataSource {
-  if (dataMode === "mock") return "mock";
-  if (dataMode === "hybrid") return ["hotel-settings","organization-management","position-management","people","import"].includes(moduleName) ? "supabase" : "mock";
-  return "supabase";
+  const foundationModules: ModuleName[] = [
+    "hotel-settings",
+    "organization-management",
+    "position-management",
+    "people",
+    "import",
+  ];
+  if (!foundationModules.includes(moduleName)) return "unavailable";
+  return dataMode === "mock" ? "mock" : "supabase";
 }
 
 export function createRepositoryRegistry(input?: {

@@ -1,5 +1,28 @@
-"use client";
-import { AppShell } from "../components/shell/AppShell";import { AppProviders } from "../providers";import { useDepartmentScope } from "../state/department-scope";import { usePrototypeFeedback } from "../state/prototype-feedback";
-const courses=[["奢华服务沟通",4.8,92,88,"healthy"],["消防安全与应急响应",4.6,87,96,"healthy"],["宾客投诉处理",4.3,74,69,"watch"],["前厅收益与升级销售",3.9,62,58,"risk"]] as const;
-function Page(){const{departmentId,breadcrumb}=useDepartmentScope();const{showToast}=usePrototypeFeedback();const offset=departmentId==="concierge"?-8:departmentId==="front-office"?-3:0;return <AppShell><div className="page-wrap dashboard-page"><header className="dash-header"><div><span>{breadcrumb.map(x=>x.nameZh).join(" › ")}</span><h1>课程成效看板</h1><p>Course Effectiveness Dashboard</p></div><div className="scope-summary-pill"><strong>{courses.length}</strong><span>重点课程</span></div></header><section className="narrative-strip"><div><span>管理问题</span><h2>哪门课程需要关注？</h2><p>“前厅收益与升级销售”反馈率和应用转化均低于 65%，建议复核内容与授课方式。</p></div><button onClick={()=>showToast("课程改进建议已打开")}>查看改进建议 →</button></section><div className="effect-grid"><section className="tailored-card matrix-card"><div className="card-heading"><div><h3>成效矩阵</h3><p>满意度 × 岗位应用转化</p></div><span className="matrix-legend">右上区域为高成效</span></div><div className="matrix"><span className="axis-y">满意度</span><span className="axis-x">应用转化 →</span><i className="mid-x"/><i className="mid-y"/>{courses.map(([name,sat,,apply,tone],i)=><button key={name} className={`bubble ${tone}`} style={{left:`${apply+offset}%`,bottom:`${(sat-3)*42}%`}} onClick={()=>showToast(`${name}分析已打开`)}><span>{i+1}</span><b>{name}</b></button>)}</div></section><section className="tailored-card trend-card"><div className="card-heading"><div><h3>满意度趋势</h3><p>Satisfaction trend</p></div><strong>4.5 / 5</strong></div><div className="line-chart bars-trend" aria-label="六个月满意度趋势"><span className="trend-target">目标 4.5</span>{[38,48,45,61,70,84].map((height,index)=><i key={index} style={{height:`${height}%`}}><b>{[4.1,4.2,4.2,4.4,4.5,4.7][index]}</b></i>)}</div><div className="chart-months"><span>2月</span><span>3月</span><span>4月</span><span>5月</span><span>6月</span><span>7月</span></div></section></div><div className="effect-grid lower"><section className="tailored-card response-card"><div className="card-heading"><div><h3>反馈回收率</h3><p>Feedback response rate</p></div><strong>{82+offset}%</strong></div>{courses.map(([name,,response,,tone])=><button key={name} onClick={()=>showToast(`${name}未反馈名单已打开`)}><span>{name}</span><div><i className={tone} style={{width:`${response+offset}%`}}/></div><b>{response+offset}%</b></button>)}</section><section className="tailored-card roi-card"><div className="card-heading"><div><h3>课程投入产出</h3><p>Learning value index</p></div></div>{courses.map(([name,sat,response,apply],i)=>{const score=Math.round((sat/5*40+response/100*25+apply/100*35)+offset);return <button key={name} onClick={()=>showToast(`${name}投入产出详情已打开`)}><span>{i+1}</span><div><strong>{name}</strong><small>满意度 · 反馈 · 应用</small></div><b>{score}</b></button>})}</section></div></div></AppShell>}
-export default function Effectiveness(){return <AppProviders><Page/></AppProviders>}
+import { UnavailableOperationalPage } from "../components/operations/UnavailableOperationalPage";
+import { ProtectedAppProviders } from "../providers";
+
+export default function CourseEffectivenessPage() {
+  return (
+    <ProtectedAppProviders>
+      <UnavailableOperationalPage
+        title="课程成效"
+        englishTitle="Course Effectiveness"
+        managementQuestion="哪些课程与培训师正在产生可信成效，哪些需要复核？"
+        explanation="课程、有效反馈样本、满意度与岗位应用证据尚未连接。系统不会用演示课程、虚构评分或推算的投入产出替代真实酒店结果。"
+        requiredFacts={[
+          "真实课程版本、目标受众与培训目的",
+          "已完成场次和有效出席记录",
+          "可追溯的反馈问卷、样本量与回收范围",
+          "经确认的满意度、应用或后续验证证据",
+          "课程与培训师评价的适用期间",
+        ]}
+        availableNow={[
+          "组织与员工基础可支持未来按授权范围分析",
+          "反馈来源不存在时，满意度保持为无法计算",
+        ]}
+        returnHref="/"
+        returnLabel="返回运营工作台"
+      />
+    </ProtectedAppProviders>
+  );
+}

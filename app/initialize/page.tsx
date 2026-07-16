@@ -2,14 +2,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AppProviders } from "../providers";
+import { ProtectedAppProviders } from "../providers";
 import { createRepositoryRegistry } from "../repositories/registry.ts";
 import type { DepartmentAlias, DepartmentNode, OfficialPosition, PositionFamily, PositionSourceLabel } from "../repositories/contracts/organization-models.ts";
 import type { HotelPropertyRecord, PropertySettings } from "../repositories/contracts/models.ts";
 import { deriveWizardState, type WizardProgress, type WizardStepKey } from "../services/initialization-wizard-service.ts";
 import { usePrototypeFeedback } from "../state/prototype-feedback";
 import { useAuthSession } from "../state/auth-session";
-import { SessionGate } from "../components/auth/SessionGate";
 import { saveStateLabel } from "../services/save-state.ts";
 import { OrganizationSetupStep } from "./OrganizationSetupStep.tsx";
 import { WorkbookSetupStep } from "./WorkbookSetupStep.tsx";
@@ -26,7 +25,7 @@ function Wizard() {
   useEffect(() => { let active=true; queueMicrotask(()=>{if(active)void load().finally(()=>setLoading(false))}); return()=>{active=false}; }, [load]);
   useEffect(() => { const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = "初始化资料尚未保存"; } }; addEventListener("beforeunload", warn); return () => removeEventListener("beforeunload", warn); }, [dirty]);
   if (loading) return <div className="wizard-loading">正在准备酒店初始化…</div>;
-  if (session.role!=="property_ld_manager"&&session.role!=="tenant_admin"&&session.role!=="platform_admin") return <div className="wizard-denied"><span>访问受限</span><h1>当前账号无权编辑酒店初始化</h1><p>仅酒店学习与发展经理或获授权的上级管理员可继续。请联系当前酒店管理员。</p></div>;
+  if (session.role!=="property_ld_manager") return <div className="wizard-denied"><span>访问受限</span><h1>当前账号无权编辑酒店启用检查</h1><p>只有当前酒店的学习与发展经理可以维护酒店启用资料。</p></div>;
   if (!record) return null;
   const state = deriveWizardState({ identity: record.identity, rules: record.settings, activeDepartments: tree.filter(x=>x.isActive).length, activePositions: positions.filter(x=>x.isActive).length, inspectedEmployeeMaster, unresolvedDepartmentLabels: aliases.filter(x=>x.resolutionType === "deferred").length, unresolvedPositionLabels: positionLabels.filter(x=>x.resolutionStatus === "deferred").length, activePropertyAdministrator: Boolean(accessSummary?.activePropertyManagers), progress });
   const current = state.steps[step - 1];
@@ -43,7 +42,7 @@ function Wizard() {
   const complete = async () => { if (!state.ready) return showToast("仍有必填步骤未完成，请查看阻塞项"); await registry.initialization.complete(record.identity.id, progress.version); showToast("酒店初始化已完成，正在进入系统"); router.replace("/"); };
   const identity = record.identity; const settings = record.settings;
   const currentSaveLabel=saveStateLabel({saving,dirty,error:saveError,savedAt});
-  return <div className="initialization-shell"><header className="wizard-top"><Link className="wizard-brand" href="/initialize"><i>澜</i><span><strong>酒店学习与发展</strong><small>Hotel L&amp;D Operations</small></span></Link><div className={`wizard-top-status ${saveError?"error":dirty?"dirty":""}`}><span className="save-dot"/>{currentSaveLabel}<small>Server-persisted setup state</small></div><div><Link className="wizard-return" href="/">返回运营首页</Link><button onClick={()=>showToast("帮助中心将在正式上线时开放")}>帮助</button><button disabled={saving} onClick={()=>void saveForLater()}>保存并稍后继续</button></div></header>
+  return <div className="initialization-shell"><header className="wizard-top"><Link className="wizard-brand" href="/initialize"><i>澜</i><span><strong>酒店学习与发展</strong><small>Hotel L&amp;D Operations</small></span></Link><div className={`wizard-top-status ${saveError?"error":dirty?"dirty":""}`}><span className="save-dot"/>{currentSaveLabel}<small>Server-persisted setup state</small></div><div><Link className="wizard-return" href="/">返回运营首页</Link><button disabled title="帮助中心尚未接入">帮助</button><button disabled={saving} onClick={()=>void saveForLater()}>保存并稍后继续</button></div></header>
     <div className="wizard-frame"><aside className="wizard-steps" aria-label="初始化步骤"><div><span>酒店初始化</span><h1>建立可用酒店系统</h1></div>{state.steps.map(item=><button key={item.key} className={`${item.number===step?"active":""} ${item.complete?"complete":""} ${item.blocked?"blocked":""}`} onClick={()=>void changeStep(item.number)}><i>{item.complete?"✓":item.number}</i><span><strong>{item.label}</strong><small>{item.english}</small></span><em>{item.blocked?"需处理":item.complete?"已完成":""}</em></button>)}</aside>
       <main className="wizard-workspace"><header className="wizard-heading"><div><span>第 {step} 步 / 共 8 步</span><h2>{current.label}</h2><p>{current.english} · 一次只完成一个关键决定</p></div></header>
         {step===1 && <section className="wizard-card"><Intro title="让酒店在系统中被准确识别" detail="正式名称、物业代码与时区会用于应用导航、权限和后续运营报表。"/><div className="wizard-form">{([['nameZh','酒店正式中文名'],['nameEn','酒店正式英文名'],['shortName','酒店简称'],['code','物业代码'],['brand','品牌'],['city','城市'],['countryRegion','国家或地区'],['timezone','时区']] as const).map(([key,label])=><label key={key}><span>{label}</span><input value={identity[key]} onChange={e=>{setRecord({...record,identity:{...identity,[key]:e.target.value}});setDirty(true)}}/></label>)}<label><span>默认语言</span><select value={identity.defaultLanguage} onChange={e=>{setRecord({...record,identity:{...identity,defaultLanguage:e.target.value}});setDirty(true)}}><option value="zh-CN">简体中文</option><option value="en">English</option></select></label><div className="wizard-logo">{record.currentLogo?<img src={record.currentLogo.publicUrl} alt={`${identity.nameZh} Logo`}/>:<span>{identity.nameZh.slice(0,1)}</span>}<div><strong>酒店 Logo</strong><small>支持 PNG、JPEG、WebP，最大 2 MB；上传后立即用于登录页和酒店品牌展示。</small><input ref={logoInput} type="file" hidden accept="image/png,image/jpeg,image/webp" onChange={event=>void uploadLogo(event.target.files?.[0])}/><button disabled={saving} onClick={()=>logoInput.current?.click()}>{saving?"正在上传…":record.currentLogo?"更换 Logo":"上传 Logo"}</button></div></div></div><footer><Validation complete={state.steps[0].complete} label="已验证必填酒店资料"/><button className="wizard-primary" disabled={saving} onClick={()=>void saveIdentity()}>{saving?"正在保存…":"保存并继续"}</button></footer></section>}
@@ -60,4 +59,4 @@ function Wizard() {
 function Intro({title,detail}:{title:string;detail:string}){return <header className="wizard-intro"><h3>{title}</h3><p>{detail}</p></header>}
 function Validation({complete,label}:{complete:boolean;label:string}){return <span className={`wizard-validation ${complete?"good":""}`}>{complete?"✓":"!"} {label}</span>}
 function Choice({label,value,options,onChange}:{label:string;value:string;options:string[][];onChange:(value:string)=>void}){return <label className="wizard-choice"><span><strong>{label}</strong></span><select value={value} onChange={e=>onChange(e.target.value)}>{options.map(([v,n])=><option value={v} key={v}>{n}</option>)}</select></label>}
-export default function InitializationPage(){return <AppProviders><SessionGate><Wizard/></SessionGate></AppProviders>}
+export default function InitializationPage(){return <ProtectedAppProviders><Wizard/></ProtectedAppProviders>}

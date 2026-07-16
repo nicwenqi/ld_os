@@ -1,4 +1,4 @@
-export type RepositoryDataSource = "mock" | "supabase";
+export type RepositoryDataSource = "mock" | "supabase" | "unavailable";
 
 export type PropertyContext = {
   tenantId: string;

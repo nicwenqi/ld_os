@@ -1,5 +1,28 @@
-"use client";import{useState}from"react";import{AppShell}from"../components/shell/AppShell";import{AppProviders}from"../providers";import{useDepartmentScope}from"../state/department-scope";import{usePrototypeFeedback}from"../state/prototype-feedback";
-const catalog=[{name:"人均培训时数",en:"Avg. Training Hours",formula:"培训总小时 ÷ 在岗员工人数",unit:"小时",month:4,quarter:12,year:48,warning:90,critical:75,weight:18,active:true},{name:"必修培训覆盖率",en:"Mandatory Coverage",formula:"完成必修培训人数 ÷ 应完成人数",unit:"%",month:95,quarter:96,year:98,warning:90,critical:82,weight:18,active:true},{name:"新员工完成率",en:"New Hire Completion",formula:"按期完成入职培训人数 ÷ 新员工人数",unit:"%",month:92,quarter:94,year:96,warning:86,critical:78,weight:14,active:true},{name:"培训计划完成率",en:"Plan Completion",formula:"已完成场次 ÷ 计划场次",unit:"%",month:90,quarter:92,year:94,warning:85,critical:75,weight:14,active:true},{name:"出席率",en:"Attendance Rate",formula:"实际出席人数 ÷ 应出席人数",unit:"%",month:90,quarter:91,year:92,warning:84,critical:75,weight:12,active:true},{name:"反馈回收率",en:"Feedback Response",formula:"已提交反馈人数 ÷ 实际出席人数",unit:"%",month:80,quarter:82,year:85,warning:72,critical:60,weight:8,active:true},{name:"平均满意度",en:"Avg. Satisfaction",formula:"有效反馈满意度平均分",unit:"分",month:4.5,quarter:4.5,year:4.6,warning:4.2,critical:3.8,weight:8,active:true},{name:"部门培训员覆盖率",en:"Trainer Coverage",formula:"已配置培训员部门 ÷ 全部部门",unit:"%",month:85,quarter:88,year:90,warning:78,critical:65,weight:8,active:true}];
-const departmentTree=["酒店级目标","房务部 Rooms","　前厅部 Front Office","　　礼宾部 Concierge","　　前台 Front Desk","　客房部 Housekeeping"];
-function Page(){const[selected,setSelected]=useState(0),[weights,setWeights]=useState(catalog.map(x=>x.weight));const{departmentId,breadcrumb}=useDepartmentScope();const{showToast}=usePrototypeFeedback();const total=weights.reduce((a,b)=>a+b,0),kpi=catalog[selected],current=breadcrumb.at(-1)!;return <AppShell><div className="page-wrap kpi-page"><header className="ops-header"><div><span>{breadcrumb.map(item=>item.nameZh).join(" › ")}</span><h1>KPI 目标中心</h1><p>KPI Target Operations Center</p></div><button onClick={()=>showToast(`${current.nameZh} KPI 目标已保存`)}>保存全部目标</button></header><section className="health-impact"><div><span>培训健康分</span><strong>86</strong><small>/ 100</small></div><div><h2>目标如何影响健康分</h2><p>8 项启用指标按权重计算。未达目标的指标会按阈值降低健康分贡献。</p><div className="weight-line"><i style={{width:`${Math.min(total,100)}%`}}/><b>权重合计 {total}%</b></div>{total!==100&&<em>权重合计必须为 100%</em>}</div><button onClick={()=>showToast("健康分计算预览已打开")}>查看计算预览 →</button></section><div className="kpi-layout"><aside className="kpi-catalog"><header><h3>指标目录</h3><p>KPI catalog · {catalog.length} 项</p></header>{catalog.map((x,i)=><button className={selected===i?"active":""} key={x.name} onClick={()=>setSelected(i)}><i className={x.active?"on":""}/><span><strong>{x.name}</strong><small>{x.en}</small></span><em>{weights[i]}%</em></button>)}</aside><main className="kpi-editor"><header><div><span className="active-label">启用状态 · ACTIVE</span><h2>{kpi.name}</h2><p>{kpi.en}</p></div><label className="switch"><input aria-label={`启用${kpi.name}`} type="checkbox" defaultChecked/><span/></label></header><section className="formula-box"><span>公式说明</span><strong>{kpi.formula}</strong><small>以酒店培训运营口径说明</small></section><h3>酒店级目标</h3><div className="target-grid"><label>月度目标<input defaultValue={kpi.month}/><span>{kpi.unit}</span></label><label>季度目标<input defaultValue={kpi.quarter}/><span>{kpi.unit}</span></label><label>年度目标<input defaultValue={kpi.year}/><span>{kpi.unit}</span></label></div><h3>预警与健康分</h3><div className="target-grid"><label>预警阈值<input defaultValue={kpi.warning}/><span>%</span></label><label>严重阈值<input defaultValue={kpi.critical}/><span>%</span></label><label>健康分权重<input value={weights[selected]} onChange={e=>setWeights(v=>v.map((x,i)=>i===selected?Number(e.target.value):x))}/><span>%</span></label></div><h3>部门覆盖目标</h3><div className="override-panel"><div className="departmentTree">{departmentTree.map((x,i)=>{const selectedScope=(departmentId==="rooms"&&i===1)||(departmentId==="front-office"&&i===2)||(departmentId==="concierge"&&i===3);return <button className={selectedScope?"selected":""} key={x} onClick={()=>showToast(`${x.trim()}已选择`)}>{x}<span>{i===0?"默认":selectedScope?"当前范围":"继承"}</span></button>})}</div><div className="override-detail"><span>{current.nameZh} {current.nameEn}</span><h4>部门级覆盖目标</h4><label>月度目标<input defaultValue={kpi.month+(kpi.unit==="小时"?.5:2)}/><small>{kpi.unit}</small></label><div className="inherit-preview"><span>继承目标预览</span><strong>{current.nameZh}及其下级部门</strong><p>未设置直接覆盖时，将继承上级部门目标；若无上级覆盖，则继承酒店级目标。</p></div><button onClick={()=>showToast(`${current.nameZh}部门覆盖目标已保存`)}>保存部门覆盖</button></div></div></main></div></div></AppShell>}
-export default function KPI(){return <AppProviders><Page/></AppProviders>}
+import { UnavailableOperationalPage } from "../components/operations/UnavailableOperationalPage";
+import { ProtectedAppProviders } from "../providers";
+
+export default function KpiAndTargetsPage() {
+  return (
+    <ProtectedAppProviders>
+      <UnavailableOperationalPage
+        title="KPI 与目标"
+        englishTitle="KPI & Target Management"
+        managementQuestion="当前月、季度与年度是否处于可信的目标轨迹上？"
+        explanation="当前没有经过确认的 KPI 实际、完整分母、目标版本或培训运营来源，因此无法计算完成率、差距、所需速度、预测结果或培训健康分。原型目标与演示数值不在生产体验中展示。"
+        requiredFacts={[
+          "经授权确认的酒店级与部门级目标版本",
+          "目标适用期间、口径、分子与分母",
+          "已完成训练、出勤、反馈与员工范围事实",
+          "已确认的未来计划与场次贡献",
+          "来源更新时间、完整性与排除项",
+        ]}
+        availableNow={[
+          "员工、部门与职位基础可用于后续建立可靠分母",
+          "本页只说明接入边界，不生成目标实际或预测",
+        ]}
+        returnHref="/"
+        returnLabel="返回运营工作台"
+      />
+    </ProtectedAppProviders>
+  );
+}
