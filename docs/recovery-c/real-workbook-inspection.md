@@ -12,7 +12,7 @@ Inspection date: 2026-07-16
 
 ## File evidence
 
-- Sanitized filename: `Hotel-Training-Record-Master-Sheet-KIP-Suzhou.xls`
+- File identity: approved legacy `.xls` workbook; the real sanitized filename is intentionally omitted from committed evidence.
 - File size: 133,120 bytes
 - SHA-256 prefix: `245bb3a4fe12`
 - Visible sheets: 3

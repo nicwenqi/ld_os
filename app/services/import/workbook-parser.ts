@@ -90,8 +90,10 @@ export function inspectWorkbook(input: WorkbookFile): WorkbookInspection {
 export function inspectEmployeeMasterAggregate(input: WorkbookFile): EmployeeMasterAggregate {
   const inspection=inspectWorkbook(input);
   const workbook=XLSX.read(input.bytes,{type:"array",cellDates:true,cellFormula:true,cellStyles:true,sheetStubs:true,raw:true});
-  const candidate=inspection.sheets.map(sheet=>({sheet,score:sheet.suggestedMappings.filter(item=>item.targetField).length})).sort((a,b)=>b.score-a.score)[0];
-  if(!candidate?.sheet.likelyHeaderRow||candidate.score<4)throw new Error("未识别到员工主数据工作表");
+  const candidate=inspection.sheets.map(sheet=>({sheet,score:new Set(sheet.suggestedMappings.filter(item=>item.targetField&&!item.excluded).map(item=>item.targetField)).size})).sort((a,b)=>b.score-a.score)[0];
+  if(!candidate?.sheet.likelyHeaderRow)throw new Error("未识别到员工主数据工作表");
+  assertUniqueApprovedTargetMappings(candidate.sheet);
+  if(candidate.score<4)throw new Error("未识别到员工主数据工作表");
   const sheet=workbook.Sheets[candidate.sheet.name];const range=sheet["!ref"]?XLSX.utils.decode_range(sheet["!ref"]):null;if(!range)throw new Error("员工主数据工作表为空");
   const headerIndex=candidate.sheet.likelyHeaderRow-1;
   const headers=Array.from({length:range.e.c-range.s.c+1},(_,offset)=>String((sheet[XLSX.utils.encode_cell({r:headerIndex,c:range.s.c+offset})] as XLSX.CellObject|undefined)?.v??"").trim());
@@ -124,6 +126,17 @@ export function inspectEmployeeMasterAggregate(input: WorkbookFile): EmployeeMas
   const excluded=candidate.sheet.suggestedMappings.filter(item=>item.excluded);const formulaExcluded=excluded.filter(item=>item.reason.includes("公式"));
   const warnings=[] as string[];if(staging.missingDepartment)warnings.push(`${staging.missingDepartment} 条候选记录缺少部门`);if(staging.missingPosition)warnings.push(`${staging.missingPosition} 条候选记录缺少职位`);const ambiguousDates=hireStates.filter(state=>state==="invalid"||state==="ambiguous").length+probationStates.filter(state=>state==="invalid"||state==="ambiguous").length;if(ambiguousDates)warnings.push(`${ambiguousDates} 个日期值需要人工确认`);if(duplicates.length)warnings.push(`${new Set(duplicates).size} 个员工编号重复`);
   return {workbook:inspection,selectedSheet:candidate.sheet.name,headerRow:candidate.sheet.likelyHeaderRow,employeeMaster:{sourceRows:rows.length,structurallyValid:staging.structurallyValid,missingEmployeeNumbers:staging.missingEmployeeNumber,duplicateEmployeeNumbers:new Set(duplicates).size,leadingZeroPreserved:presentEmployeeNumbers.some(value=>String(value).startsWith("0"))&&presentEmployeeNumbers.every(value=>typeof value==="string"),missingChineseNames:rows.filter(row=>isMissingSourceValue(row.nameZh)).length,missingEnglishNames:rows.filter(row=>isMissingSourceValue(row.nameEn)).length,missingDepartments:staging.missingDepartment,missingPositions:staging.missingPosition,parsedHireDates:hireStates.filter(state=>state==="parsed").length,invalidOrAmbiguousHireDates:hireStates.filter(state=>state==="invalid"||state==="ambiguous").length,parsedProbationDates:probationStates.filter(state=>state==="parsed").length,invalidOrAmbiguousProbationDates:probationStates.filter(state=>state==="invalid"||state==="ambiguous").length},mapping:{uniqueDepartmentLabels:uniqueDepartments.size,uniquePositionLabels:uniquePositions.size},exclusions:{totalColumns:excluded.length,formulaDerivedColumns:formulaExcluded.length,trainingHistoryAndSensitiveColumns:excluded.length-formulaExcluded.length,genderExcludedByDefault:excluded.some(item=>/gender|性别/i.test(item.sourceColumn)),trainingHistoryExcluded:true,ctcGtcExcluded:true},warnings};
+}
+
+function assertUniqueApprovedTargetMappings(sheet: SheetInspection) {
+  const mappedTargets = new Set<string>();
+  for (const mapping of sheet.suggestedMappings) {
+    if (!mapping.targetField || mapping.excluded) continue;
+    if (mappedTargets.has(mapping.targetField)) {
+      throw new Error(`员工主数据存在多个列映射到同一员工字段：${mapping.targetField}`);
+    }
+    mappedTargets.add(mapping.targetField);
+  }
 }
 
 export function stableRowFingerprint(values: Record<string, unknown>) {

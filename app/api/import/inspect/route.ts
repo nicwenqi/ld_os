@@ -73,7 +73,7 @@ export async function POST(request: Request) {
     if (updateError) throw updateError;
     const headers = new Headers({ "Cache-Control": "no-store, private" });
     for (const value of actor.refreshedCookies) headers.append("Set-Cookie", value);
-    return Response.json({ batchId, status: "mapping_required", ...prepared.safeSummary }, { status: 201, headers });
+    return Response.json({ batchId, status: "mapping_required", ...browserSafeSummary(prepared.safeSummary) }, { status: 201, headers });
   } catch (error) {
     if (objectPath) await admin.storage.from(BUCKET).remove([objectPath]);
     if (batchId) {
@@ -117,6 +117,50 @@ function issueRow(actor: { tenantId: string; propertyId: string }, batchId: stri
 function businessIssueMessage(issueType: string) {
   return ({ missing_employee_number: "缺少员工编号", missing_name: "缺少员工姓名", unresolved_department: "缺少部门来源值",
     unresolved_position: "缺少职位来源值", invalid_date: "日期值需要人工确认", duplicate_employee_number_in_file: "工作簿内员工编号重复" } as Record<string, string>)[issueType] ?? "来源记录需要人工确认";
+}
+function browserSafeSummary(summary: ReturnType<typeof prepareEmployeeMasterStaging>["safeSummary"]) {
+  const {
+    sanitizedFilename,
+    checksumPrefix,
+    sizeBytes,
+    detectedSheets,
+    selectedSheet,
+    headerRow,
+    sourceRows,
+    structurallyValid,
+    blockedRows,
+    warningRows,
+    uniqueDepartmentLabels,
+    uniquePositionLabels,
+    exclusions,
+    excludedColumns,
+    excludedSheets,
+    warnings,
+    employeesImported,
+    trainingHistoryImported,
+    ctcGtcImported,
+  } = summary;
+  return {
+    sanitizedFilename,
+    checksumPrefix,
+    sizeBytes,
+    detectedSheets,
+    selectedSheet,
+    headerRow,
+    sourceRows,
+    structurallyValid,
+    blockedRows,
+    warningRows,
+    uniqueDepartmentLabels,
+    uniquePositionLabels,
+    exclusions,
+    excludedColumns,
+    excludedSheets,
+    warnings,
+    employeesImported,
+    trainingHistoryImported,
+    ctcGtcImported,
+  };
 }
 function failure(status: number, message: string) { return Response.json({ message }, { status, headers: { "Cache-Control": "no-store, private" } }); }
 function mimeFor(name: string) { const extension = name.split(".").at(-1)?.toLowerCase(); return extension === "xls" ? "application/vnd.ms-excel" : extension === "xlsx" ? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" : "text/csv"; }

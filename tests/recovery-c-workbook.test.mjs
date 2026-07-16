@@ -132,6 +132,26 @@ test("Recovery C blocks every row sharing a duplicate employee number", () => {
   assert.equal(result.safeSummary.blockedRows, 2);
 });
 
+test("Recovery C rejects duplicate approved columns targeting the same employee field", () => {
+  assert.throws(
+    () => prepareEmployeeMasterStaging(workbookFile({
+      headers: ["Empid", "Employee Number", ...approvedHeaders.slice(1)],
+      rows: [[
+        "0007",
+        "9999",
+        "示例员工甲",
+        "Synthetic A",
+        "Front Office",
+        "Associate",
+        "G5",
+        "2026-06-01",
+        "2026-09-01",
+      ]],
+    })),
+    /多个列映射到同一员工字段：employee_number/,
+  );
+});
+
 test("Recovery C turns ambiguous dates into warnings instead of guessed dates", () => {
   const result = prepareEmployeeMasterStaging(workbookFile({
     rows: [[
