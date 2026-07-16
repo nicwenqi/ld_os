@@ -46,7 +46,7 @@ select results_eq($$select count(*) from public.employees where property_id='200
 select throws_ok($$update public.employees set property_id='20000000-0000-0000-0000-000000000012' where employee_number='0007'$$,'23514','EMPLOYEE_IDENTITY_IMMUTABLE: tenant, property and employee number cannot change','employee ownership is immutable');
 select throws_ok($$update public.import_source_rows set raw_values='{}' where id='83000000-0000-0000-0000-000000000011'$$,'42501',null,'raw evidence mutation is revoked from the browser role');
 select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0007','另一示例','61000000-0000-0000-0000-000000000013','65000000-0000-0000-0000-000000000013','synthetic')$$,'23505',null,'employee number is unique in property');
-select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0099','错误范围','61000000-0000-0000-0000-000000000021','65000000-0000-0000-0000-000000000013','synthetic')$$,'23503',null,'cross-property department is rejected');
+select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0099','错误范围','61000000-0000-0000-0000-000000000021','65000000-0000-0000-0000-000000000013','synthetic')$$,'23514','EMPLOYEE_ORGANIZATION_TARGET_INACTIVE','cross-property department is rejected by the authoritative organization guard');
 select lives_ok($$insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary) select tenant_id,property_id,id,'synthetic-lms','lms_employee_id','LMS-0007',true from public.employees where employee_number='0007'$$,'secondary identifier can be linked');
 select throws_ok($$insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value) select tenant_id,property_id,id,'synthetic-lms','merlin_id','LMS-0007' from public.employees where employee_number='0007'$$,'23505',null,'external identifier uniqueness is enforced');
 create temporary table employee_import_first_revert_preview on commit drop as
@@ -54,13 +54,11 @@ select public.preview_employee_import_revert('81000000-0000-0000-0000-0000000000
 select results_eq($$select (result->>'safe')::boolean from employee_import_first_revert_preview$$,array[true],'fresh completed batch has safe revert preview');
 select results_eq($$select count(*) from public.employees where employee_number='0007' and is_active$$,array[1::bigint],'missing employee is not automatically deactivated');
 select results_eq($$select identifier_value from public.employee_external_identifiers where identifier_type='local_employee_number' and employee_id=(select id from public.employees where employee_number='0007')$$,array['0007'::text],'local employee number is retained as an external audit identifier');
+savepoint employee_import_unsafe_revert;
 update public.employees set name_en='Later synthetic edit',version=version+1 where employee_number='0007';
 select results_eq($$select (public.preview_employee_import_revert('81000000-0000-0000-0000-000000000011')->>'safe')::boolean$$,array[false],'later employee version change makes revert unsafe');
 select throws_ok($$select public.revert_employee_import('81000000-0000-0000-0000-000000000011',(select result->>'token' from employee_import_first_revert_preview))$$,'P3011','IMPORT_REVERT_CONFLICT: later changes must be resolved first','unsafe revert is explicitly refused');
-reset role;
-update public.employees set name_en='Synthetic Associate A',version=1 where employee_number='0007';
-set local role authenticated;
-set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000103';
+rollback to savepoint employee_import_unsafe_revert;
 create temporary table employee_import_safe_revert_preview on commit drop as
 select public.preview_employee_import_revert('81000000-0000-0000-0000-000000000011') result;
 select lives_ok($$select public.revert_employee_import('81000000-0000-0000-0000-000000000011',(select result->>'token' from employee_import_safe_revert_preview))$$,'safe completed batch can be reverted');

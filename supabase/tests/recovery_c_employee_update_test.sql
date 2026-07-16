@@ -1234,6 +1234,7 @@ select ok(
   ),
   'safe reversal preview returns a short-lived opaque token'
 );
+savepoint recovery_c_unsafe_revert;
 reset role;
 update public.employees
 set name_en = 'Later edit blocks reversal',
@@ -1251,17 +1252,7 @@ select throws_ok(
   'reversal rechecks locked employee versions and refuses later edits'
 );
 
-reset role;
-update public.employees employee
-set name_en = item.after_snapshot->>'name_en',
-    version = (item.after_snapshot->>'version')::bigint
-from public.import_commit_items item
-join public.import_commits commit on commit.id = item.import_commit_id
-where commit.import_batch_id = '81000000-0000-0000-0000-00000000c001'
-  and item.employee_id = employee.id
-  and item.action = 'update';
-set local role authenticated;
-set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
+rollback to savepoint recovery_c_unsafe_revert;
 create temporary table recovery_c_safe_revert_preview on commit drop as
 select public.preview_employee_import_revert(
   '81000000-0000-0000-0000-00000000c001'
