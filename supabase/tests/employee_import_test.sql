@@ -1,6 +1,6 @@
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(41);
+select plan(43);
 
 select results_eq($$select count(*) from pg_class where relnamespace='public'::regnamespace and relname in ('employees','employee_external_identifiers','import_batches','import_sheets','import_source_rows','import_field_mappings','import_issues','import_resolution_rules','import_commits','import_commit_items','import_source_label_resolutions','import_activity_events') and relrowsecurity and relforcerowsecurity$$,array[12::bigint],'all employee/import tables force RLS');
 select results_eq($$select public from storage.buckets where id='property-import-files'$$,array[false],'workbook bucket is private');
@@ -32,13 +32,155 @@ select is_empty('select * from public.employees','ordinary member has no employe
 select throws_ok($$insert into public.import_batches(id,tenant_id,property_id,source_system,original_filename,sanitized_filename,storage_object_path,file_checksum,file_size_bytes,mime_type) values('81000000-0000-0000-0000-000000000099','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','synthetic','x.csv','x.csv','10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-000000000099/x.csv','x',10,'text/csv')$$,'42501',null,'ordinary member cannot create import');
 
 set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000103';
-select lives_ok($$insert into public.import_batches(id,tenant_id,property_id,source_system,original_filename,sanitized_filename,storage_object_path,file_checksum,file_size_bytes,mime_type,status,version) values('81000000-0000-0000-0000-000000000011','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','synthetic-fixture','employees.csv','employees.csv','10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-000000000011/employees.csv','abc',100,'text/csv','mapping_required',1)$$,'property manager creates employee import');
 select lives_ok($$insert into storage.objects(bucket_id,name,owner_id) values('property-import-files','10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-000000000011/employees.csv',auth.uid())$$,'property manager writes only the approved private batch path');
 select throws_ok($$insert into storage.objects(bucket_id,name,owner_id) values('property-import-files','10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000012/imports/81000000-0000-0000-0000-000000000011/employees.csv',auth.uid())$$,'42501',null,'property manager cannot forge another property Storage prefix');
-select lives_ok($$insert into public.import_sheets(id,tenant_id,property_id,import_batch_id,sheet_name,sheet_index,detected_header_row,source_row_count,selected_for_import) values('82000000-0000-0000-0000-000000000011','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-000000000011','Employee Master',0,1,2,true)$$,'manager stages selected sheet');
-select lives_ok($$insert into public.import_source_rows(id,tenant_id,property_id,import_batch_id,import_sheet_id,source_row_number,raw_values,normalized_values,row_fingerprint,processing_status,proposed_action) values('83000000-0000-0000-0000-000000000011','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-000000000011','82000000-0000-0000-0000-000000000011',2,'{"Employee No":"0007"}','{"employee_number":"0007","name_zh":"示例员工甲","name_en":"Synthetic Associate A","department_id":"61000000-0000-0000-0000-000000000013","position_id":"65000000-0000-0000-0000-000000000013","hire_date":"2026-06-01"}','r1','valid','insert')$$,'leading-zero employee row stages');
-select lives_ok($$select public.prepare_employee_import_preview('81000000-0000-0000-0000-000000000011',1,'{"statusTreatment":"retain_existing_set_additions_active"}')$$,'authorized preview classifies staging without employee writes');
-select lives_ok($$select public.commit_employee_import('81000000-0000-0000-0000-000000000011',2)$$,'authorized commit RPC completes');
+select lives_ok(
+  $$select public.stage_employee_import(
+    '20000000-0000-0000-0000-000000000011',
+    '81000000-0000-0000-0000-000000000011',
+    '{
+      "batch": {
+        "originalFilename": "employees.csv",
+        "sanitizedFilename": "employees.csv",
+        "storageObjectPath": "10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-000000000011/employees.csv",
+        "fileChecksum": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "fileSizeBytes": 100,
+        "mimeType": "text/csv",
+        "detectedSheetCount": 1,
+        "totalSourceRows": 1,
+        "validRows": 1,
+        "warningRows": 0,
+        "errorRows": 0
+      },
+      "sheets": [{
+        "id": "82000000-0000-0000-0000-000000000011",
+        "name": "Employee Master",
+        "index": 0,
+        "headerRow": 1,
+        "rowCount": 2,
+        "selected": true,
+        "purpose": "employee_master"
+      }],
+      "fieldMappings": [{
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceColumnName": "Employee No",
+        "sourceColumnIndex": 0,
+        "targetField": "employee_number",
+        "transformationRule": {"preserveLeadingZeros": true},
+        "isRequired": true
+      }, {
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceColumnName": "Chinese Name",
+        "sourceColumnIndex": 1,
+        "targetField": "name_zh",
+        "transformationRule": {"trim": true},
+        "isRequired": true
+      }, {
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceColumnName": "English Name",
+        "sourceColumnIndex": 2,
+        "targetField": "name_en",
+        "transformationRule": {"trim": true},
+        "isRequired": false
+      }, {
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceColumnName": "Department",
+        "sourceColumnIndex": 3,
+        "targetField": "department_source_label",
+        "transformationRule": {},
+        "isRequired": true
+      }, {
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceColumnName": "Position",
+        "sourceColumnIndex": 4,
+        "targetField": "position_source_label",
+        "transformationRule": {},
+        "isRequired": true
+      }, {
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceColumnName": "Hire Date",
+        "sourceColumnIndex": 5,
+        "targetField": "hire_date",
+        "transformationRule": {},
+        "isRequired": true
+      }],
+      "rows": [{
+        "id": "83000000-0000-0000-0000-000000000011",
+        "sheetId": "82000000-0000-0000-0000-000000000011",
+        "sourceRowNumber": 2,
+        "rawValues": {
+          "Employee No": "0007",
+          "Chinese Name": "示例员工甲",
+          "English Name": "Synthetic Associate A",
+          "Department": "Concierge",
+          "Position": "Guest Service Agent",
+          "Hire Date": "2026-06-01"
+        },
+        "normalizedValues": {
+          "employee_number": "0007",
+          "name_zh": "示例员工甲",
+          "name_en": "Synthetic Associate A",
+          "department_source_label": "Concierge",
+          "position_source_label": "Guest Service Agent",
+          "hire_date": "2026-06-01"
+        },
+        "rowFingerprint": "r1",
+        "processingStatus": "valid",
+        "proposedAction": "insert",
+        "validationSummary": {}
+      }],
+      "issues": [],
+      "sourceLabels": [{
+        "resolutionType": "department",
+        "sourceLabel": "Concierge",
+        "normalizedSourceLabel": "concierge",
+        "affectedRowCount": 1
+      }, {
+        "resolutionType": "position",
+        "sourceLabel": "Guest Service Agent",
+        "normalizedSourceLabel": "guest service agent",
+        "affectedRowCount": 1
+      }]
+    }'::jsonb
+  )$$,
+  'property manager stages employee evidence through the guarded RPC'
+);
+select results_eq(
+  $$select count(*) from public.import_sheets
+    where import_batch_id='81000000-0000-0000-0000-000000000011'$$,
+  array[1::bigint],
+  'guarded staging persists the selected sheet'
+);
+select results_eq(
+  $$select raw_values->>'Employee No' from public.import_source_rows
+    where id='83000000-0000-0000-0000-000000000011'$$,
+  array['0007'::text],
+  'guarded staging preserves leading-zero source evidence'
+);
+select lives_ok(
+  $$select public.resolve_employee_import_source_label(
+    '81000000-0000-0000-0000-000000000011',
+    1,
+    'department',
+    'Concierge',
+    '61000000-0000-0000-0000-000000000013',
+    'mapped'
+  )$$,
+  'manager resolves the staged department label through the guarded RPC'
+);
+select lives_ok(
+  $$select public.resolve_employee_import_source_label(
+    '81000000-0000-0000-0000-000000000011',
+    2,
+    'position',
+    'Guest Service Agent',
+    '65000000-0000-0000-0000-000000000013',
+    'mapped'
+  )$$,
+  'manager resolves the staged position label through the guarded RPC'
+);
+select lives_ok($$select public.prepare_employee_import_preview('81000000-0000-0000-0000-000000000011',3,'{"statusTreatment":"retain_existing_set_additions_active"}')$$,'authorized preview classifies staging without employee writes');
+select lives_ok($$select public.commit_employee_import('81000000-0000-0000-0000-000000000011',4)$$,'authorized commit RPC completes');
 select results_eq($$select employee_number from public.employees where source_batch_id='81000000-0000-0000-0000-000000000011'$$,array['0007'::text],'leading zeros survive commit');
 select results_eq($$select count(*) from public.import_commit_items where action='insert' and before_snapshot is null and after_snapshot is not null$$,array[1::bigint],'insert audit captures after snapshot');
 select results_eq($$select inserted_employee_count from public.import_commits where import_batch_id='81000000-0000-0000-0000-000000000011'$$,array[1],'commit summary counts insert');

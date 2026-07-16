@@ -1066,7 +1066,7 @@ select results_eq(
   $$select (validation_summary->>'expected_employee_version')::bigint
     from public.import_source_rows
     where id = '83000000-0000-0000-0000-00000000c001'$$,
-  array[3::bigint],
+  array[1::bigint],
   'preview records the matched employee version for commit concurrency control'
 );
 
@@ -1104,7 +1104,7 @@ select ok(
       and employee.is_new_employee
       and employee.is_active
       and employee.source_batch_id = '81000000-0000-0000-0000-00000000c001'
-      and employee.version = 4
+      and employee.version = 2
     from public.employees employee
     where employee.employee_number = 'U-001'
   ),

@@ -21,6 +21,14 @@ select ok(
   not has_table_privilege(
     'authenticated',
     'public.import_batches',
+    'INSERT'
+  ),
+  'authenticated clients have no direct import-batch INSERT privilege'
+);
+select ok(
+  not has_table_privilege(
+    'authenticated',
+    'public.import_batches',
     'UPDATE'
   ),
   'authenticated clients have no direct import-batch UPDATE privilege'
@@ -37,7 +45,7 @@ select results_eq(
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
-select lives_ok(
+select throws_ok(
   $$insert into public.import_batches(
       id, tenant_id, property_id, source_system, original_filename,
       sanitized_filename, storage_object_path, file_checksum,
@@ -57,7 +65,9 @@ select lives_ok(
       1,
       auth.uid()
     )$$,
-  'manager staging INSERT remains available'
+  '42501',
+  null,
+  'manager must use the guarded staging RPC instead of raw batch INSERT'
 );
 select throws_ok(
   $$update public.import_batches
@@ -115,7 +125,7 @@ select results_eq(
     from public.employees
     where id = '90000000-0000-0000-0000-00000000c101'$$,
   $$values (
-      8::bigint,
+      2::bigint,
       '00000000-0000-0000-0000-000000000103'::uuid,
       true
     )$$,

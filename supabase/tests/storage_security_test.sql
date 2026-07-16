@@ -170,27 +170,6 @@ select results_eq(
   'branding metadata contains no workbook or private file'
 );
 select lives_ok(
-  $$insert into public.import_batches(
-      id,tenant_id,property_id,source_system,original_filename,
-      sanitized_filename,storage_object_path,file_checksum,file_size_bytes,
-      mime_type,status,created_by
-    ) values (
-      '81000000-0000-0000-0000-00000000f001',
-      '10000000-0000-0000-0000-000000000001',
-      '20000000-0000-0000-0000-000000000011',
-      'storage-retention-fixture',
-      'retained.csv',
-      'retained.csv',
-      '10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv',
-      'storage-retention',
-      100,
-      'text/csv',
-      'inspecting',
-      auth.uid()
-    )$$,
-  'manager creates a property-owned private workbook batch'
-);
-select lives_ok(
   $$insert into storage.objects(bucket_id,name,owner_id)
     values (
       'property-import-files',
@@ -198,6 +177,41 @@ select lives_ok(
       auth.uid()
     )$$,
   'manager may create the immutable private workbook object once'
+);
+select lives_ok(
+  $$select public.stage_employee_import(
+    '20000000-0000-0000-0000-000000000011',
+    '81000000-0000-0000-0000-00000000f001',
+    '{
+      "batch": {
+        "originalFilename": "retained.csv",
+        "sanitizedFilename": "retained.csv",
+        "storageObjectPath": "10000000-0000-0000-0000-000000000001/20000000-0000-0000-0000-000000000011/imports/81000000-0000-0000-0000-00000000f001/retained.csv",
+        "fileChecksum": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "fileSizeBytes": 100,
+        "mimeType": "text/csv",
+        "detectedSheetCount": 1,
+        "totalSourceRows": 0,
+        "validRows": 0,
+        "warningRows": 0,
+        "errorRows": 0
+      },
+      "sheets": [{
+        "id": "82000000-0000-0000-0000-00000000f001",
+        "name": "Employee Master",
+        "index": 0,
+        "headerRow": 1,
+        "rowCount": 1,
+        "selected": true,
+        "purpose": "employee_master"
+      }],
+      "fieldMappings": [],
+      "rows": [],
+      "issues": [],
+      "sourceLabels": []
+    }'::jsonb
+  )$$,
+  'manager links the private workbook through the guarded staging RPC'
 );
 select results_eq(
   $$with attempted as (
