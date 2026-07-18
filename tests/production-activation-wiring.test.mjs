@@ -74,7 +74,7 @@ test("trusted staging preserves private evidence and returns aggregate-only insp
 });
 
 test("production routes use server-authorized property context and never accept a property id", async () => {
-  const [contextRoute, inspectionRoute, tokenRoute, browserClient, loginPage, initializePage, importPage] = await Promise.all([
+  const [contextRoute, inspectionRoute, tokenRoute, browserClient, loginPage, initializePage, importPage, fileInspectionStep] = await Promise.all([
     readFile(new URL("../app/api/property/context/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/access-token/route.ts", import.meta.url), "utf8"),
@@ -82,6 +82,7 @@ test("production routes use server-authorized property context and never accept 
     readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/initialize/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/import/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/import/FileInspectionStep.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(contextRoute, /resolveRequestHostname/);
@@ -99,7 +100,8 @@ test("production routes use server-authorized property context and never accept 
   assert.match(loginPage, /\/api\/property\/context/);
   assert.match(initializePage, /session\.propertyId/);
   assert.match(importPage, /fetch\("\/api\/import\/inspect"/);
-  assert.match(importPage, /type="file"/);
+  assert.match(importPage, /<FileInspectionStep/);
+  assert.match(fileInspectionStep, /type="file"/);
 });
 
 test("access-token release is limited by the server-resolved workspace role", async () => {

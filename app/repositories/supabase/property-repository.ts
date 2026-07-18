@@ -15,6 +15,46 @@ import type {
 
 type PropertySupabaseClient = Pick<SupabaseClient, "rpc" | "from" | "storage">;
 
+type PropertyRow = {
+  id: string;
+  tenant_id: string;
+  code: string;
+  name_zh: string;
+  name_en: string;
+  short_name: string | null;
+  brand: string | null;
+  city: string | null;
+  country_region: string;
+  timezone: string;
+  default_language: string;
+  status: PropertyIdentity["status"];
+  updated_at: string;
+};
+
+type PropertySettingsRow = {
+  id: string;
+  property_id: string;
+  new_employee_days: number;
+  probation_field_meaning: PropertySettings["probationFieldMeaning"];
+  employee_status_source: PropertySettings["employeeStatusSource"];
+  ctc_mandatory: boolean;
+  gtc_mandatory: boolean;
+  initialization_state: PropertySettings["initializationState"];
+  version: number;
+  updated_at: string;
+};
+
+type PropertyBrandAssetRow = {
+  id: string;
+  property_id: string;
+  object_path: string;
+  mime_type: PropertyBrandAsset["mimeType"];
+  byte_size: number;
+  version: number;
+  is_current: boolean;
+  retention_until: string | null;
+};
+
 export function createSupabasePropertyRepository(
   client: PropertySupabaseClient,
   supabaseOrigin: string,
@@ -142,7 +182,12 @@ export function absolutePublicLogoUrl(origin: string, path: string | null): stri
   return `${origin.replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
 }
 
-function mapPropertyRecord(property: any, settings: any, asset: any, origin: string): HotelPropertyRecord {
+function mapPropertyRecord(
+  property: PropertyRow,
+  settings: PropertySettingsRow,
+  asset: PropertyBrandAssetRow | null,
+  origin: string,
+): HotelPropertyRecord {
   const identity: PropertyIdentity = {
     id: property.id,
     tenantId: property.tenant_id,
@@ -177,7 +222,7 @@ export function displayPropertyCode(value: string): string {
   return value.trim().toUpperCase();
 }
 
-function mapBrandAsset(asset: any, origin: string): PropertyBrandAsset {
+function mapBrandAsset(asset: PropertyBrandAssetRow, origin: string): PropertyBrandAsset {
   const relative = `/storage/v1/object/public/property-brand-assets/${asset.object_path}`;
   return {
     id: asset.id,
