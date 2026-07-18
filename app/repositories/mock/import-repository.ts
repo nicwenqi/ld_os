@@ -52,11 +52,11 @@ export function createMockImportRepository(): ImportRepository {
   let activeRevertToken: string | null = null;
   const labels: Record<"department" | "position", ImportSourceLabelResolution[]> = {
     department: [
-      { sourceValue: "Concierge", sourceRowCount: 19, decision: "mapped", targetId: "concierge" },
+      { sourceValue: "Concierge", sourceRowCount: 19, decision: "mapped", targetId: "61000000-0000-0000-0000-000000000013" },
       { sourceValue: "Guest Services", sourceRowCount: 2, decision: "pending" },
     ],
     position: [
-      { sourceValue: "Guest Service Associate", sourceRowCount: 12, decision: "mapped", targetId: "guest-service-associate" },
+      { sourceValue: "Guest Service Associate", sourceRowCount: 12, decision: "mapped", targetId: "p-associate" },
       { sourceValue: "Legacy Title", sourceRowCount: 1, decision: "deferred" },
     ],
   };

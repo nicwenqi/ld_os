@@ -4,6 +4,8 @@ import test from "node:test";
 
 import { canRoleAccessPath } from "../app/services/auth-routing.ts";
 import { loadScopedDepartmentEmployees } from "../app/services/department-foundation.ts";
+import { createMockSession } from "../app/api/auth/mock-session-store.ts";
+import { createMockEmployeeRepository } from "../app/repositories/mock/employee-repository.ts";
 
 const read = async path => {
   try {
@@ -321,11 +323,8 @@ test("People directory responsive CSS preserves avatar sizing and explicit table
 });
 
 test("employee update history deep link resolves to the real history section", async () => {
-  const page = await read("../app/import/page.tsx");
-  assert.match(
-    page,
-    /<section className="import-history" id="update-history">/,
-  );
+  const history = await read("../app/components/import/EmployeeUpdateHistory.tsx");
+  assert.match(history, /id="update-history"/);
 });
 
 test("department foundation calls only the server-scoped directory and strips forged scope", async () => {
@@ -378,6 +377,54 @@ test("department foundation calls only the server-scoped directory and strips fo
   assert.equal(snapshot.total, 1);
   assert.equal(snapshot.employees[0].employeeNumber, "0007");
   assert.deepEqual(snapshot.scopes, departmentSession.departmentScopes);
+});
+
+test("local review department directory enforces the authorized branch and descendants", async () => {
+  const repository = createMockEmployeeRepository({
+    departmentScopes: departmentSession.departmentScopes,
+  });
+
+  const page = await repository.listDepartmentEmployees({ limit: 25, offset: 0 });
+
+  assert.deepEqual(page.rows.map(employee => employee.employeeNumber), ["0007"]);
+  assert.equal(page.total, 1);
+  assert.equal(page.rows.some(employee => employee.departmentName === "工程部"), false);
+});
+
+test("local review browser employee source derives scope from the server session", async () => {
+  const route = await optionalImport("../app/api/mock-employees/route.ts");
+  assert.ok(route, "local review needs an actor-scoped employee endpoint");
+
+  const token = createMockSession({
+    ...departmentSession,
+    userId: "synthetic-department-responsible",
+    propertyId: "synthetic-property-a1",
+  });
+  const request = new Request("http://localhost:3000/api/mock-employees", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Cookie: `hotel_ld_session=${encodeURIComponent(token)}`,
+    },
+    body: JSON.stringify({
+      action: "listDepartmentEmployees",
+      input: {
+        query: "",
+        limit: 25,
+        offset: 0,
+        departmentId: "engineering",
+      },
+    }),
+  });
+
+  const response = await route.POST(request);
+  const payload = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(payload.rows.map(employee => employee.employeeNumber), ["0007"]);
+  assert.equal(payload.total, 1);
+
+  const repositorySource = await read("../app/repositories/mock/employee-repository.ts");
+  assert.match(repositorySource, /\/api\/mock-employees/);
 });
 
 test("department People Center makes scope and descendant behavior explicit with approved fields only", async () => {

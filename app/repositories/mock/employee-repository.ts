@@ -4,6 +4,16 @@ import type {
   EmployeeRecord,
   EmployeeRepository,
 } from "../contracts/employee-repository.ts";
+import type { AuthorizedDepartmentScope } from "../contracts/auth-repository.ts";
+
+type MockEmployeeRepositoryOptions = {
+  departmentScopes?: readonly AuthorizedDepartmentScope[];
+};
+
+const departmentPathIds: Record<string, readonly string[]> = {
+  concierge: ["rooms", "front-office", "concierge"],
+  engineering: ["engineering"],
+};
 
 const rows: EmployeeRecord[] = [
   {
@@ -56,9 +66,14 @@ const rows: EmployeeRecord[] = [
   },
 ];
 
-function filtered(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {}, propertyId?: string) {
+function filtered(
+  options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {},
+  propertyId?: string,
+  include: (employee: EmployeeRecord) => boolean = () => true,
+) {
   const query = options.query?.trim().toLocaleLowerCase("zh-CN");
   return rows.filter(employee => {
+    if (!include(employee)) return false;
     if (propertyId && employee.propertyId !== propertyId) return false;
     if ("active" in options && options.active !== undefined && employee.isActive !== options.active) return false;
     if ("departmentId" in options && options.departmentId && employee.departmentId !== options.departmentId) return false;
@@ -69,8 +84,12 @@ function filtered(options: EmployeeDirectoryOptions | DepartmentEmployeeDirector
   });
 }
 
-function page(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {}, propertyId?: string) {
-  const matches = filtered(options, propertyId);
+function page(
+  options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOptions = {},
+  propertyId?: string,
+  include?: (employee: EmployeeRecord) => boolean,
+) {
+  const matches = filtered(options, propertyId, include);
   const offset = Math.max(0, options.offset ?? 0);
   const limit = Math.min(100, Math.max(1, options.limit ?? 25));
   return {
@@ -80,8 +99,9 @@ function page(options: EmployeeDirectoryOptions | DepartmentEmployeeDirectoryOpt
   };
 }
 
-export function createMockEmployeeRepository(): EmployeeRepository {
-  return {
+export function createMockEmployeeRepository(options: MockEmployeeRepositoryOptions = {}): EmployeeRepository {
+  const repositoryOptions = options;
+  const repository: EmployeeRepository = {
     async listEmployees(_propertyId, options) {
       return page({ ...options, limit: options?.limit ?? 100 }, _propertyId).rows;
     },
@@ -89,7 +109,14 @@ export function createMockEmployeeRepository(): EmployeeRepository {
       return page(options, _propertyId);
     },
     async listDepartmentEmployees(options) {
-      const scoped = page(options, "synthetic-property-a1");
+      const scoped = page(
+        options,
+        "synthetic-property-a1",
+        employee => isAuthorizedDepartmentEmployee(
+          employee,
+          repositoryOptions.departmentScopes ?? [],
+        ),
+      );
       return {
         ...scoped,
         rows: scoped.rows.map(employee => ({
@@ -147,4 +174,44 @@ export function createMockEmployeeRepository(): EmployeeRepository {
       })) ?? [];
     },
   };
+  if (typeof window === "undefined") return repository;
+  return {
+    ...repository,
+    listDepartmentEmployees: input => mockEmployeeRequest(input),
+  };
+}
+
+function isAuthorizedDepartmentEmployee(
+  employee: EmployeeRecord,
+  scopes: readonly AuthorizedDepartmentScope[],
+) {
+  const path = departmentPathIds[employee.departmentId] ?? [employee.departmentId];
+  return scopes.some(scope => (
+    scope.departmentId === employee.departmentId
+    || (scope.includeDescendants && path.includes(scope.departmentId))
+  ));
+}
+
+async function mockEmployeeRequest(
+  input: DepartmentEmployeeDirectoryOptions = {},
+) {
+  const response = await fetch("/api/mock-employees", {
+    method: "POST",
+    credentials: "same-origin",
+    cache: "no-store",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      action: "listDepartmentEmployees",
+      input: {
+        query: input.query,
+        limit: input.limit,
+        offset: input.offset,
+      },
+    }),
+  });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.message ?? "本地授权员工目录不可用");
+  }
+  return payload;
 }

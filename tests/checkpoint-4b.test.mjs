@@ -18,10 +18,10 @@ test("accounts and department scopes are real and preserve hotel access protecti
   assert.doesNotMatch(page,/employee_participant|员工登录|共享管理员/);
 });
 
-test("employee data update separates real inspection from later Recovery C work",async()=>{
+test("employee data update connects real inspection to the trusted Recovery C workflow",async()=>{
   const page=await read("../app/import/page.tsx");
-  for (const token of ["员工资料更新","文件检查","employeesImported","员工更新尚未提交","Recovery C","培训历史"]) assert.match(page,new RegExp(token));
-  assert.doesNotMatch(page,/commitBatch|确认导入|synthetic-batch-202607/);
+  for (const token of ["员工资料更新","文件检查","employeesImported","createImportService","confirmUpdate","培训历史"]) assert.match(page,new RegExp(token));
+  assert.doesNotMatch(page,/确认导入|synthetic-batch-202607/);
 });
 
 test("administration navigation has real query destinations and no hashes",async()=>{
