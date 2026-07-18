@@ -3,15 +3,16 @@
   "verifiedAt": "2026-07-18T16:20:00+08:00",
   "source": {
     "branch": "codex/recovery-c",
-    "commitAtCapture": "ebe79c2 plus final mobile access-denied and login hardening in the working tree",
+    "commitAtCapture": "c2d53bf",
     "dataMode": "protected local-review fixtures",
     "productionDataUsed": false,
     "realWorkbookUploaded": false
   },
   "preview": {
-    "url": null,
-    "status": "pending protected preview refresh after final commit",
-    "protection": "Vercel deployment protection required",
+    "url": "https://hotel-ld-im6w6rzdz-nicwenqis-projects.vercel.app",
+    "deploymentId": "dpl_9T1umF1kSKZnjAyhUwvjJuJCxGQy",
+    "status": "READY · target preview",
+    "protection": "Vercel SSO deployment protection: all_except_custom_domains",
     "productionFallback": "forbidden by environment validation and repository registry"
   },
   "workflow": {
