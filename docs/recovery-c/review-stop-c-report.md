@@ -87,6 +87,6 @@ Three genuine defects were fixed through regression tests: local-review departme
 
 ## 22–25. Preview, source and production protection
 
-Protected Preview: `https://hotel-ld-im6w6rzdz-nicwenqis-projects.vercel.app` (`dpl_9T1umF1kSKZnjAyhUwvjJuJCxGQy`, Ready, target Preview). Project inspection confirms Vercel SSO deployment protection with `all_except_custom_domains`. Local-review fixtures are guarded by environment validation and cannot silently activate in Production. Browser screenshots were captured from the exact local application source; the approved real workbook remained outside Git and Preview.
+Protected Preview: `https://hotel-ld-im6w6rzdz-nicwenqis-projects.vercel.app` (`dpl_9T1umF1kSKZnjAyhUwvjJuJCxGQy`, Ready, target Preview). Project inspection confirms Vercel SSO deployment protection with `all_except_custom_domains`. The current automation browser and command-line HTTP client could not establish a route to the protected `vercel.app` hostname, so browser screenshots were captured from the exact local source commit; no bypass was retained. Vercel CLI independently verifies the deployment is Ready. Local-review fixtures are guarded by environment validation and cannot silently activate in Production. The approved real workbook remained outside Git and Preview.
 
 Production Supabase, Production employees, accounts, properties, departments, positions, scopes, DNS, Vercel Production configuration and Production deployment were untouched. No branch was merged. Recovery D was not started.

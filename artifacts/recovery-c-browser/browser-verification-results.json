@@ -13,6 +13,7 @@
     "deploymentId": "dpl_9T1umF1kSKZnjAyhUwvjJuJCxGQy",
     "status": "READY · target preview",
     "protection": "Vercel SSO deployment protection: all_except_custom_domains",
+    "remoteBrowserVerification": "The current automation browser could not establish a route to the protected vercel.app hostname; screenshots therefore use the exact local source commit, while Vercel CLI verifies the deployment is Ready.",
     "productionFallback": "forbidden by environment validation and repository registry"
   },
   "workflow": {
