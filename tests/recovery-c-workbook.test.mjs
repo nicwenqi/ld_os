@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
 import * as XLSX from "xlsx";
 
@@ -7,6 +8,45 @@ import { prepareEmployeeMasterStaging } from "../app/services/import/production-
 
 const mimeXlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const approvedHeaders = ["Empid", "CName", "EName", "Department", "Position", "Grade", "JoinDate", "Probation"];
+
+function exclusionPatternsFromSources() {
+  const parserSource = readFileSync(
+    new URL("../app/services/import/workbook-parser.ts", import.meta.url),
+    "utf8",
+  );
+  const parserMatch = parserSource.match(
+    /const excludedPattern = \/(.+)\/i;/,
+  );
+  assert.ok(parserMatch, "parser exclusion regex must remain discoverable");
+
+  const migrationsUrl = new URL("../supabase/migrations/", import.meta.url);
+  const latestMigration = readdirSync(migrationsUrl)
+    .filter(name => name.endsWith(".sql"))
+    .sort()
+    .reverse()
+    .map(name => readFileSync(new URL(name, migrationsUrl), "utf8"))
+    .find(source =>
+      source.includes(
+        "app_private.is_employee_import_excluded_key",
+      ));
+  assert.ok(latestMigration, "database exclusion helper migration must exist");
+  const functionMatch = latestMigration.match(
+    /create or replace function\s+app_private\.is_employee_import_excluded_key[\s\S]*?as \$\$([\s\S]*?)\$\$;/i,
+  );
+  assert.ok(functionMatch, "latest database exclusion helper must be readable");
+  const expressionMatch = functionMatch[1].match(
+    /~\*\s*\(([\s\S]*?)\)\s*;/,
+  );
+  assert.ok(expressionMatch, "database exclusion regex must remain discoverable");
+  const databasePattern = [...expressionMatch[1].matchAll(/'([^']*)'/g)]
+    .map(match => match[1].replaceAll("''", "'"))
+    .join("");
+
+  return {
+    parser: new RegExp(parserMatch[1], "i"),
+    database: new RegExp(databasePattern, "i"),
+  };
+}
 
 function workbookFile({
   headers = approvedHeaders,
@@ -70,6 +110,66 @@ test("Recovery C staging never persists excluded workbook values", () => {
     ["CTC", "GTC", "Mini Orientation", "Gender"],
   );
   assert.equal(result.safeSummary.excludedColumns.every(item => item.reason.length > 0), true);
+});
+
+test("database employee exclusions cover every parser category and retained evidence category", () => {
+  const patterns = exclusionPatternsFromSources();
+  const parserRepresentatives = [
+    "Gender",
+    "性别",
+    "CTC",
+    "GTC",
+    "Course",
+    "Training",
+    "培训",
+    "Completion",
+    "完成",
+    "Orientation",
+    "入职引导",
+    "Onboarding",
+    "Checklist",
+    "清单",
+    "Journey",
+    "旅程",
+    "First Aid",
+    "FirstAid",
+    "急救",
+    "Problem Handling",
+    "ProblemHandling",
+    "问题处理",
+  ];
+  const retainedDatabaseRepresentatives = [
+    "课程",
+    "Attendance",
+    "出勤",
+    "考勤",
+    "Feedback",
+    "反馈",
+    "Risk",
+    "风险",
+    "KPI",
+    "绩效",
+  ];
+
+  for (const key of parserRepresentatives) {
+    assert.equal(patterns.parser.test(key), true, `parser must exclude ${key}`);
+    assert.equal(
+      patterns.database.test(key),
+      true,
+      `database must cover parser exclusion ${key}`,
+    );
+  }
+  for (const key of retainedDatabaseRepresentatives) {
+    assert.equal(
+      patterns.database.test(key),
+      true,
+      `database must retain evidence exclusion ${key}`,
+    );
+  }
+  for (const key of approvedHeaders) {
+    assert.equal(patterns.parser.test(key), false, `parser must allow ${key}`);
+    assert.equal(patterns.database.test(key), false, `database must allow ${key}`);
+  }
 });
 
 test("Recovery C aggregate evidence omits row values and the full checksum", () => {

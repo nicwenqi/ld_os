@@ -196,3 +196,100 @@ Stage the route, Task 4 tests, additive Task 4 migration, and report if tracked.
 ```bash
 git commit -m "fix: secure private workbook cleanup"
 ```
+
+---
+
+### Task 5: Align the database exclusion taxonomy and clean integration artifacts
+
+**Files:**
+- Modify: `supabase/tests/recovery_c_import_staging_test.sql`
+- Create: `supabase/migrations/<timestamp>_recovery_c_workbook_exclusion_alignment.sql`
+- Modify: `tests/recovery-c-workbook.test.mjs`
+- Modify: `tests/recovery-c-storage-api.test.mjs`
+- Append: `.superpowers/sdd/task-4-report.md`
+
+**Interfaces:**
+- Consumes: parser `excludedPattern`, the private database exclusion helper,
+  and the linked-workbook Storage integration fixture.
+- Produces: an additive database taxonomy matching all parser branches while
+  retaining attendance/feedback/risk/KPI exclusions, plus repeatable local
+  integration cleanup.
+
+- [x] **Step 1: Add RED taxonomy payload and source-parity tests**
+
+Add a pgTAP fixture matrix for:
+
+```text
+gender, 性别, CTC, GTC, course, 课程, training, 培训,
+completion, 完成, orientation, 入职引导, onboarding,
+checklist, 清单, journey, 旅程, first aid, 急救,
+problem handling, 问题处理, attendance, 出勤, 考勤,
+feedback, 反馈, risk, 风险, KPI, 绩效
+```
+
+For every fixture, call `public.stage_employee_import` with the forbidden key
+as a submitted mapping source. Expect SQLSTATE `P3220`,
+`IMPORT_STAGING_EXCLUDED_FIELD`, and per-fixture zero counts in
+`import_batches`, `import_sheets`, `import_source_rows`, and
+`import_activity_events`.
+
+Add a Node source-parity test that extracts the parser regex and the latest
+SQL definition of `app_private.is_employee_import_excluded_key(text)`. Assert
+the SQL regex matches every parser representative and the retained
+attendance/feedback/risk/KPI representatives.
+
+- [x] **Step 2: Verify RED**
+
+Run:
+
+```bash
+npx --no-install supabase test db --local supabase/tests/recovery_c_import_staging_test.sql
+node --experimental-strip-types --test tests/recovery-c-workbook.test.mjs
+```
+
+Expected: the omitted gender/orientation/onboarding/checklist/journey/first-aid
+and problem-handling cases fail with an allowlist error instead of the stable
+excluded-field error; source parity reports the same missing SQL branches.
+
+- [x] **Step 3: Add the additive taxonomy migration**
+
+Create a migration later than `20260716152053` and replace only
+`app_private.is_employee_import_excluded_key(text)`. Keep the function private,
+immutable, and search-path hardened. Its regex must mirror the parser branches:
+
+```text
+gender|性别|ctc|gtc|course|课程|training|培训|completion|完成|
+orientation|入职引导|onboarding|checklist|清单|journey|旅程|
+first\s*aid|急救|problem\s*handling|问题处理
+```
+
+and retain:
+
+```text
+attendance|出勤|考勤|feedback|反馈|risk|风险|kpi|绩效
+```
+
+- [x] **Step 4: Make the Storage integration cleanup repeatable**
+
+In the linked-object test `finally`, remove the object with the local service
+client, then run privileged local SQL that removes the append-only activity
+fixture under `session_replication_role = replica` before deleting the batch:
+
+```sql
+delete from public.import_batches where id = '<random linked batch id>';
+```
+
+The batch delete then cascades to its sheet. Verify zero remaining batch,
+sheet, and activity rows for that ID. Snapshot and restore the exact local
+manager-account fixture so repeated runs neither retain a test account nor
+silently mutate an existing local account.
+
+- [x] **Step 5: Verify GREEN and commit**
+
+Run a clean reset, focused and full pgTAP, Storage API twice, route/application
+tests, focused typecheck, lint, diff checks, and both advisors. Append the
+results to the Task 4 report, stage only the files above, and commit:
+
+```bash
+git commit -m "fix: align workbook exclusion enforcement"
+```

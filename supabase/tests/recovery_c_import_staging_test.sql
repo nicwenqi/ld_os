@@ -532,5 +532,114 @@ select results_eq(
   'every rejected excluded or unallowlisted payload is atomic'
 );
 
+create temporary table excluded_employee_key_cases (
+  test_case text primary key,
+  forbidden_key text not null,
+  batch_id uuid not null default gen_random_uuid()
+) on commit drop;
+
+insert into excluded_employee_key_cases(test_case, forbidden_key)
+values
+  ('gender-en', 'Gender'),
+  ('gender-zh', '性别'),
+  ('ctc', 'CTC'),
+  ('gtc', 'GTC'),
+  ('course-en', 'Course'),
+  ('course-zh', '课程'),
+  ('training-en', 'Training'),
+  ('training-zh', '培训'),
+  ('completion-en', 'Completion'),
+  ('completion-zh', '完成'),
+  ('orientation-en', 'Orientation'),
+  ('orientation-zh', '入职引导'),
+  ('onboarding-en', 'Onboarding'),
+  ('checklist-en', 'Checklist'),
+  ('checklist-zh', '清单'),
+  ('journey-en', 'Journey'),
+  ('journey-zh', '旅程'),
+  ('first-aid-en', 'First Aid'),
+  ('first-aid-zh', '急救'),
+  ('problem-handling-en', 'Problem Handling'),
+  ('problem-handling-zh', '问题处理'),
+  ('attendance-en', 'Attendance'),
+  ('attendance-zh', '出勤'),
+  ('attendance-alt-zh', '考勤'),
+  ('feedback-en', 'Feedback'),
+  ('feedback-zh', '反馈'),
+  ('risk-en', 'Risk'),
+  ('risk-zh', '风险'),
+  ('kpi-en', 'KPI'),
+  ('kpi-zh', '绩效');
+
+insert into storage.objects(bucket_id, name, owner_id)
+select
+  'property-import-files',
+  '10000000-0000-0000-0000-000000000001/' ||
+    '20000000-0000-0000-0000-000000000011/imports/' ||
+    batch_id::text || '/excluded-taxonomy.xlsx',
+  auth.uid()
+from excluded_employee_key_cases;
+
+select throws_ok(
+  format(
+    $statement$
+      select public.stage_employee_import(
+        %L::uuid,
+        %L::uuid,
+        jsonb_set(
+          jsonb_set(
+            pg_temp.employee_staging_payload(
+              %L::uuid,
+              'excluded-taxonomy.xlsx'
+            ),
+            '{fieldMappings,0,sourceColumnName}',
+            to_jsonb(%L::text)
+          ),
+          '{rows,0,rawValues}',
+          jsonb_build_object(%L::text, '0007')
+        )
+      )
+    $statement$,
+    '20000000-0000-0000-0000-000000000011',
+    batch_id,
+    batch_id,
+    forbidden_key,
+    forbidden_key
+  ),
+  'P3220',
+  'IMPORT_STAGING_EXCLUDED_FIELD',
+  'excluded employee taxonomy rejects ' || test_case
+)
+from excluded_employee_key_cases
+order by test_case;
+
+select results_eq(
+  $$select
+      fixture.test_case,
+      (select count(*)
+       from public.import_batches batch
+       where batch.id = fixture.batch_id),
+      (select count(*)
+       from public.import_sheets sheet
+       where sheet.import_batch_id = fixture.batch_id),
+      (select count(*)
+       from public.import_source_rows source_row
+       where source_row.import_batch_id = fixture.batch_id),
+      (select count(*)
+       from public.import_activity_events activity
+       where activity.import_batch_id = fixture.batch_id)
+    from excluded_employee_key_cases fixture
+    order by fixture.test_case$$,
+  $$select
+      fixture.test_case,
+      0::bigint,
+      0::bigint,
+      0::bigint,
+      0::bigint
+    from excluded_employee_key_cases fixture
+    order by fixture.test_case$$,
+  'every excluded taxonomy payload leaves zero batch sheet row or activity evidence'
+);
+
 select * from finish();
 rollback;
