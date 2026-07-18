@@ -87,7 +87,7 @@ function LoginExperience() {
           <h2 id="login-title">欢迎回来</h2>
           <p>请输入酒店分配给您的用户 ID 与密码。</p>
         </header>
-        <form onSubmit={submit}>
+        <form onSubmit={submit} method="post">
           <label>
             <span>用户 ID</span>
             <input

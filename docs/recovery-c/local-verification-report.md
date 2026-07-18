@@ -28,7 +28,7 @@ The pgTAP suite verifies property isolation, actor-scoped staging, manager-only 
 | Verification | Result |
 | --- | --- |
 | ESLint | Passed with 0 errors; 3 pre-existing `next/image` advisory warnings |
-| Application tests | 196/196 passed |
+| Application tests | 197/197 passed |
 | Production build | Passed |
 | Rendered HTML test | 1/1 passed |
 | Focused Recovery C UI/service/route tests | Passed |
@@ -51,9 +51,13 @@ The approved legacy workbook was inspected locally through the trusted parser wi
 
 The committed privacy-safe evidence is in `docs/recovery-c/real-workbook-inspection.md`; it contains no employee name, employee number, row values or full checksum.
 
-## Browser defect found during local review
+## Browser defects found during local review
 
 The local-review Department Training Responsible Person directory initially returned a hotel-wide fixture rather than the authorized branch. A failing test reproduced the leak. The fix introduced an actor-scoped server boundary that derives the department branch and descendants from the authenticated session and ignores browser-supplied scope. Browser re-verification showed only the single authorized synthetic employee; the manager-only employee-update route returned access denied.
+
+The mobile access-denied card also collapsed to an intrinsic narrow grid track. A regression test reproduced the unreadable layout; the card now uses an explicit full-width/max-width contract. Browser re-verification at 390 px measured a 354 px card, 46 px actions and no horizontal overflow.
+
+Finally, an automated click before the client handler was ready demonstrated that the login form's browser default could submit credentials as a query string. The form now declares POST semantics even before hydration, while the authenticated client flow remains unchanged. The local server and browser sessions used to discover the issue were terminated after verification.
 
 ## Transaction and rollback conclusions
 

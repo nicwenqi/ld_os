@@ -69,6 +69,7 @@ test("login is Chinese-first User ID and password with no selectors or email",as
   for(const token of ["用户 ID","密码","登录","账号或密码错误","Hotel Learning & Development OS","safeReturnToForRole"]) assert.match(page,new RegExp(token));
   assert.doesNotMatch(page,/type=["']email|角色选择|酒店选择|Magic Link|OTP/);
   assert.match(page,/minLength=\{8\}/);
+  assert.match(page,/<form onSubmit=\{submit\} method="post">/);
   assert.match(css,/min-height:\s*48px/);
 });
 
@@ -162,6 +163,12 @@ test("approved landing pages are truthful and obsolete workspaces are absent",as
   for (const route of ["my-training","platform","check-in/session-1","feedback/session-1"]) {
     await assert.rejects(access(new URL(`../app/${route}/page.tsx`, import.meta.url)));
   }
+});
+
+test("access denied remains readable at a mobile viewport", async () => {
+  const css = await read("../app/role-entry.css");
+  assert.match(css, /\.role-entry-card\{[^}]*width:100%;[^}]*max-width:880px/);
+  assert.match(css, /\.role-entry-card\{[^}]*box-sizing:border-box/);
 });
 
 test("navigation is role-aware, frequency-led and contains no role switcher",async()=>{

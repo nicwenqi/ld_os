@@ -1,0 +1,107 @@
+{
+  "recovery": "Recovery C — Trusted Employee Data Update and People Foundation",
+  "verifiedAt": "2026-07-18T16:20:00+08:00",
+  "source": {
+    "branch": "codex/recovery-c",
+    "commitAtCapture": "ebe79c2 plus final mobile access-denied and login hardening in the working tree",
+    "dataMode": "protected local-review fixtures",
+    "productionDataUsed": false,
+    "realWorkbookUploaded": false
+  },
+  "preview": {
+    "url": null,
+    "status": "pending protected preview refresh after final commit",
+    "protection": "Vercel deployment protection required",
+    "productionFallback": "forbidden by environment validation and repository registry"
+  },
+  "workflow": {
+    "steps": [
+      "文件检查",
+      "字段识别",
+      "部门归属确认",
+      "职位归属确认",
+      "数据问题处理",
+      "更新预览",
+      "确认更新"
+    ],
+    "authoritativeVersionsObserved": [1, 2, 3, 4, 5, 6, 7],
+    "zeroWritePreview": {
+      "additions": 18,
+      "updates": 7,
+      "unchanged": 91,
+      "exclusions": 3,
+      "blocked": 0,
+      "unresolved": 0
+    },
+    "explicitConfirmationRequired": true,
+    "postCommitAuthoritativeAuditRecords": 1,
+    "revertPreviewConflicts": 0,
+    "revertDialogFocusRestoredToTrigger": true
+  },
+  "authorization": {
+    "managerImportRoute": "allowed",
+    "managerPeopleRoute": "allowed",
+    "departmentPeopleRoute": "allowed within server-resolved branch only",
+    "departmentImportRoute": "redirected to /access-denied",
+    "departmentVisibleEmployeeNumbers": ["0007"],
+    "departmentHiddenEmployeeNumbers": ["0012"],
+    "browserSelectedScopeAccepted": false
+  },
+  "responsive": {
+    "desktop": {
+      "width": 1280,
+      "horizontalOverflow": false,
+      "peopleHeadingPx": 29
+    },
+    "tablet": {
+      "width": 1024,
+      "horizontalOverflow": false,
+      "importHeadingPx": 40,
+      "peopleHeadingPx": 29
+    },
+    "mobile": {
+      "width": 390,
+      "horizontalOverflow": false,
+      "importHeadingPx": 32,
+      "peopleHeadingPx": 27,
+      "accessDeniedCardPx": 354,
+      "accessDeniedActionsPx": 46,
+      "smallestObservedPeopleActionPx": 35,
+      "wcag22MinimumTargetPx": 24
+    }
+  },
+  "browserDiagnostics": {
+    "consoleWarnings": 0,
+    "consoleErrors": 0,
+    "failedLocalApplicationRequests": 0,
+    "loginFormFallbackMethod": "post",
+    "temporarySessionCleared": true,
+    "browserTabsFinalized": true,
+    "localServerStopped": true
+  },
+  "defectsFixed": [
+    "Department local-review directory previously widened to a hotel-wide fixture; it now derives branch and descendants from the authenticated server session.",
+    "Mobile access-denied card previously collapsed to an unreadable intrinsic width; it now has a stable full-width/max-width layout.",
+    "The unhydrated login form previously had browser-default GET semantics; it now declares POST semantics so credentials cannot enter the URL query string."
+  ],
+  "screenshots": [
+    "01-file-inspection-desktop.png",
+    "02-field-recognition-saved-desktop.png",
+    "03-department-attribution-saved-desktop.png",
+    "04-position-attribution-saved-desktop.png",
+    "05-issue-resolution-saved-desktop.png",
+    "06-zero-write-preview-desktop.png",
+    "07-confirmation-before-commit-desktop.png",
+    "07-confirmation-enabled-desktop.png",
+    "07-confirmation-completed-desktop.png",
+    "08-revert-preview-desktop.png",
+    "09-manager-people-desktop.png",
+    "10-manager-people-tablet.png",
+    "11-manager-people-mobile.png",
+    "11b-manager-people-mobile-records.png",
+    "12-update-journey-mobile.png",
+    "13-update-journey-tablet.png",
+    "14-department-people-desktop.png",
+    "15-department-forbidden-mobile.png"
+  ]
+}
