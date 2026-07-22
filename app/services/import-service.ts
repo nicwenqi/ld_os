@@ -1,5 +1,6 @@
 import type {
   EmployeeUpdatePreview,
+  EmployeeUpdateApproval,
   EmployeeImportPreviewOptions,
   ImportBatch,
   ImportFieldMapping,
@@ -21,6 +22,7 @@ type ImportWorkflowRepository = Pick<
   | "resolveSourceLabel"
   | "resolveIssue"
   | "preparePreview"
+  | "readPreparedPreview"
   | "commitBatch"
   | "getBatchAudit"
   | "previewRevert"
@@ -34,6 +36,7 @@ export type EmployeeUpdateWorkflow = {
   positionLabels: readonly ImportSourceLabelResolution[];
   issues: readonly ImportIssue[];
   progress: ReturnType<typeof deriveEmployeeUpdateProgress>;
+  preview: EmployeeUpdatePreview | null;
 };
 
 export type EmployeeUpdateDecisionDraft = {
@@ -111,12 +114,13 @@ export function createImportService(repository: ImportWorkflowRepository) {
     return batch;
   };
   const readWorkflow = async (batchId: string): Promise<EmployeeUpdateWorkflow> => {
-    const [batch, fieldMappings, issues, departmentLabels, positionLabels] = await Promise.all([
+    const [batch, fieldMappings, issues, departmentLabels, positionLabels, preview] = await Promise.all([
       readBatch(batchId),
       repository.listFieldMappings(batchId),
       repository.listIssues(batchId),
       repository.listSourceLabelResolutions(batchId, "department"),
       repository.listSourceLabelResolutions(batchId, "position"),
+      repository.readPreparedPreview(batchId),
     ]);
     const progress = deriveEmployeeUpdateProgress({
       status: batch.status,
@@ -124,9 +128,9 @@ export function createImportService(repository: ImportWorkflowRepository) {
       departmentUnresolved: departmentLabels.filter(item => item.decision === "pending" || item.decision === "deferred").length,
       positionUnresolved: positionLabels.filter(item => item.decision === "pending" || item.decision === "deferred").length,
       blockingIssues: issues.filter(item => item.severity === "error" && (item.resolutionStatus === "unresolved" || item.resolutionStatus === "deferred")).length,
-      previewReady: batch.status === "ready_for_review",
+      previewReady: batch.status === "ready_for_review" && Boolean(preview),
     });
-    return { batch, fieldMappings, issues, departmentLabels, positionLabels, progress };
+    return { batch, fieldMappings, issues, departmentLabels, positionLabels, progress, preview };
   };
   return {
     resume(batchId: string): Promise<EmployeeUpdateWorkflow> {
@@ -165,17 +169,21 @@ export function createImportService(repository: ImportWorkflowRepository) {
       assertDraftReady(draft, expectedVersion);
       const preview = await repository.preparePreview(batchId, expectedVersion, options);
       const workflow = await readWorkflow(batchId);
-      return { preview, workflow };
+      if (!workflow.preview || workflow.preview.previewHash !== preview.previewHash) {
+        throw new Error("服务器预览证据无法重新读取，请重新生成更新预览");
+      }
+      return { preview: workflow.preview, workflow };
     },
     async confirmUpdate(
       batchId: string,
       expectedVersion: number,
-      acknowledged: boolean,
+      approval: EmployeeUpdateApproval,
       draft: EmployeeUpdateDecisionDraft,
     ) {
       assertDraftReady(draft, expectedVersion);
-      if (!acknowledged) throw new Error("请先确认更新范围、排除行与状态处理方式");
-      const commitId = await repository.commitBatch(batchId, expectedVersion);
+      if (!approval.acknowledged) throw new Error("请先确认更新范围、排除行与状态处理方式");
+      if (!approval.previewHash.trim()) throw new Error("审批缺少服务器预览证据，请重新生成更新预览");
+      const commitId = await repository.commitBatch(batchId, expectedVersion, approval);
       const [batch, audit] = await Promise.all([
         readBatch(batchId),
         repository.getBatchAudit(batchId),

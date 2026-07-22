@@ -27,7 +27,7 @@ function exclusionPatternsFromSources() {
     .map(name => readFileSync(new URL(name, migrationsUrl), "utf8"))
     .find(source =>
       source.includes(
-        "app_private.is_employee_import_excluded_key",
+        "create or replace function app_private.is_employee_import_excluded_key",
       ));
   assert.ok(latestMigration, "database exclusion helper migration must exist");
   const functionMatch = latestMigration.match(

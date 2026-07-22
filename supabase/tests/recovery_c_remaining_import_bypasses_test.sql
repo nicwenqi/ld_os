@@ -246,7 +246,7 @@ select throws_ok(
 );
 rollback to savepoint forged_source_row;
 
-select lives_ok(
+select throws_ok(
   $$insert into public.employees(
       id, tenant_id, property_id, employee_number, name_zh, name_en,
       department_id, position_id, position_family_id, grade_or_band,
@@ -276,27 +276,15 @@ select lives_ok(
       '00000000-0000-0000-0000-000000000104',
       99
     )$$,
-  'authenticated manager may create an employee only with database-authored metadata'
+  '42501',
+  null,
+  'authenticated manager cannot bypass preview, approval, commit, and audit'
 );
 select results_eq(
-  $$select
-      version,
-      created_by,
-      updated_by,
-      created_at > timestamptz '2001-01-01 00:00:00+00',
-      updated_at > timestamptz '2001-01-01 00:00:00+00',
-      created_at = updated_at
-    from public.employees
+  $$select count(*) from public.employees
     where id = '90000000-0000-0000-0000-00000000c201'$$,
-  $$values (
-      1::bigint,
-      '00000000-0000-0000-0000-000000000103'::uuid,
-      '00000000-0000-0000-0000-000000000103'::uuid,
-      true,
-      true,
-      true
-    )$$,
-  'employee insert version, actor, and timestamps are database-authored'
+  array[0::bigint],
+  'rejected direct employee insert leaves no employee fact'
 );
 
 reset role;
@@ -396,7 +384,7 @@ create temporary table recovery_c_inactive_target_preview on commit drop as
 select public.prepare_employee_import_preview(
   '81000000-0000-0000-0000-00000000c205',
   1,
-  '{"statusTreatment":"retain_existing_set_additions_active"}'::jsonb
+  jsonb_build_object('statusTreatment','retain_existing_set_additions_active','effectiveDate',current_date)
 ) result;
 select results_eq(
   $$select
@@ -420,7 +408,9 @@ set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select throws_ok(
   $$select public.commit_employee_import(
     '81000000-0000-0000-0000-00000000c205',
-    2
+    2,
+    (select result->>'previewHash' from recovery_c_inactive_target_preview),
+    true
   )$$,
   '23514',
   'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',

@@ -111,13 +111,15 @@ insert into public.employees (
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select lives_ok(
-  $$update public.employees
-    set name_en = 'Authoritative Version Edit',
-        version = 2,
-        updated_at = timestamptz '2001-01-01 00:00:00+00',
-        updated_by = '00000000-0000-0000-0000-000000000104'
-    where id = '90000000-0000-0000-0000-00000000c101'$$,
-  'manager may edit an employee through the authorized row boundary'
+  $$select public.correct_employee_master_fact(
+    '90000000-0000-0000-0000-00000000c101',
+    1,
+    current_date,
+    '验证受控员工更正与版本审计',
+    '{"name_en":"Authoritative Version Edit"}'::jsonb,
+    true
+  )$$,
+  'manager edits an employee only through the authorized correction boundary'
 );
 select results_eq(
   $$select version, updated_by,
@@ -129,7 +131,7 @@ select results_eq(
       '00000000-0000-0000-0000-000000000103'::uuid,
       true
     )$$,
-  'employee version, timestamp, and actor are always database-authored'
+  'controlled correction versions, timestamps, and actor are database-authored'
 );
 
 reset role;
@@ -324,7 +326,7 @@ create temporary table recovery_c_identifier_only_preview on commit drop as
 select public.prepare_employee_import_preview(
   '81000000-0000-0000-0000-00000000c102',
   1,
-  '{"statusTreatment":"retain_existing_set_additions_active"}'::jsonb
+  jsonb_build_object('statusTreatment','retain_existing_set_additions_active','effectiveDate',current_date)
 ) result;
 select results_eq(
   $$select
@@ -345,7 +347,9 @@ select results_eq(
 select lives_ok(
   $$select public.commit_employee_import(
     '81000000-0000-0000-0000-00000000c102',
-    2
+    2,
+    (select result->>'previewHash' from recovery_c_identifier_only_preview),
+    true
   )$$,
   'identifier-only update commits through the guarded transaction'
 );
@@ -371,9 +375,9 @@ select throws_ok(
   $$update public.employees
     set name_en = name_en
     where id = '90000000-0000-0000-0000-00000000c103'$$,
-  '23514',
-  'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',
-  'active employee writes reject an inactive department'
+  '42501',
+  null,
+  'direct employee writes remain blocked even when a department becomes inactive'
 );
 reset role;
 update public.departments
@@ -388,9 +392,9 @@ select throws_ok(
   $$update public.employees
     set name_en = name_en
     where id = '90000000-0000-0000-0000-00000000c103'$$,
-  '23514',
-  'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',
-  'active employee writes reject an inactive operational unit'
+  '42501',
+  null,
+  'direct employee writes remain blocked even when an operational unit becomes inactive'
 );
 reset role;
 update public.operational_units
@@ -405,9 +409,9 @@ select throws_ok(
   $$update public.employees
     set name_en = name_en
     where id = '90000000-0000-0000-0000-00000000c103'$$,
-  '23514',
-  'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',
-  'active employee writes reject an inactive position'
+  '42501',
+  null,
+  'direct employee writes remain blocked even when a position becomes inactive'
 );
 reset role;
 update public.positions
@@ -422,9 +426,9 @@ select throws_ok(
   $$update public.employees
     set name_en = name_en
     where id = '90000000-0000-0000-0000-00000000c103'$$,
-  '23514',
-  'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',
-  'active employee writes reject an inactive position family'
+  '42501',
+  null,
+  'direct employee writes remain blocked even when a position family becomes inactive'
 );
 reset role;
 update public.position_families
@@ -437,7 +441,7 @@ create temporary table recovery_c_active_target_preview on commit drop as
 select public.prepare_employee_import_preview(
   '81000000-0000-0000-0000-00000000c103',
   1,
-  '{"statusTreatment":"retain_existing_set_additions_active"}'::jsonb
+  jsonb_build_object('statusTreatment','retain_existing_set_additions_active','effectiveDate',current_date)
 ) result;
 select results_eq(
   $$select result->>'status' from recovery_c_active_target_preview$$,
@@ -453,7 +457,9 @@ set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select throws_ok(
   $$select public.commit_employee_import(
     '81000000-0000-0000-0000-00000000c103',
-    2
+    2,
+    (select result->>'previewHash' from recovery_c_active_target_preview),
+    true
   )$$,
   '23514',
   'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',

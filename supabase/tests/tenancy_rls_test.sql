@@ -2,6 +2,20 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select plan(37);
 
+insert into public.user_accounts (
+  id, user_id, auth_user_id, tenant_id, property_id, login_id,
+  account_status, must_change_password
+) values (
+  '79000000-0000-0000-0000-000000000103',
+  '00000000-0000-0000-0000-000000000103',
+  '00000000-0000-0000-0000-000000000103',
+  '10000000-0000-0000-0000-000000000001',
+  '20000000-0000-0000-0000-000000000011',
+  'd0-manager-fixture',
+  'active',
+  false
+);
+
 -- Synthetic identities from supabase/seed.sql.
 -- 101 platform admin; 102 Tenant A admin; 103 A1 L&D Manager;
 -- 104 A1 member; 105 A2 member; 106 B1 member.

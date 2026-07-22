@@ -17,6 +17,7 @@ const targetAliases: Record<string, readonly string[]> = {
   grade_or_band: ["grade", "band", "级别"],
   hire_date: ["hire date", "date of hire", "join date", "joindate", "入职日期"],
   probation_or_confirmation_date: ["probation", "confirmation date", "转正日期", "试用期"],
+  employment_status: ["employment status", "employee status", "status", "在职状态", "员工状态"],
 };
 const excludedPattern = /(gender|性别|ctc|gtc|course|training|培训|completion|完成|orientation|入职引导|onboarding|checklist|清单|journey|旅程|first\s*aid|急救|problem\s*handling|问题处理)/i;
 

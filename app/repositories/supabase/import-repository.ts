@@ -196,14 +196,21 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
         p_options: options,
       });
     },
+    readPreparedPreview(batchId) {
+      return rpc<EmployeeUpdatePreview | null>(client, "read_employee_import_preview", {
+        p_batch_id: batchId,
+      });
+    },
     async previewCommit(batchId) {
       const batch = await this.validateBatch(batchId);
       return batch.summary;
     },
-    commitBatch(batchId, expectedVersion) {
+    commitBatch(batchId, expectedVersion, approval) {
       return rpc<string>(client, "commit_employee_import", {
         p_batch_id: batchId,
         p_expected_version: expectedVersion,
+        p_preview_hash: approval.previewHash,
+        p_confirmed: approval.acknowledged,
       });
     },
     previewRevert(batchId) {

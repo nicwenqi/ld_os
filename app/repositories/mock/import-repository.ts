@@ -50,6 +50,7 @@ export function createMockImportRepository(): ImportRepository {
     resolutionStatus: "unresolved",
   }];
   let activeRevertToken: string | null = null;
+  let activePreview: EmployeeUpdatePreview | null = null;
   const labels: Record<"department" | "position", ImportSourceLabelResolution[]> = {
     department: [
       { sourceValue: "Concierge", sourceRowCount: 19, decision: "mapped", targetId: "61000000-0000-0000-0000-000000000013" },
@@ -179,6 +180,22 @@ export function createMockImportRepository(): ImportRepository {
         unresolved: 0,
         version: batch.version + 1,
         status: "ready_for_review",
+        effectiveDate: options.effectiveDate,
+        previewHash: "sha256:synthetic-d0-preview",
+        rows: [{
+          rowId: "synthetic-preview-row",
+          rowNumber: 4,
+          action: "update",
+          employeeNumber: "0007",
+          employeeName: "示例员工",
+          effectiveDate: options.effectiveDate,
+          changes: [{
+            field: "department_id",
+            before: "前厅部",
+            after: "客务部",
+            reason: "经理确认的部门归属",
+          }],
+        }],
       };
       batch = {
         ...batch,
@@ -193,14 +210,21 @@ export function createMockImportRepository(): ImportRepository {
           unresolved: preview.unresolved,
         },
       };
+      activePreview = structuredClone(preview);
       return preview;
+    },
+    async readPreparedPreview() {
+      return activePreview ? structuredClone(activePreview) : null;
     },
     async previewCommit() {
       return batch.summary;
     },
-    async commitBatch(_batchId, expectedVersion) {
+    async commitBatch(_batchId, expectedVersion, approval) {
       assertVersion(expectedVersion);
       if (batch.status !== "ready_for_review") throw new Error("员工资料更新尚未准备好");
+      if (!approval.acknowledged || approval.previewHash !== "sha256:synthetic-d0-preview") {
+        throw new Error("审批预览证据无效");
+      }
       batch = { ...batch, status: "completed", version: batch.version + 1 };
       return "synthetic-commit";
     },

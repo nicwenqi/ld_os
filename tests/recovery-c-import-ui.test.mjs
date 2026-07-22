@@ -140,7 +140,10 @@ test("mock workflow proves no employee write occurs before explicit confirmation
   const prepared = await service.preparePreview(
     batch.id,
     workflow.batch.version,
-    { statusTreatment: "retain_existing_set_additions_active" },
+    {
+      statusTreatment: "retain_existing_set_additions_active",
+      effectiveDate: "2026-07-22",
+    },
     cleanDraft,
   );
   assert.equal(prepared.preview.additions, 18);
@@ -154,7 +157,7 @@ test("mock workflow proves no employee write occurs before explicit confirmation
     service.confirmUpdate(
       batch.id,
       prepared.workflow.batch.version,
-      false,
+      { acknowledged: false, previewHash: prepared.preview.previewHash },
       createEmployeeUpdateDecisionDraft(prepared.workflow),
     ),
     /请先确认更新范围/,
@@ -164,7 +167,7 @@ test("mock workflow proves no employee write occurs before explicit confirmation
   const committed = await service.confirmUpdate(
     batch.id,
     prepared.workflow.batch.version,
-    true,
+    { acknowledged: true, previewHash: prepared.preview.previewHash },
     createEmployeeUpdateDecisionDraft(prepared.workflow),
   );
   assert.equal(committed.batch.status, "completed");

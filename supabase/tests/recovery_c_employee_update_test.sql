@@ -472,6 +472,21 @@ insert into public.import_field_mappings(
     'suggested'
   );
 
+insert into public.import_field_mappings(
+  id, tenant_id, property_id, import_batch_id, import_sheet_id,
+  source_column_name, source_column_index, target_field,
+  transformation_rule, is_required, mapping_status, approved_by, approved_at
+) values
+  ('84000000-0000-0000-0000-00000000c003','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','NameZh',2,'name_zh','{}',true,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c004','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','NameEn',3,'name_en','{}',false,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c005','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','Department',4,'department_source_label','{}',true,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c006','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','Position',5,'position_source_label','{}',true,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c007','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','Grade',6,'grade_or_band','{}',false,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c008','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','HireDate',7,'hire_date','{}',true,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c009','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','ProbationDate',8,'probation_or_confirmation_date','{}',false,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c010','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','LmsId',9,'lms_employee_id','{}',false,'confirmed','00000000-0000-0000-0000-000000000103',now()),
+  ('84000000-0000-0000-0000-00000000c011','10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','81000000-0000-0000-0000-00000000c001','82000000-0000-0000-0000-00000000c001','MerlinId',10,'merlin_id','{}',false,'confirmed','00000000-0000-0000-0000-000000000103',now());
+
 insert into public.employees(
   id, tenant_id, property_id, employee_number, name_zh, name_en,
   department_id, operational_unit_id, position_id, position_family_id,
@@ -678,7 +693,14 @@ insert into public.import_source_rows(
     '81000000-0000-0000-0000-00000000c001',
     '82000000-0000-0000-0000-00000000c001',
     4,
-    '{"Empid":"U-001"}',
+    jsonb_build_object(
+      'Empid','U-001','Status','leave','NameZh','更新后姓名',
+      'NameEn','Draft Name','Department','Bar 168',
+      'Position','Chef de Partie','Grade','C2',
+      'HireDate',(current_date - 10)::text,
+      'ProbationDate',(current_date + 80)::text,
+      'LmsId','L-NEW-U001','MerlinId',null
+    ),
     jsonb_build_object(
       'employee_number', 'U-001',
       'name_zh', '更新后姓名',
@@ -702,7 +724,14 @@ insert into public.import_source_rows(
     '81000000-0000-0000-0000-00000000c001',
     '82000000-0000-0000-0000-00000000c001',
     5,
-    '{"Empid":"0007"}',
+    jsonb_build_object(
+      'Empid','0007','Status','active','NameZh','新增员工',
+      'NameEn','New Employee','Department','Bar 168',
+      'Position','Chef de Partie','Grade','C2',
+      'HireDate',(current_date - 5)::text,
+      'ProbationDate',(current_date + 85)::text,
+      'LmsId',null,'MerlinId','M-0007'
+    ),
     jsonb_build_object(
       'employee_number', '0007',
       'name_zh', '新增员工',
@@ -726,7 +755,14 @@ insert into public.import_source_rows(
     '81000000-0000-0000-0000-00000000c001',
     '82000000-0000-0000-0000-00000000c001',
     6,
-    '{"Empid":"SAME-1"}',
+    jsonb_build_object(
+      'Empid','SAME-1','Status','active','NameZh','保持不变',
+      'NameEn','Unchanged Employee','Department','Bar 168',
+      'Position','Chef de Partie','Grade','C2',
+      'HireDate',(current_date - 200)::text,
+      'ProbationDate',(current_date - 100)::text,
+      'LmsId',null,'MerlinId',null
+    ),
     jsonb_build_object(
       'employee_number', 'SAME-1',
       'name_zh', '保持不变',
@@ -749,7 +785,13 @@ insert into public.import_source_rows(
     '81000000-0000-0000-0000-00000000c001',
     '82000000-0000-0000-0000-00000000c001',
     7,
-    '{"Empid":"EXCLUDED-1"}',
+    jsonb_build_object(
+      'Empid','EXCLUDED-1','Status','active','NameZh','明确排除',
+      'NameEn',null,'Department','Ignore Department',
+      'Position','Chef de Partie','Grade',null,
+      'HireDate',(current_date - 5)::text,
+      'ProbationDate',null,'LmsId',null,'MerlinId',null
+    ),
     jsonb_build_object(
       'employee_number', 'EXCLUDED-1',
       'name_zh', '明确排除',
@@ -827,7 +869,7 @@ select throws_ok(
   $$select public.prepare_employee_import_preview(
     '81000000-0000-0000-0000-00000000c001',
     1,
-    '{"statusTreatment":"use_recognized_status"}'::jsonb
+    jsonb_build_object('statusTreatment','use_recognized_status','effectiveDate',current_date)
   )$$,
   '42501',
   null,
@@ -840,7 +882,7 @@ select throws_ok(
   $$select public.prepare_employee_import_preview(
     '81000000-0000-0000-0000-00000000c001',
     1,
-    '{"statusTreatment":"use_recognized_status"}'::jsonb
+    jsonb_build_object('statusTreatment','use_recognized_status','effectiveDate',current_date)
   )$$,
   '42501',
   'IMPORT_MANAGER_REQUIRED',
@@ -852,7 +894,7 @@ select throws_ok(
   $$select public.prepare_employee_import_preview(
     '81000000-0000-0000-0000-00000000c001',
     1,
-    '{"statusTreatment":"use_recognized_status"}'::jsonb
+    jsonb_build_object('statusTreatment','use_recognized_status','effectiveDate',current_date)
   )$$,
   '42501',
   'IMPORT_MANAGER_ACCOUNT_INACTIVE',
@@ -1014,7 +1056,7 @@ create temporary table recovery_c_main_preview on commit drop as
 select public.prepare_employee_import_preview(
   '81000000-0000-0000-0000-00000000c001',
   6,
-  '{"statusTreatment":"use_recognized_status"}'::jsonb
+  jsonb_build_object('statusTreatment','use_recognized_status','effectiveDate',current_date)
 ) result;
 select results_eq(
   $$select
@@ -1086,7 +1128,9 @@ select throws_ok(
 create temporary table recovery_c_main_commit on commit drop as
 select public.commit_employee_import(
   '81000000-0000-0000-0000-00000000c001',
-  7
+  7,
+  (select result->>'previewHash' from recovery_c_main_preview),
+  true
 ) commit_id;
 select ok(
   (
@@ -1150,7 +1194,9 @@ select results_eq(
 select results_eq(
   $$select public.commit_employee_import(
       '81000000-0000-0000-0000-00000000c001',
-      7
+      7,
+      (select result->>'previewHash' from recovery_c_main_preview),
+      true
     )$$,
   $$select commit_id from recovery_c_main_commit$$,
   'retrying a completed commit returns the original commit identity'
@@ -1166,7 +1212,7 @@ create temporary table recovery_c_conflict_preview on commit drop as
 select public.prepare_employee_import_preview(
   '81000000-0000-0000-0000-00000000c002',
   1,
-  '{"statusTreatment":"retain_existing_set_additions_active"}'::jsonb
+  jsonb_build_object('statusTreatment','retain_existing_set_additions_active','effectiveDate',current_date)
 ) result;
 select results_eq(
   $$select
@@ -1188,7 +1234,7 @@ create temporary table recovery_c_stale_preview on commit drop as
 select public.prepare_employee_import_preview(
   '81000000-0000-0000-0000-00000000c003',
   1,
-  '{"statusTreatment":"retain_existing_set_additions_active"}'::jsonb
+  jsonb_build_object('statusTreatment','retain_existing_set_additions_active','effectiveDate',current_date)
 ) result;
 select results_eq(
   $$select (result->>'version')::bigint, result->>'status'
@@ -1206,7 +1252,9 @@ set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select throws_ok(
   $$select public.commit_employee_import(
     '81000000-0000-0000-0000-00000000c003',
-    2
+    2,
+    (select result->>'previewHash' from recovery_c_stale_preview),
+    true
   )$$,
   'P3005',
   'IMPORT_EMPLOYEE_STALE_VERSION',

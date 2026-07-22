@@ -2,6 +2,20 @@ begin;
 create extension if not exists pgtap with schema extensions;
 select plan(24);
 
+insert into public.user_accounts (
+  id, user_id, auth_user_id, tenant_id, property_id, login_id,
+  account_status, must_change_password
+) values (
+  '79000000-0000-0000-0000-000000000103',
+  '00000000-0000-0000-0000-000000000103',
+  '00000000-0000-0000-0000-000000000103',
+  '10000000-0000-0000-0000-000000000001',
+  '20000000-0000-0000-0000-000000000011',
+  'd0-manager-fixture',
+  'active',
+  false
+);
+
 select has_table('public', 'property_domains', 'property_domains exists');
 select has_table('public', 'property_settings', 'property_settings exists');
 select has_function('public', 'resolve_property_context', array['text'], 'safe hostname resolver exists');

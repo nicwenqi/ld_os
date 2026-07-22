@@ -135,36 +135,6 @@ export function createMockEmployeeRepository(options: MockEmployeeRepositoryOpti
     async findByEmployeeNumber(_propertyId, employeeNumber) {
       return rows.find(employee => employee.employeeNumber === employeeNumber) ?? null;
     },
-    async previewEmployeeChanges(_propertyId, input) {
-      const before = rows.find(employee => employee.employeeNumber === input.employeeNumber) ?? null;
-      return { action: before ? "update" : "insert", before, after: input, reasons: [] };
-    },
-    async createEmployee(input) {
-      const row: EmployeeRecord = {
-        ...input,
-        id: `synthetic-${Date.now()}`,
-        departmentName: "待加载",
-        operationalUnitName: null,
-        positionName: null,
-        positionFamilyName: null,
-        externalIdentifierTypes: [],
-        version: 1,
-      };
-      rows.push(row);
-      return row;
-    },
-    async updateEmployee(id, version, changes) {
-      const index = rows.findIndex(employee => employee.id === id && employee.version === version);
-      if (index < 0) throw new Error("员工资料已更新，请刷新后重试");
-      rows[index] = { ...rows[index], ...changes, version: version + 1 };
-      return rows[index];
-    },
-    async activateEmployee(id, version) {
-      return this.updateEmployee(id, version, { isActive: true, employmentStatus: "active" });
-    },
-    async deactivateEmployee(id, version) {
-      return this.updateEmployee(id, version, { isActive: false, employmentStatus: "inactive" });
-    },
     async listExternalIdentifiers(id) {
       return rows.find(employee => employee.id === id)?.externalIdentifierTypes.map(type => ({
         type,

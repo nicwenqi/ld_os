@@ -42,23 +42,11 @@ export type EmployeeDirectoryPage = {
   refreshedAt: string;
 };
 
-export type EmployeeChanges = {
-  action: "insert" | "update" | "unchanged" | "unresolved";
-  before: EmployeeRecord | null;
-  after: Partial<EmployeeRecord>;
-  reasons: readonly string[];
-};
-
 export interface EmployeeRepository {
   listEmployees(propertyId: string, options?: EmployeeDirectoryOptions): Promise<readonly EmployeeRecord[]>;
   listEmployeesPage(propertyId: string, options?: EmployeeDirectoryOptions): Promise<EmployeeDirectoryPage>;
   listDepartmentEmployees(options?: DepartmentEmployeeDirectoryOptions): Promise<EmployeeDirectoryPage>;
   getEmployee(id: string): Promise<EmployeeRecord | null>;
   findByEmployeeNumber(propertyId: string, employeeNumber: string): Promise<EmployeeRecord | null>;
-  previewEmployeeChanges(propertyId: string, input: Partial<EmployeeRecord> & { employeeNumber: string }): Promise<EmployeeChanges>;
-  createEmployee(input: Omit<EmployeeRecord, "id" | "departmentName" | "operationalUnitName" | "positionName" | "positionFamilyName" | "externalIdentifierTypes" | "version">): Promise<EmployeeRecord>;
-  updateEmployee(id: string, version: number, changes: Partial<EmployeeRecord>): Promise<EmployeeRecord>;
-  activateEmployee(id: string, version: number): Promise<EmployeeRecord>;
-  deactivateEmployee(id: string, version: number): Promise<EmployeeRecord>;
   listExternalIdentifiers(employeeId: string): Promise<readonly { type: string; value: string; sourceSystem: string; isPrimary: boolean }[]>;
 }

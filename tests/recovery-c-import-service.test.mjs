@@ -36,6 +36,7 @@ function fakeRepository() {
   let departmentDecision = "pending";
   let positionDecision = "pending";
   let issueStatus = "unresolved";
+  let preparedPreview = null;
   return {
     calls,
     async getBatch(id) {
@@ -106,7 +107,7 @@ function fakeRepository() {
           unresolved: 0,
         },
       };
-      return {
+      preparedPreview = {
         additions: 194,
         updates: 0,
         unchanged: 0,
@@ -115,10 +116,17 @@ function fakeRepository() {
         unresolved: 0,
         version: current.version,
         status: "ready_for_review",
+        effectiveDate: options.effectiveDate,
+        previewHash: "recovery-c-preview-hash",
+        rows: [],
       };
+      return structuredClone(preparedPreview);
     },
-    async commitBatch(id, version) {
-      calls.push(["commitBatch", id, version]);
+    async readPreparedPreview() {
+      return preparedPreview ? structuredClone(preparedPreview) : null;
+    },
+    async commitBatch(id, version, approval) {
+      calls.push(["commitBatch", id, version, approval]);
       current = { ...current, version: version + 1, status: "completed" };
       return "commit-1";
     },
@@ -203,11 +211,13 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
   await assert.rejects(
     () => service.preparePreview("batch-1", 8, {
       statusTreatment: "retain_existing_set_additions_active",
+      effectiveDate: "2026-07-22",
     }, dirtyDraft),
     /未保存/,
   );
   const preview = await service.preparePreview("batch-1", 8, {
     statusTreatment: "retain_existing_set_additions_active",
+    effectiveDate: "2026-07-22",
   }, cleanDraft);
   assert.equal(preview.preview.additions, 194);
   assert.equal(preview.workflow.batch.status, "ready_for_review");
@@ -215,10 +225,16 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
   const confirmationDraft = createEmployeeUpdateDecisionDraft(preview.workflow);
 
   await assert.rejects(
-    () => service.confirmUpdate("batch-1", preview.workflow.batch.version, false, confirmationDraft),
+    () => service.confirmUpdate("batch-1", preview.workflow.batch.version, {
+      acknowledged: false,
+      previewHash: preview.preview.previewHash,
+    }, confirmationDraft),
     /请先确认更新范围/,
   );
-  const committed = await service.confirmUpdate("batch-1", preview.workflow.batch.version, true, confirmationDraft);
+  const committed = await service.confirmUpdate("batch-1", preview.workflow.batch.version, {
+    acknowledged: true,
+    previewHash: preview.preview.previewHash,
+  }, confirmationDraft);
   assert.equal(committed.commitId, "commit-1");
   assert.equal(committed.batch.status, "completed");
   assert.equal(committed.audit.length, 1);

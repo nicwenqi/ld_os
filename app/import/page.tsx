@@ -113,6 +113,7 @@ function EmployeeDataUpdateContent() {
   const [positions, setPositions] = useState<AttributionTarget[]>([]);
   const [preview, setPreview] = useState<EmployeeUpdatePreview | null>(null);
   const [statusTreatment, setStatusTreatment] = useState<EmployeeImportPreviewOptions["statusTreatment"]>("retain_existing_set_additions_active");
+  const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [acknowledged, setAcknowledged] = useState(false);
   const [auditCount, setAuditCount] = useState<number | null>(null);
   const [phase, setPhase] = useState<AdministrationSavePhase>("pristine");
@@ -145,8 +146,9 @@ function EmployeeDataUpdateContent() {
     setIssueDecisions({});
     setAcknowledged(false);
     setAuditCount(null);
-    if (next.batch.status === "ready_for_review") {
-      setPreview(previewFromBatch(next.batch));
+    if (next.batch.status === "ready_for_review" && next.preview) {
+      setPreview(next.preview);
+      setEffectiveDate(next.preview.effectiveDate);
     } else if (next.batch.status !== "completed" && next.batch.status !== "completed_with_warnings") {
       setPreview(null);
     }
@@ -369,7 +371,7 @@ function EmployeeDataUpdateContent() {
       const prepared = await importService.preparePreview(
         workflow.batch.id,
         workflow.batch.version,
-        { statusTreatment },
+        { statusTreatment, effectiveDate },
         createEmployeeUpdateDecisionDraft(workflow),
       );
       initializeWorkflow(prepared.workflow);
@@ -389,7 +391,7 @@ function EmployeeDataUpdateContent() {
       const result = await importService.confirmUpdate(
         workflow.batch.id,
         workflow.batch.version,
-        acknowledged,
+        { acknowledged, previewHash: preview.previewHash },
         createEmployeeUpdateDecisionDraft(workflow),
       );
       const authoritative = await importService.resume(workflow.batch.id);
@@ -543,9 +545,11 @@ function EmployeeDataUpdateContent() {
             committed={committed}
             auditCount={auditCount}
             statusTreatment={statusTreatment}
+            effectiveDate={effectiveDate}
             acknowledged={acknowledged}
             saving={phase === "saving"}
             onStatusTreatment={value => { setStatusTreatment(value); setPreview(null); setActiveStep(6); markDirty("员工状态处理方式尚未写入预览"); }}
+            onEffectiveDate={value => { setEffectiveDate(value); setPreview(null); setActiveStep(6); markDirty("资料生效日尚未写入预览"); }}
             onAcknowledged={value => { setAcknowledged(value); if (value) markDirty("已准备确认本次员工主数据更新"); else setPhase("saved"); }}
             onBack={() => setActiveStep(5)}
             onPrepare={() => void preparePreview()}
@@ -601,19 +605,6 @@ function issueResolution(type: string, decision: IssueDecision): ImportIssueReso
   if (decision.action !== "corrected") return { status: decision.action };
   const field = type === "unresolved_department" ? "department_id" : "position_id";
   return { status: "corrected", payload: { normalizedValues: { [field]: decision.targetId } } };
-}
-
-function previewFromBatch(batch: ImportBatch): EmployeeUpdatePreview {
-  return {
-    additions: batch.summary.inserted,
-    updates: batch.summary.updated,
-    unchanged: batch.summary.unchanged,
-    exclusions: batch.summary.excluded,
-    blocked: batch.summary.blocked,
-    unresolved: batch.summary.unresolved,
-    version: batch.version,
-    status: "ready_for_review",
-  };
 }
 
 function stepForWorkflow(workflow: EmployeeUpdateWorkflow): EmployeeUpdateStep {

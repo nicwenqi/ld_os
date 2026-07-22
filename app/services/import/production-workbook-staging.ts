@@ -113,6 +113,10 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile): PreparedEmplo
       const value = normalizedValues[target];
       if (value && typeof value === "object" && "invalid" in value) { warningIssues.push("invalid_date"); normalizedValues[target] = null; }
     }
+    const employmentStatus = normalizedValues.employment_status;
+    if (employmentStatus && typeof employmentStatus === "object" && "invalid" in employmentStatus) {
+      blockingIssues.push("unsupported_status");
+    }
     sourceRows.push({ id: crypto.randomUUID(), sourceRowNumber: rowIndex + 1, rawValues, normalizedValues, rowFingerprint: stableRowFingerprint(rawValues), processingStatus: blockingIssues.length ? "error" : warningIssues.length ? "warning" : "staged", proposedAction: "unresolved", validationSummary: { blockingIssues, warningIssues } });
   }
 
@@ -186,6 +190,23 @@ function aggregateSourceLabels(rows: readonly PreparedSourceRow[], field: string
 function normalizeTargetValue(target: string, cell: XLSX.CellObject | undefined): unknown {
   if (!cell || isMissingSourceValue(cell.v)) return null;
   if (target === "employee_number") return String(cell.v).trim();
+  if (target === "employment_status") {
+    const status = String(cell.v).normalize("NFKC").trim().toLocaleLowerCase();
+    return ({
+      active: "active",
+      employed: "active",
+      "on leave": "leave",
+      leave: "leave",
+      inactive: "inactive",
+      terminated: "terminated",
+      unknown: "unknown",
+      在职: "active",
+      休假: "leave",
+      停用: "inactive",
+      离职: "terminated",
+      未知: "unknown",
+    } as Record<string, string>)[status] ?? { invalid: true };
+  }
   if (target === "hire_date" || target === "probation_or_confirmation_date") {
     if (cell.v instanceof Date) return Number.isNaN(cell.v.getTime()) ? { invalid: true } : cell.v.toISOString().slice(0, 10);
     const text = String(cell.v).trim();

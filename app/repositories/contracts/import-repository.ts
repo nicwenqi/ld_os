@@ -44,6 +44,33 @@ export type EmployeeUpdatePreview = {
   unresolved: number;
   version: number;
   status: "mapping_required" | "ready_for_review";
+  effectiveDate: string;
+  previewHash: string;
+  rows: readonly EmployeeUpdatePreviewRow[];
+};
+
+export type EmployeeUpdatePreviewValue = string | number | boolean | null;
+
+export type EmployeeUpdatePreviewChange = {
+  field: string;
+  before: EmployeeUpdatePreviewValue;
+  after: EmployeeUpdatePreviewValue;
+  reason: string;
+};
+
+export type EmployeeUpdatePreviewRow = {
+  rowId: string;
+  rowNumber: number;
+  action: "insert" | "update" | "unchanged" | "excluded" | "unresolved";
+  employeeNumber: string | null;
+  employeeName: string | null;
+  effectiveDate: string;
+  changes: readonly EmployeeUpdatePreviewChange[];
+};
+
+export type EmployeeUpdateApproval = {
+  acknowledged: boolean;
+  previewHash: string;
 };
 
 export type ImportBatch = {
@@ -111,6 +138,7 @@ export type EmployeeImportPreviewOptions = {
   statusTreatment:
     | "use_recognized_status"
     | "retain_existing_set_additions_active";
+  effectiveDate: string;
 };
 
 export type ImportSourceLabelResolution = {
@@ -168,8 +196,9 @@ export interface ImportRepository {
     resolution: ImportIssueResolution,
   ): Promise<ImportMutationResult>;
   preparePreview(batchId: string, expectedVersion: number, options: EmployeeImportPreviewOptions): Promise<EmployeeUpdatePreview>;
+  readPreparedPreview(batchId: string): Promise<EmployeeUpdatePreview | null>;
   previewCommit(batchId: string): Promise<ImportBatch["summary"]>;
-  commitBatch(batchId: string, expectedVersion: number): Promise<string>;
+  commitBatch(batchId: string, expectedVersion: number, approval: EmployeeUpdateApproval): Promise<string>;
   previewRevert(batchId: string): Promise<ImportRevertPreview>;
   revertBatch(batchId: string, token: string): Promise<void>;
   listImportHistory(propertyId: string): Promise<readonly ImportBatch[]>;

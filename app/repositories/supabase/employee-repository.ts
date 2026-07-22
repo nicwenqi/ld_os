@@ -141,60 +141,6 @@ export function createSupabaseEmployeeRepository(client: Client): EmployeeReposi
       if (error) throw new Error(`无法查找员工编号：${error.message}`);
       return data ? map(data) : null;
     },
-    async previewEmployeeChanges(propertyId, input) {
-      const before = await this.findByEmployeeNumber(propertyId, input.employeeNumber);
-      return { action: before ? "update" : "insert", before, after: input, reasons: [] };
-    },
-    async createEmployee(input) {
-      const values = {
-        tenant_id: input.tenantId,
-        property_id: input.propertyId,
-        employee_number: input.employeeNumber,
-        name_zh: input.nameZh,
-        name_en: input.nameEn,
-        department_id: input.departmentId,
-        operational_unit_id: input.operationalUnitId,
-        position_id: input.positionId,
-        position_family_id: input.positionFamilyId,
-        grade_or_band: input.gradeOrBand,
-        hire_date: input.hireDate,
-        probation_or_confirmation_date: input.probationOrConfirmationDate,
-        employment_status: input.employmentStatus,
-        is_new_employee: input.isNewEmployee,
-        is_active: input.isActive,
-        source_system: "administrator",
-      };
-      const { data, error } = await client.from("employees").insert(values).select("id").single();
-      if (error) throw new Error(`无法创建员工：${error.message}`);
-      return (await this.getEmployee(data.id))!;
-    },
-    async updateEmployee(id, version, changes) {
-      const values: Record<string, unknown> = { updated_at: new Date().toISOString(), version: version + 1 };
-      const dbKeys: Record<string, string> = {
-        nameZh: "name_zh",
-        nameEn: "name_en",
-        departmentId: "department_id",
-        operationalUnitId: "operational_unit_id",
-        positionId: "position_id",
-        positionFamilyId: "position_family_id",
-        gradeOrBand: "grade_or_band",
-        hireDate: "hire_date",
-        probationOrConfirmationDate: "probation_or_confirmation_date",
-        employmentStatus: "employment_status",
-        isNewEmployee: "is_new_employee",
-        isActive: "is_active",
-      };
-      for (const [key, value] of Object.entries(changes)) if (dbKeys[key]) values[dbKeys[key]] = value;
-      const { data, error } = await client.from("employees").update(values).eq("id", id).eq("version", version).select("id").maybeSingle();
-      if (error || !data) throw new Error("员工资料已更新，请刷新后重试");
-      return (await this.getEmployee(data.id))!;
-    },
-    async activateEmployee(id, version) {
-      return this.updateEmployee(id, version, { isActive: true, employmentStatus: "active" });
-    },
-    async deactivateEmployee(id, version) {
-      return this.updateEmployee(id, version, { isActive: false, employmentStatus: "inactive" });
-    },
     async listExternalIdentifiers(employeeId) {
       const { data, error } = await client.from("employee_external_identifiers")
         .select("identifier_type,identifier_value,source_system,is_primary")

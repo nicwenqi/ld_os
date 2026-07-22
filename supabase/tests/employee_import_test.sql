@@ -174,30 +174,52 @@ select lives_ok(
     2,
     'position',
     'Guest Service Agent',
-    '65000000-0000-0000-0000-000000000013',
+    '65000000-0000-0000-0000-000000000012',
     'mapped'
   )$$,
   'manager resolves the staged position label through the guarded RPC'
 );
-select lives_ok($$select public.prepare_employee_import_preview('81000000-0000-0000-0000-000000000011',3,'{"statusTreatment":"retain_existing_set_additions_active"}')$$,'authorized preview classifies staging without employee writes');
-select lives_ok($$select public.commit_employee_import('81000000-0000-0000-0000-000000000011',4)$$,'authorized commit RPC completes');
+select lives_ok($$create temporary table employee_import_approved_preview on commit drop as
+  select public.prepare_employee_import_preview(
+    '81000000-0000-0000-0000-000000000011',
+    3,
+    jsonb_build_object(
+      'statusTreatment','retain_existing_set_additions_active',
+      'effectiveDate',current_date
+    )
+  ) result$$,'authorized preview classifies staging without employee writes');
+select lives_ok($$select public.commit_employee_import(
+  '81000000-0000-0000-0000-000000000011',
+  4,
+  (select result->>'previewHash' from employee_import_approved_preview),
+  true
+)$$,'authorized commit RPC completes with bound approval evidence');
 select results_eq($$select employee_number from public.employees where source_batch_id='81000000-0000-0000-0000-000000000011'$$,array['0007'::text],'leading zeros survive commit');
 select results_eq($$select count(*) from public.import_commit_items where action='insert' and before_snapshot is null and after_snapshot is not null$$,array[1::bigint],'insert audit captures after snapshot');
 select results_eq($$select inserted_employee_count from public.import_commits where import_batch_id='81000000-0000-0000-0000-000000000011'$$,array[1],'commit summary counts insert');
 select results_eq($$select count(*) from public.employees where property_id='20000000-0000-0000-0000-000000000012'$$,array[0::bigint],'cross-property employee data is isolated');
-select throws_ok($$update public.employees set property_id='20000000-0000-0000-0000-000000000012' where employee_number='0007'$$,'23514','EMPLOYEE_IDENTITY_IMMUTABLE: tenant, property and employee number cannot change','employee ownership is immutable');
+select throws_ok($$update public.employees set property_id='20000000-0000-0000-0000-000000000012' where employee_number='0007'$$,'42501',null,'employee ownership cannot be changed through direct client DML');
 select throws_ok($$update public.import_source_rows set raw_values='{}' where id='83000000-0000-0000-0000-000000000011'$$,'42501',null,'raw evidence mutation is revoked from the browser role');
-select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0007','另一示例','61000000-0000-0000-0000-000000000013','65000000-0000-0000-0000-000000000013','synthetic')$$,'23505',null,'employee number is unique in property');
-select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0099','错误范围','61000000-0000-0000-0000-000000000021','65000000-0000-0000-0000-000000000013','synthetic')$$,'23514','EMPLOYEE_ORGANIZATION_TARGET_INACTIVE','cross-property department is rejected by the authoritative organization guard');
-select lives_ok($$insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary) select tenant_id,property_id,id,'synthetic-lms','lms_employee_id','LMS-0007',true from public.employees where employee_number='0007'$$,'secondary identifier can be linked');
-select throws_ok($$insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value) select tenant_id,property_id,id,'synthetic-lms','merlin_id','LMS-0007' from public.employees where employee_number='0007'$$,'23505',null,'external identifier uniqueness is enforced');
+select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0007','另一示例','61000000-0000-0000-0000-000000000013','65000000-0000-0000-0000-000000000013','synthetic')$$,'42501',null,'employee creation cannot bypass preview, approval, commit, and audit');
+select throws_ok($$insert into public.employees(tenant_id,property_id,employee_number,name_zh,department_id,position_id,source_system) values('10000000-0000-0000-0000-000000000001','20000000-0000-0000-0000-000000000011','0099','错误范围','61000000-0000-0000-0000-000000000021','65000000-0000-0000-0000-000000000013','synthetic')$$,'42501',null,'raw cross-property employee insertion is unavailable to clients');
+select throws_ok($$insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary) select tenant_id,property_id,id,'synthetic-lms','lms_employee_id','LMS-0007',true from public.employees where employee_number='0007'$$,'42501',null,'secondary identifiers cannot bypass the controlled employee workflow');
+reset role;
+insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary)
+select tenant_id,property_id,id,'synthetic-lms','lms_employee_id','LMS-0007',true
+from public.employees where employee_number='0007';
+select throws_ok($$insert into public.employee_external_identifiers(tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value) select tenant_id,property_id,id,'synthetic-lms','merlin_id','LMS-0007' from public.employees where employee_number='0007'$$,'23505',null,'external identifier uniqueness remains enforced inside trusted server writes');
+set local role authenticated;
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000103';
 create temporary table employee_import_first_revert_preview on commit drop as
 select public.preview_employee_import_revert('81000000-0000-0000-0000-000000000011') result;
 select results_eq($$select (result->>'safe')::boolean from employee_import_first_revert_preview$$,array[true],'fresh completed batch has safe revert preview');
 select results_eq($$select count(*) from public.employees where employee_number='0007' and is_active$$,array[1::bigint],'missing employee is not automatically deactivated');
 select results_eq($$select identifier_value from public.employee_external_identifiers where identifier_type='local_employee_number' and employee_id=(select id from public.employees where employee_number='0007')$$,array['0007'::text],'local employee number is retained as an external audit identifier');
 savepoint employee_import_unsafe_revert;
+reset role;
 update public.employees set name_en='Later synthetic edit',version=version+1 where employee_number='0007';
+set local role authenticated;
+set local request.jwt.claim.sub='00000000-0000-0000-0000-000000000103';
 select results_eq($$select (public.preview_employee_import_revert('81000000-0000-0000-0000-000000000011')->>'safe')::boolean$$,array[false],'later employee version change makes revert unsafe');
 select throws_ok($$select public.revert_employee_import('81000000-0000-0000-0000-000000000011',(select result->>'token' from employee_import_first_revert_preview))$$,'P3011','IMPORT_REVERT_CONFLICT: later changes must be resolved first','unsafe revert is explicitly refused');
 rollback to savepoint employee_import_unsafe_revert;
