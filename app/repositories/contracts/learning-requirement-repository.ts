@@ -144,6 +144,7 @@ export type CourseSummary = {
 export type CourseVersion = CourseVersionDraft & {
   id: string;
   courseId: string;
+  identityVersion: number;
   versionNumber: number;
   state: CourseVersionState;
   createdAt: string;
@@ -164,6 +165,7 @@ export type RequirementSummary = {
 export type RequirementVersion = RequirementVersionDraft & {
   id: string;
   requirementId: string;
+  identityVersion: number;
   versionNumber: number;
   state: RequirementVersionState;
   createdAt: string;
@@ -193,10 +195,32 @@ export type EligibilityEvaluationPage = {
   rows: EligibilityEvaluation[];
   total: number;
   evaluatedAt: string;
-  source: "real";
+  source: "real" | "local_review";
+};
+
+export type LearningRequirementFoundation = {
+  propertyId: string;
+  source: "real" | "local_review";
+  courses: CourseVersion[];
+  requirements: RequirementVersion[];
+};
+
+export type DepartmentRequirementFoundation = {
+  propertyId: string;
+  source: "real" | "local_review";
+  scope: {
+    departmentId: string;
+    departmentName: string;
+    includeDescendants: boolean;
+  }[];
+  requirements: RequirementVersion[];
 };
 
 export interface LearningRequirementRepository {
+  readManagerFoundation(
+    propertyId: string,
+  ): Promise<LearningRequirementFoundation>;
+  readDepartmentRequirements(): Promise<DepartmentRequirementFoundation>;
   listCourses(propertyId: string): Promise<CourseSummary[]>;
   getCourseVersion(courseVersionId: string): Promise<CourseVersion>;
   saveCourseVersionDraft(input: CourseVersionDraft): Promise<CourseVersion>;
@@ -204,6 +228,7 @@ export interface LearningRequirementRepository {
     courseVersionId: string,
     targetState: CourseVersionState,
     expectedVersion: number,
+    reason?: string,
   ): Promise<CourseVersion>;
   listRequirements(propertyId: string): Promise<RequirementSummary[]>;
   getRequirementVersion(
@@ -216,6 +241,7 @@ export interface LearningRequirementRepository {
     requirementVersionId: string,
     targetState: RequirementVersionState,
     expectedVersion: number,
+    reason?: string,
   ): Promise<RequirementVersion>;
   evaluateEligibility(input: {
     propertyId: string;

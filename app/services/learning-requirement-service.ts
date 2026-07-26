@@ -179,6 +179,9 @@ function validateRuleSet(rule: EligibilityRuleSetDraft, index: number) {
   ) {
     errors.push(`${prefix}尚未定义任何适用人群条件。`);
   }
+  if (rule.employmentStatuses.length === 0) {
+    errors.push(`${prefix}至少选择一种员工状态。`);
+  }
   if (
     rule.departments.some(
       department => textMissing(department.departmentId),

@@ -128,6 +128,15 @@ test("overlapping eligibility rule periods block approval in business language",
   assert.match(errors[0], /适用规则有效期重叠/);
 });
 
+test("eligibility must name at least one employee status instead of silently matching nobody", () => {
+  const draft = validRequirementDraft();
+  draft.ruleSets[0].employmentStatuses = [];
+  assert.match(
+    validateRequirementDraft(draft).join(" "),
+    /至少选择一种员工状态/,
+  );
+});
+
 test("missing eligibility evidence never becomes a false not-applicable rule", () => {
   const draft = validRequirementDraft();
   draft.ruleSets = [

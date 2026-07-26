@@ -31,6 +31,7 @@ const managerGroups: NavigationGroup[] = [
     label: "周期复盘",
     en: "Periodic review",
     items: [
+      item("培训要求", "Learning requirements", "/requirements", "foundation"),
       item("培训计划", "Training plans", "/plans", "unavailable"),
       item("部门表现", "Department performance", "/department-performance", "unavailable"),
       item("KPI 与目标", "KPI & targets", "/kpi", "unavailable"),
@@ -59,6 +60,7 @@ const departmentGroups: NavigationGroup[] = [
     en: "Department operations",
     items: [
       item("部门工作台", "Department home", "/department", "foundation"),
+      item("培训要求", "Learning requirements", "/department/requirements", "foundation"),
       item("培训日历", "Training calendar", "/department/calendar", "unavailable"),
       item("培训场次", "Training sessions", "/department/sessions", "unavailable"),
       item("本部门员工", "Department employees", "/department/employees", "foundation"),

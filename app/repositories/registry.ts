@@ -12,6 +12,7 @@ import type { PositionRepository } from "./contracts/position-repository.ts";
 import type { EmployeeRepository } from "./contracts/employee-repository.ts";
 import type { ImportRepository } from "./contracts/import-repository.ts";
 import type { InitializationRepository } from "./contracts/initialization-repository.ts";
+import type { LearningRequirementRepository } from "./contracts/learning-requirement-repository.ts";
 import { createMockDepartmentRepository } from "./mock/department-repository.ts";
 import { createMockPositionRepository } from "./mock/position-repository.ts";
 import { createMockPropertyRepository } from "./mock/property-repository.ts";
@@ -24,6 +25,8 @@ import { createSupabaseEmployeeRepository } from "./supabase/employee-repository
 import { createSupabaseImportRepository } from "./supabase/import-repository.ts";
 import { createMockInitializationRepository } from "./mock/initialization-repository.ts";
 import { createSupabaseInitializationRepository } from "./supabase/initialization-repository.ts";
+import { createMockLearningRequirementRepository } from "./mock/learning-requirement-repository.ts";
+import { createSupabaseLearningRequirementRepository } from "./supabase/learning-requirement-repository.ts";
 
 export type ModuleName =
   | "hotel-settings"
@@ -39,7 +42,8 @@ export type ModuleName =
   | "course-effectiveness"
   | "kpi"
   | "people"
-  | "import";
+  | "import"
+  | "learning-requirements";
 
 export function dataSourceForModule(moduleName: ModuleName, dataMode: AppDataMode): RepositoryDataSource {
   const foundationModules: ModuleName[] = [
@@ -48,6 +52,7 @@ export function dataSourceForModule(moduleName: ModuleName, dataMode: AppDataMod
     "position-management",
     "people",
     "import",
+    "learning-requirements",
   ];
   if (!foundationModules.includes(moduleName)) return "unavailable";
   return dataMode === "mock" ? "mock" : "supabase";
@@ -61,6 +66,7 @@ export function createRepositoryRegistry(input?: {
   employeeRepository?: EmployeeRepository;
   importRepository?: ImportRepository;
   initializationRepository?: InitializationRepository;
+  learningRequirementRepository?: LearningRequirementRepository;
 }) {
   const environment = input?.environment ?? parseAppEnvironment();
   assertProductionDataBoundary(environment.appEnv, environment.dataMode);
@@ -77,5 +83,10 @@ export function createRepositoryRegistry(input?: {
   const employee = input?.employeeRepository ?? (dataSourceForModule("people", environment.dataMode) === "supabase" ? createSupabaseEmployeeRepository(client!) : createMockEmployeeRepository());
   const importCenter = input?.importRepository ?? (dataSourceForModule("import", environment.dataMode) === "supabase" ? createSupabaseImportRepository(client!) : createMockImportRepository());
   const initialization = input?.initializationRepository ?? (propertySource === "supabase" ? createSupabaseInitializationRepository(client!) : createMockInitializationRepository());
-  return { environment, property, department, position, employee, import: importCenter, initialization, dataSourceForModule: (moduleName: ModuleName) => dataSourceForModule(moduleName, environment.dataMode) };
+  const learningRequirement = input?.learningRequirementRepository ?? (
+    dataSourceForModule("learning-requirements", environment.dataMode) === "supabase"
+      ? createSupabaseLearningRequirementRepository(client!)
+      : createMockLearningRequirementRepository()
+  );
+  return { environment, property, department, position, employee, import: importCenter, initialization, learningRequirement, dataSourceForModule: (moduleName: ModuleName) => dataSourceForModule(moduleName, environment.dataMode) };
 }

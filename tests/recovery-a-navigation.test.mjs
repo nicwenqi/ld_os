@@ -17,7 +17,7 @@ test("manager navigation is ordered by operating frequency", () => {
   );
   assert.deepEqual(
     navigation.groups[1].items.map(item => item.zh),
-    ["培训计划", "部门表现", "KPI 与目标", "课程成效", "数据质量"],
+    ["培训要求", "培训计划", "部门表现", "KPI 与目标", "课程成效", "数据质量"],
   );
   assert.deepEqual(
     navigation.groups[2].items.map(item => item.zh),
@@ -29,7 +29,7 @@ test("department navigation contains only the approved scoped destinations", () 
   const navigation = navigationForRole("department_training_responsible");
   assert.deepEqual(
     flatten(navigation).map(item => item.zh),
-    ["部门工作台", "培训日历", "培训场次", "本部门员工", "出勤与反馈", "补训与提醒", "部门数据"],
+    ["部门工作台", "培训要求", "培训日历", "培训场次", "本部门员工", "出勤与反馈", "补训与提醒", "部门数据"],
   );
   assert.doesNotMatch(
     flatten(navigation).map(item => item.zh).join(" "),

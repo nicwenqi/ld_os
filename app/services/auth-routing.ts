@@ -13,6 +13,7 @@ export const managerRoutes = [
   "/attendance-feedback",
   "/people",
   "/interventions",
+  "/requirements",
   "/plans",
   "/department-performance",
   "/kpi",
@@ -30,6 +31,7 @@ export const managerRoutes = [
 
 export const departmentRoutes = [
   "/department",
+  "/department/requirements",
   "/department/calendar",
   "/department/sessions",
   "/department/employees",
