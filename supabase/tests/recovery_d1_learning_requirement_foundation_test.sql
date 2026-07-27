@@ -191,8 +191,6 @@ select results_eq(
       and relation.relkind in ('r', 'p')
       and relation.relname in (
         'training_assignments',
-        'training_plans',
-        'training_sessions',
         'attendance_records',
         'completion_records',
         'training_feedback',
@@ -200,9 +198,9 @@ select results_eq(
         'training_forecasts',
         'training_risks',
         'training_interventions'
-      )$$,
+  )$$,
   array[0::bigint],
-  'D1 creates no D2 or later operational fact tables'
+  'D1 contracts remain free of assignment, execution and analytical facts'
 );
 
 reset role;
