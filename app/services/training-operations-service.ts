@@ -1,4 +1,5 @@
 import type {
+  DepartmentTrainingSessionRevisionDraft,
   SessionReadinessState,
   SessionRevisionState,
   TrainingPlanItemDraft,
@@ -241,6 +242,15 @@ export function validateTrainingSessionRevisionDraft(
   return errors;
 }
 
+export function validateDepartmentTrainingSessionRevisionDraft(
+  draft: DepartmentTrainingSessionRevisionDraft,
+) {
+  return validateTrainingSessionRevisionDraft({
+    ...draft,
+    propertyId: "server-derived",
+  });
+}
+
 export function readinessForSessionDraft(
   draft: TrainingSessionRevisionDraft,
 ): {
@@ -270,6 +280,15 @@ export function readinessForSessionDraft(
       .filter(confirmation => confirmation.confirmed)
       .map(confirmation => confirmation.key),
   };
+}
+
+export function readinessForDepartmentSessionDraft(
+  draft: DepartmentTrainingSessionRevisionDraft,
+) {
+  return readinessForSessionDraft({
+    ...draft,
+    propertyId: "server-derived",
+  });
 }
 
 const planTransitions: Record<

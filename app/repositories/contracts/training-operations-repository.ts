@@ -138,6 +138,11 @@ export type TrainingSessionRevisionDraft = {
   attendancePreparation: AttendancePreparationDraft;
 };
 
+export type DepartmentTrainingSessionRevisionDraft = Omit<
+  TrainingSessionRevisionDraft,
+  "propertyId"
+>;
+
 export type TrainingSessionRevision = TrainingSessionRevisionDraft & {
   id: string;
   sessionId: string;
@@ -227,6 +232,7 @@ export type TrainingVenue = {
 export type TrainingPlanSummary = {
   id: string;
   planId: string;
+  identityVersion: number;
   code: string;
   nameZh: string;
   versionNumber: number;
@@ -235,7 +241,9 @@ export type TrainingPlanSummary = {
   periodStart: string;
   periodEnd: string;
   purpose: string;
+  operationalOwnerRoleAssignmentId: string;
   itemCount: number;
+  items: TrainingPlanItemDraft[];
   approvedAt?: string | null;
   updatedAt: string;
 };
@@ -264,6 +272,19 @@ export type TrainingSessionSummary = {
     resourceReady: boolean;
     participantPreviewRequired: boolean;
     attendancePreparationReady: boolean;
+  };
+  details: {
+    planItemId?: string | null;
+    requirementVersionId?: string | null;
+    acceptedLearningMethodId?: string | null;
+    courseVersionId: string;
+    operationalOwnerRoleAssignmentId: string;
+    venue: SessionVenueSelection;
+    trainerAssignments: TrainerAssignmentDraft[];
+    targetDepartments: TargetDepartment[];
+    selectedEmployeeIds: string[];
+    ownerConfirmations: ResourceConfirmationDraft[];
+    attendancePreparation: AttendancePreparationDraft;
   };
 };
 
@@ -419,6 +440,9 @@ export interface TrainingOperationsRepository {
   saveSessionRevisionDraft(
     input: TrainingSessionRevisionDraft,
   ): Promise<TrainingSessionMutationResult>;
+  saveDepartmentSessionRevisionDraft(
+    input: DepartmentTrainingSessionRevisionDraft,
+  ): Promise<TrainingSessionMutationResult>;
   publishSessionRevision(
     sessionRevisionId: string,
     expectedVersion: number,
@@ -433,6 +457,9 @@ export interface TrainingOperationsRepository {
       propertyId: string;
       sessionRevisionId: string;
     },
+  ): Promise<SessionParticipantPreview>;
+  previewDepartmentSessionParticipants(
+    sessionRevisionId: string,
   ): Promise<SessionParticipantPreview>;
   saveVenue(
     propertyId: string,

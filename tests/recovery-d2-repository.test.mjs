@@ -158,6 +158,76 @@ test("participant preview is an explicit zero-write RPC by revision", async () =
   });
 });
 
+test("department Session writes derive property and scope server-side", async () => {
+  const client = rpcClient({
+    save_department_training_session_revision_draft: {
+      id: "revision-2",
+      sessionId: "session-2",
+      version: 1,
+      lifecycleState: "draft",
+      source: "real",
+    },
+    preview_department_training_session_participants: {
+      sessionRevisionId: "revision-2",
+      evaluationDate: "2026-08-01",
+      source: "real",
+      rows: [],
+      selectedCount: 0,
+      unableToDetermineCount: 0,
+      writesPerformed: false,
+    },
+  });
+  const repository = createSupabaseTrainingOperationsRepository(client);
+  const input = {
+    expectedVersion: 0,
+    code: "DEPT-SESSION-001",
+    nameZh: "部门发展培训",
+    purposeType: "development_delivery",
+    courseVersionId: "course-version-1",
+    owningDepartmentId: "department-1",
+    operationalOwnerRoleAssignmentId: "owner-1",
+    startsAt: "2026-08-01T09:00:00+08:00",
+    endsAt: "2026-08-01T11:00:00+08:00",
+    timezone: "Asia/Shanghai",
+    capacity: 20,
+    venue: { type: "approved_venue", venueId: "venue-1" },
+    trainerAssignments: [],
+    targetDepartments: [{
+      departmentId: "department-1",
+      includeDescendants: true,
+    }],
+    selectedEmployeeIds: [],
+    ownerConfirmations: [],
+    attendancePreparation: {
+      mode: "manual_only",
+      opensBeforeMinutes: 0,
+      closesAfterMinutes: 30,
+    },
+  };
+
+  await repository.saveDepartmentSessionRevisionDraft(input);
+  await repository.previewDepartmentSessionParticipants("revision-2");
+
+  assert.deepEqual(client.calls, [
+    {
+      name: "save_department_training_session_revision_draft",
+      parameters: {
+        p_payload: {
+          ...input,
+          venue: input.venue,
+          trainerAssignments: [],
+        },
+        p_expected_version: 0,
+      },
+    },
+    {
+      name: "preview_department_training_session_participants",
+      parameters: { p_session_revision_id: "revision-2" },
+    },
+  ]);
+  assert.equal("propertyId" in client.calls[0].parameters.p_payload, false);
+});
+
 test("venue and trainer saves remain manager-scoped RPC operations", async () => {
   const client = rpcClient({
     save_training_venue: { id: "venue-1", version: 1, source: "real" },

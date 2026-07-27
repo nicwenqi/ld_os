@@ -96,9 +96,21 @@ select has_function(
 );
 select has_function(
   'public',
+  'save_department_training_session_revision_draft',
+  array['jsonb', 'bigint'],
+  'department Session save derives hotel context server-side'
+);
+select has_function(
+  'public',
   'preview_training_session_participants',
   array['uuid', 'jsonb'],
   'participant preview is explicit and zero-write'
+);
+select has_function(
+  'public',
+  'preview_department_training_session_participants',
+  array['uuid'],
+  'department participant preview accepts no browser-selected property'
 );
 select has_function(
   'public',
@@ -620,6 +632,11 @@ select throws_ok(
 
 reset role;
 insert into d2_test_ids(key, value)
+select 'plan', version_row.training_plan_id
+from public.training_plan_versions version_row
+where version_row.id =
+  (select value from d2_test_ids where key = 'plan_version');
+insert into d2_test_ids(key, value)
 select 'plan_item', item.id
 from public.training_plan_items item
 where item.training_plan_version_id =
@@ -809,11 +826,103 @@ where revision.id =
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
+insert into d2_test_ids(key, value)
+select
+  'session_revision_v2',
+  (public.save_training_session_revision_draft(
+    '20000000-0000-0000-0000-000000000011',
+    jsonb_build_object(
+      'sessionId', (select value from d2_test_ids where key = 'session'),
+      'code', 'D2-SESSION-001',
+      'nameZh', '年度消防安全培训·第一场（修订）',
+      'purposeType', 'requirement_delivery',
+      'planItemId',
+        (select value from d2_test_ids where key = 'plan_item'),
+      'requirementVersionId', '72300000-0000-0000-0000-00000000f201',
+      'acceptedLearningMethodId', '72500000-0000-0000-0000-00000000f201',
+      'courseVersionId', '72100000-0000-0000-0000-00000000f201',
+      'owningDepartmentId', '61000000-0000-0000-0000-000000000012',
+      'operationalOwnerRoleAssignmentId', (
+        select assignment.id
+        from public.role_assignments assignment
+        join public.roles role on role.id = assignment.role_id
+        where assignment.user_id =
+          '00000000-0000-0000-0000-000000000103'
+          and assignment.property_id =
+            '20000000-0000-0000-0000-000000000011'
+          and role.code = 'property_ld_manager'
+          and assignment.status = 'active'
+        limit 1
+      ),
+      'startsAt', (current_date + 14)::timestamptz + interval '9 hours',
+      'endsAt', (current_date + 14)::timestamptz + interval '11 hours',
+      'timezone', 'Asia/Shanghai',
+      'capacity', 24,
+      'venue', jsonb_build_object(
+        'type', 'approved_venue',
+        'venueId', (select value from d2_test_ids where key = 'venue')
+      ),
+      'trainerAssignments', jsonb_build_array(jsonb_build_object(
+        'trainerProfileId',
+          (select value from d2_test_ids where key = 'trainer'),
+        'trainerApprovalId',
+          (select value from d2_test_ids where key = 'trainer_approval'),
+        'role', 'lead'
+      )),
+      'targetDepartments', jsonb_build_array(jsonb_build_object(
+        'departmentId', '61000000-0000-0000-0000-000000000012',
+        'includeDescendants', true
+      )),
+      'selectedEmployeeIds', jsonb_build_array(
+        '75000000-0000-0000-0000-00000000f201'
+      ),
+      'ownerConfirmations', jsonb_build_array(
+        jsonb_build_object('key', 'materials_ready', 'confirmed', true),
+        jsonb_build_object('key', 'room_setup_ready', 'confirmed', true)
+      ),
+      'attendancePreparation', jsonb_build_object(
+        'mode', 'manual_only',
+        'opensBeforeMinutes', 0,
+        'closesAfterMinutes', 30
+      )
+    ),
+    2
+  )->>'id')::uuid;
+
+select lives_ok(
+  format(
+    $$select public.publish_training_session_revision(%L::uuid, 1)$$,
+    (select value from d2_test_ids where key = 'session_revision_v2')
+  ),
+  'manager can publish a new immutable revision under the stable Session identity'
+);
+reset role;
+select is(
+  (
+    select lifecycle_state
+    from public.training_session_revisions
+    where id = (select value from d2_test_ids where key = 'session_revision')
+  ),
+  'superseded',
+  'publishing a new revision supersedes rather than rewrites the previous publication'
+);
+select is(
+  (
+    select lifecycle_state
+    from public.training_session_revisions
+    where id = (select value from d2_test_ids where key = 'session_revision_v2')
+  ),
+  'published',
+  'the replacement Session Revision becomes the single current publication'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select lives_ok(
   format(
     $$select public.cancel_training_session(
       (select value from d2_test_ids where key = 'session'),
-      2,
+      4,
       '酒店运营冲突，取消场次'
     )$$,
     (select value from d2_test_ids where key = 'session_revision')
@@ -830,7 +939,7 @@ select is(
   (
     select count(*)
     from public.training_session_revisions
-    where id = (select value from d2_test_ids where key = 'session_revision')
+    where id = (select value from d2_test_ids where key = 'session_revision_v2')
       and lifecycle_state = 'published'
   ),
   1::bigint,
@@ -840,8 +949,7 @@ select is(
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000104';
 select throws_ok(
-  $$select public.save_training_session_revision_draft(
-    '20000000-0000-0000-0000-000000000011',
+  $$select public.save_department_training_session_revision_draft(
     jsonb_build_object(
       'code', 'D2-OUT-OF-SCOPE',
       'nameZh', '范围外场次',
@@ -870,8 +978,7 @@ select throws_ok(
         'opensBeforeMinutes', 0,
         'closesAfterMinutes', 30
       )
-    ),
-    0
+    ), 0
   )$$,
   '42501',
   '场次包含当前账号授权范围外的部门。',
@@ -890,6 +997,186 @@ select is(
   )::uuid,
   '20000000-0000-0000-0000-000000000011'::uuid,
   'department projection derives the current property without a browser parameter'
+);
+select is(
+  jsonb_array_length(
+    public.read_department_training_operations()->'participantCandidates'
+  ),
+  2,
+  'department projection returns only authorized participant identities'
+);
+select results_eq(
+  $$select count(*)
+    from jsonb_array_elements(
+      public.read_department_training_operations()->'participantCandidates'
+    ) candidate
+    where (candidate->>'employeeId')::uuid not in (
+      '75000000-0000-0000-0000-00000000f201',
+      '75000000-0000-0000-0000-00000000f202'
+    )$$,
+  array[0::bigint],
+  'department participant projection does not leak unrelated employee ids'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
+insert into d2_test_ids(key, value)
+select
+  'plan_continuity_draft_revision',
+  (public.save_training_session_revision_draft(
+    '20000000-0000-0000-0000-000000000011',
+    (source.document->'details') || jsonb_build_object(
+      'code', 'D2-SESSION-PLAN-CONTINUITY',
+      'nameZh', '计划版本延续性测试场次',
+      'purposeType', 'requirement_delivery',
+      'startsAt', (current_date + 30)::timestamptz + interval '9 hours',
+      'endsAt', (current_date + 30)::timestamptz + interval '11 hours',
+      'timezone', 'Asia/Shanghai',
+      'capacity', 24,
+      'owningDepartmentId',
+        '61000000-0000-0000-0000-000000000012'
+    ),
+    0
+  )->>'id')::uuid
+from (
+  select document
+  from jsonb_array_elements(
+    public.read_training_operations_foundation(
+      '20000000-0000-0000-0000-000000000011'
+    )->'sessions'
+  ) document
+  where (document->>'revisionId')::uuid = (
+    select value from d2_test_ids where key = 'session_revision_v2'
+  )
+) source;
+
+insert into d2_test_ids(key, value)
+select
+  'plan_version_v2',
+  (public.save_training_plan_version_draft(
+    '20000000-0000-0000-0000-000000000011',
+    jsonb_build_object(
+      'planId', (
+        select value from d2_test_ids where key = 'plan'
+      ),
+      'code', 'D2-PLAN-2026',
+      'nameZh', 'D2 年度培训计划（修订）',
+      'periodStart', current_date,
+      'periodEnd', current_date + 150,
+      'purpose', '修订 D2 计划容量',
+      'operationalOwnerRoleAssignmentId', (
+        select assignment.id
+        from public.role_assignments assignment
+        join public.roles role on role.id = assignment.role_id
+        where assignment.user_id =
+          '00000000-0000-0000-0000-000000000103'
+          and assignment.property_id =
+            '20000000-0000-0000-0000-000000000011'
+          and role.code = 'property_ld_manager'
+          and assignment.status = 'active'
+        limit 1
+      ),
+      'changeReason', '调整下一周期计划容量',
+      'continuityRationale', '延续同一 D2 酒店计划身份',
+      'items', jsonb_build_array(jsonb_build_object(
+        'nameZh', '年度消防安全培训修订',
+        'purposeType', 'requirement_delivery',
+        'businessPurpose', '调整要求认可课程容量',
+        'deliveryWindowStart', current_date,
+        'deliveryWindowEnd', current_date + 120,
+        'plannedSessionCount', 3,
+        'plannedSeatCapacity', 60,
+        'ownerDepartmentId', '61000000-0000-0000-0000-000000000012',
+        'requirementVersionId', '72300000-0000-0000-0000-00000000f201',
+        'acceptedLearningMethodId', '72500000-0000-0000-0000-00000000f201',
+        'courseVersionId', '72100000-0000-0000-0000-00000000f201',
+        'targetDepartments', jsonb_build_array(jsonb_build_object(
+          'departmentId', '61000000-0000-0000-0000-000000000012',
+          'includeDescendants', true
+        ))
+      ))
+    ),
+    1
+  )->>'id')::uuid;
+select lives_ok(
+  format(
+    $$select public.transition_training_plan_version(
+      %L::uuid, 'review', 1, '提交修订复核'
+    )$$,
+    (select value from d2_test_ids where key = 'plan_version_v2')
+  ),
+  'manager can submit a new Plan Version for review'
+);
+select lives_ok(
+  format(
+    $$select public.transition_training_plan_version(
+      %L::uuid, 'approved', 2, '批准修订计划'
+    )$$,
+    (select value from d2_test_ids where key = 'plan_version_v2')
+  ),
+  'manager can approve the replacement Plan Version'
+);
+reset role;
+select is(
+  (
+    select lifecycle_state
+    from public.training_plan_versions
+    where id = (select value from d2_test_ids where key = 'plan_version')
+  ),
+  'superseded',
+  'approving a replacement Plan Version supersedes the prior approval'
+);
+select lives_ok(
+  format(
+    $statement$
+      select public.save_training_session_revision_draft(
+        '20000000-0000-0000-0000-000000000011',
+        (source.document->'details') || jsonb_build_object(
+          'sessionId', source.document->>'id',
+          'sessionRevisionId', source.document->>'revisionId',
+          'code', source.document->>'code',
+          'nameZh', '计划替代后仍可维护的既有场次草稿',
+          'purposeType', source.document->>'purposeType',
+          'startsAt', source.document->'startsAt',
+          'endsAt', source.document->'endsAt',
+          'timezone', source.document->>'timezone',
+          'capacity', source.document->'capacity',
+          'owningDepartmentId', source.document->>'owningDepartmentId'
+        ),
+        (source.document->>'revisionVersion')::bigint
+      )
+      from (
+        select document
+        from jsonb_array_elements(
+          public.read_training_operations_foundation(
+            '20000000-0000-0000-0000-000000000011'
+          )->'sessions'
+        ) document
+        where (document->>'revisionId')::uuid = %L::uuid
+      ) source
+    $statement$,
+    (
+      select value
+      from d2_test_ids
+      where key = 'plan_continuity_draft_revision'
+    )
+  ),
+  'superseding a Plan Version does not strand an existing Session draft tied to its historical Plan Item'
+);
+select is(
+  (
+    select session_row.training_plan_item_id
+    from public.training_session_revisions revision
+    join public.training_sessions session_row
+      on session_row.id = revision.training_session_id
+    where revision.id = (
+      select value
+      from d2_test_ids
+      where key = 'plan_continuity_draft_revision'
+    )
+  ),
+  (select value from d2_test_ids where key = 'plan_item'),
+  'existing Session maintenance preserves the original immutable Plan Item reference'
 );
 
 select * from finish();

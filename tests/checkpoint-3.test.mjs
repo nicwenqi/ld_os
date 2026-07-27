@@ -4,12 +4,14 @@ import test from "node:test";
 
 const read = path => readFile(new URL(path,import.meta.url),"utf8");
 
-test("calendar and sessions state the real data boundary",async()=>{
-  for (const path of ["../app/calendar/page.tsx","../app/sessions/page.tsx"]) {
-    const page=await read(path);
-    assert.match(page,/UnavailableOperationalPage/);
-    assert.doesNotMatch(page,/saveDraft|publishSession|session-1|showToast/);
-  }
+test("calendar remains unavailable while D2 sessions use the real foundation",async()=>{
+  const calendar=await read("../app/calendar/page.tsx");
+  assert.match(calendar,/UnavailableOperationalPage/);
+  assert.doesNotMatch(calendar,/saveDraft|publishSession|session-1|showToast/);
+
+  const sessions=await read("../app/sessions/page.tsx");
+  assert.match(sessions,/SessionWorkspace/);
+  assert.doesNotMatch(sessions,/UnavailableOperationalPage|session-1|showToast/);
 });
 
 test("predictable prototype session and QR routes are removed",async()=>{

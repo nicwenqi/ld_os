@@ -185,7 +185,6 @@ test("local-review department scope also stays on the scoped employee source", a
 test("department operational routes explain unavailable facts and return home", async () => {
   for (const route of [
     "calendar",
-    "sessions",
     "attendance-feedback",
     "remediation",
     "data",
@@ -194,6 +193,9 @@ test("department operational routes explain unavailable facts and return home", 
     assert.match(page, /UnavailableOperationalPage/);
     assert.match(page, /returnHref="\/department"/);
   }
+  const sessions = await read("../app/department/sessions/page.tsx");
+  assert.match(sessions, /DepartmentSessionWorkspace/);
+  assert.doesNotMatch(sessions, /UnavailableOperationalPage/);
   const unavailable = await read(
     "../app/components/operations/UnavailableOperationalPage.tsx",
   );

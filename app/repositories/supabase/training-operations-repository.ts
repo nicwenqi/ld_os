@@ -1,5 +1,6 @@
 import type {
   DepartmentTrainingOperationsFoundation,
+  DepartmentTrainingSessionRevisionDraft,
   SessionParticipantPreview,
   TrainerProfile,
   TrainingOperationsFoundation,
@@ -90,6 +91,22 @@ export function createSupabaseTrainingOperationsRepository(
         currentState: "draft",
       };
     },
+    async saveDepartmentSessionRevisionDraft(input) {
+      const result = await rpc<{
+        id: string;
+        sessionId: string;
+        version: number;
+        lifecycleState: "draft";
+        source: "real";
+      }>(client, "save_department_training_session_revision_draft", {
+        p_payload: sessionPayload(input),
+        p_expected_version: input.expectedVersion,
+      });
+      return {
+        ...result,
+        currentState: "draft",
+      };
+    },
     publishSessionRevision(sessionRevisionId, expectedVersion) {
       return rpc(client, "publish_training_session_revision", {
         p_session_revision_id: sessionRevisionId,
@@ -111,6 +128,14 @@ export function createSupabaseTrainingOperationsRepository(
           p_property_id: input.propertyId,
           p_payload: { sessionRevisionId: input.sessionRevisionId },
         },
+      );
+      return normalizeParticipantPreview(value);
+    },
+    async previewDepartmentSessionParticipants(sessionRevisionId) {
+      const value = await rpc<Record<string, unknown>>(
+        client,
+        "preview_department_training_session_participants",
+        { p_session_revision_id: sessionRevisionId },
       );
       return normalizeParticipantPreview(value);
     },
@@ -161,7 +186,9 @@ export function createSupabaseTrainingOperationsRepository(
   };
 }
 
-function sessionPayload(input: TrainingSessionRevisionDraft) {
+function sessionPayload(
+  input: TrainingSessionRevisionDraft | DepartmentTrainingSessionRevisionDraft,
+) {
   return {
     ...input,
     venue: input.venue.type === "approved_venue"

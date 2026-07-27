@@ -530,7 +530,9 @@ create table public.training_session_resource_confirmations (
   constraint session_confirmations_key
     unique (session_revision_id, confirmation_key),
   constraint session_confirmations_name_check check (
-    confirmation_key in ('materials_ready', 'room_setup_ready')
+    confirmation_key in (
+      'materials_ready', 'room_setup_ready', 'equipment_ready'
+    )
   ),
   constraint session_confirmations_source_check check (
     confirmation_source in ('owner_attestation', 'system_verified')
@@ -682,6 +684,9 @@ create index training_plan_versions_withdrawn_by_idx
   on public.training_plan_versions(withdrawn_by);
 create index training_plan_versions_property_state_idx
   on public.training_plan_versions(property_id, lifecycle_state, period_start);
+create unique index training_plan_versions_one_approved_idx
+  on public.training_plan_versions(training_plan_id)
+  where lifecycle_state = 'approved';
 
 create index training_plan_items_version_idx
   on public.training_plan_items(training_plan_version_id);
@@ -737,6 +742,12 @@ create index session_revisions_updated_by_idx
   on public.training_session_revisions(updated_by);
 create index session_revisions_property_time_idx
   on public.training_session_revisions(property_id, starts_at);
+create unique index session_revisions_one_published_idx
+  on public.training_session_revisions(training_session_id)
+  where lifecycle_state = 'published';
+create unique index session_revisions_one_draft_idx
+  on public.training_session_revisions(training_session_id)
+  where lifecycle_state = 'draft';
 
 create index session_targets_revision_idx
   on public.training_session_target_departments(session_revision_id);
@@ -878,7 +889,7 @@ begin
       using errcode = '23514';
   end if;
   if old.lifecycle_state = 'approved' then
-    if new.lifecycle_state <> 'withdrawn'
+    if new.lifecycle_state not in ('superseded', 'withdrawn')
       or new.training_plan_id is distinct from old.training_plan_id
       or new.tenant_id is distinct from old.tenant_id
       or new.property_id is distinct from old.property_id
@@ -960,7 +971,34 @@ language plpgsql
 set search_path = ''
 as $$
 begin
-  if old.lifecycle_state in ('published', 'superseded') then
+  if old.lifecycle_state = 'superseded' then
+    raise exception '已发布培训场次版本不可修改；请创建新版本。'
+      using errcode = '23514';
+  end if;
+  if old.lifecycle_state = 'published' and (
+    new.lifecycle_state <> 'superseded'
+    or new.training_session_id is distinct from old.training_session_id
+    or new.tenant_id is distinct from old.tenant_id
+    or new.property_id is distinct from old.property_id
+    or new.revision_number is distinct from old.revision_number
+    or new.name_zh is distinct from old.name_zh
+    or new.starts_at is distinct from old.starts_at
+    or new.ends_at is distinct from old.ends_at
+    or new.timezone is distinct from old.timezone
+    or new.capacity is distinct from old.capacity
+    or new.venue_type is distinct from old.venue_type
+    or new.venue_id is distinct from old.venue_id
+    or new.venue_name_snapshot is distinct from old.venue_name_snapshot
+    or new.venue_location_snapshot is distinct from
+      old.venue_location_snapshot
+    or new.venue_capacity_snapshot is distinct from
+      old.venue_capacity_snapshot
+    or new.selected_employee_ids is distinct from old.selected_employee_ids
+    or new.published_by is distinct from old.published_by
+    or new.published_at is distinct from old.published_at
+    or new.created_by is distinct from old.created_by
+    or new.created_at is distinct from old.created_at
+  ) then
     raise exception '已发布培训场次版本不可修改；请创建新版本。'
       using errcode = '23514';
   end if;
@@ -1500,6 +1538,7 @@ declare
   selected_plan_id uuid;
   selected_version_id uuid;
   selected_version bigint;
+  selected_identity_version bigint;
   next_version_number integer;
   item_payload jsonb;
   term_payload jsonb;
@@ -1582,11 +1621,11 @@ begin
     delete from public.training_plan_items item
     where item.training_plan_version_id = selected_version_id;
   else
-    if p_expected_version <> 0 then
-      raise exception '新计划草稿必须从版本 0 开始。'
-        using errcode = '40001';
-    end if;
     if selected_plan_id is null then
+      if p_expected_version <> 0 then
+        raise exception '新计划草稿必须从版本 0 开始。'
+          using errcode = '40001';
+      end if;
       insert into public.training_plans(
         tenant_id, property_id, code, name_zh
       ) values (
@@ -1597,16 +1636,27 @@ begin
       )
       returning id into selected_plan_id;
     else
-      if not exists (
-        select 1
-        from public.training_plans plan
-        where plan.id = selected_plan_id
-          and plan.property_id = p_property_id
-          and plan.is_active
-      ) then
+      select plan.version into selected_identity_version
+      from public.training_plans plan
+      where plan.id = selected_plan_id
+        and plan.property_id = p_property_id
+        and plan.is_active
+      for update;
+      if selected_identity_version is null then
         raise exception '未找到可创建新版本的培训计划。'
           using errcode = 'P0002';
       end if;
+      if selected_identity_version <> p_expected_version then
+        raise exception '计划身份已变化，请刷新后重试。'
+          using errcode = '40001';
+      end if;
+      update public.training_plans plan
+      set
+        name_zh = btrim(p_payload->>'nameZh'),
+        version = plan.version + 1,
+        updated_by = auth.uid(),
+        updated_at = now()
+      where plan.id = selected_plan_id;
     end if;
     select coalesce(max(version_row.version_number), 0) + 1
     into next_version_number
@@ -1826,6 +1876,7 @@ declare
   selected_property_id uuid;
   selected_state text;
   selected_version bigint;
+  superseded_version_id uuid;
 begin
   select version_row.property_id, version_row.lifecycle_state
   into selected_property_id, selected_state
@@ -1856,6 +1907,34 @@ begin
   ) then
     raise exception '没有计划项目的培训计划不能批准。'
       using errcode = '22023';
+  end if;
+
+  if p_target_state = 'approved' then
+    for superseded_version_id in
+      update public.training_plan_versions previous_version
+      set
+        lifecycle_state = 'superseded',
+        version = previous_version.version + 1,
+        updated_by = auth.uid(),
+        updated_at = now()
+      where previous_version.training_plan_id = (
+        select current_version.training_plan_id
+        from public.training_plan_versions current_version
+        where current_version.id = p_plan_version_id
+      )
+        and previous_version.id <> p_plan_version_id
+        and previous_version.lifecycle_state = 'approved'
+      returning previous_version.id
+    loop
+      perform app_private.append_training_audit(
+        selected_property_id,
+        'training_plan_version',
+        superseded_version_id,
+        'superseded',
+        '新培训计划版本已批准',
+        jsonb_build_object('replacementVersionId', p_plan_version_id)
+      );
+    end loop;
   end if;
 
   update public.training_plan_versions version_row
@@ -1998,6 +2077,8 @@ declare
   trainer_approval_id uuid;
   selected_employee_ids uuid[];
   attendance_payload jsonb;
+  existing_session public.training_sessions%rowtype;
+  is_new_session boolean := false;
 begin
   actor_type := app_private.assert_training_property_actor(p_property_id);
   select property.tenant_id into selected_tenant_id
@@ -2017,6 +2098,9 @@ begin
     nullif(p_payload->>'owningDepartmentId', '')::uuid;
   owner_assignment_id :=
     nullif(p_payload->>'operationalOwnerRoleAssignmentId', '')::uuid;
+  selected_revision_id :=
+    nullif(p_payload->>'sessionRevisionId', '')::uuid;
+  selected_session_id := nullif(p_payload->>'sessionId', '')::uuid;
   if btrim(coalesce(p_payload->>'code', '')) = ''
     or btrim(coalesce(p_payload->>'nameZh', '')) = ''
     or selected_purpose not in (
@@ -2088,12 +2172,27 @@ begin
       on plan_version.id = item.training_plan_version_id
     where item.id = plan_item_id
       and item.property_id = p_property_id
-      and plan_version.lifecycle_state = 'approved'
       and item.purpose_type = selected_purpose
       and item.course_version_id = course_version_id
       and item.training_requirement_version_id is not distinct from
         requirement_version_id
       and item.accepted_learning_method_id is not distinct from method_id
+      and (
+        plan_version.lifecycle_state = 'approved'
+        or exists (
+          select 1
+          from public.training_sessions existing_plan_session
+          left join public.training_session_revisions existing_plan_revision
+            on existing_plan_revision.training_session_id =
+              existing_plan_session.id
+          where existing_plan_session.property_id = p_property_id
+            and existing_plan_session.training_plan_item_id = item.id
+            and (
+              existing_plan_session.id = selected_session_id
+              or existing_plan_revision.id = selected_revision_id
+            )
+        )
+      )
   ) then
     raise exception '场次与已批准计划项目的业务身份不一致。'
       using errcode = '22023';
@@ -2152,9 +2251,6 @@ begin
     coalesce(p_payload->'selectedEmployeeIds', '[]'::jsonb)
   );
 
-  selected_revision_id :=
-    nullif(p_payload->>'sessionRevisionId', '')::uuid;
-  selected_session_id := nullif(p_payload->>'sessionId', '')::uuid;
   if selected_revision_id is not null then
     select revision.training_session_id
     into selected_session_id
@@ -2210,36 +2306,90 @@ begin
     delete from public.attendance_preparation_configs preparation
     where preparation.session_revision_id = selected_revision_id;
   else
-    if p_expected_version <> 0 then
-      raise exception '新场次草稿必须从版本 0 开始。'
-        using errcode = '40001';
+    if selected_session_id is null then
+      if p_expected_version <> 0 then
+        raise exception '新场次草稿必须从版本 0 开始。'
+          using errcode = '40001';
+      end if;
+      is_new_session := true;
+      insert into public.training_sessions(
+        tenant_id,
+        property_id,
+        code,
+        name_zh,
+        purpose_type,
+        training_plan_item_id,
+        training_requirement_version_id,
+        accepted_learning_method_id,
+        course_version_id,
+        owning_department_id,
+        operational_owner_role_assignment_id
+      ) values (
+        selected_tenant_id,
+        p_property_id,
+        upper(btrim(p_payload->>'code')),
+        btrim(p_payload->>'nameZh'),
+        selected_purpose,
+        plan_item_id,
+        requirement_version_id,
+        method_id,
+        course_version_id,
+        owning_department_id,
+        owner_assignment_id
+      )
+      returning * into existing_session;
+      selected_session_id := existing_session.id;
+    else
+      select session_row.* into existing_session
+      from public.training_sessions session_row
+      where session_row.id = selected_session_id
+        and session_row.property_id = p_property_id
+      for update;
+      if existing_session.id is null then
+        raise exception '未找到可创建新修订的培训场次。'
+          using errcode = 'P0002';
+      end if;
+      if existing_session.version <> p_expected_version then
+        raise exception '场次身份已变化，请刷新后重试。'
+          using errcode = '40001';
+      end if;
+      if existing_session.current_state <> 'published' then
+        raise exception '只有当前已发布场次可以建立新修订。'
+          using errcode = '22023';
+      end if;
+      if exists (
+        select 1
+        from public.training_session_revisions revision
+        where revision.training_session_id = selected_session_id
+          and revision.lifecycle_state = 'draft'
+      ) then
+        raise exception '此场次已有待处理草稿修订。'
+          using errcode = '22023';
+      end if;
+      if upper(btrim(p_payload->>'code')) <> existing_session.code
+        or selected_purpose <> existing_session.purpose_type
+        or plan_item_id is distinct from
+          existing_session.training_plan_item_id
+        or requirement_version_id is distinct from
+          existing_session.training_requirement_version_id
+        or method_id is distinct from
+          existing_session.accepted_learning_method_id
+        or course_version_id is distinct from
+          existing_session.course_version_id
+        or owning_department_id is distinct from
+          existing_session.owning_department_id
+      then
+        raise exception '新修订必须保留同一场次的计划、义务、课程方式和责任部门身份。'
+          using errcode = '22023';
+      end if;
+      update public.training_sessions session_row
+      set
+        operational_owner_role_assignment_id = owner_assignment_id,
+        version = session_row.version + 1,
+        updated_by = auth.uid(),
+        updated_at = now()
+      where session_row.id = selected_session_id;
     end if;
-    insert into public.training_sessions(
-      tenant_id,
-      property_id,
-      code,
-      name_zh,
-      purpose_type,
-      training_plan_item_id,
-      training_requirement_version_id,
-      accepted_learning_method_id,
-      course_version_id,
-      owning_department_id,
-      operational_owner_role_assignment_id
-    ) values (
-      selected_tenant_id,
-      p_property_id,
-      upper(btrim(p_payload->>'code')),
-      btrim(p_payload->>'nameZh'),
-      selected_purpose,
-      plan_item_id,
-      requirement_version_id,
-      method_id,
-      course_version_id,
-      owning_department_id,
-      owner_assignment_id
-    )
-    returning id into selected_session_id;
     select coalesce(max(revision.revision_number), 0) + 1
     into next_revision_number
     from public.training_session_revisions revision
@@ -2278,9 +2428,11 @@ begin
       selected_employee_ids
     )
     returning id, version into selected_revision_id, selected_version;
-    update public.training_sessions session_row
-    set current_revision_id = selected_revision_id
-    where session_row.id = selected_session_id;
+    if is_new_session then
+      update public.training_sessions session_row
+      set current_revision_id = selected_revision_id
+      where session_row.id = selected_session_id;
+    end if;
   end if;
 
   for term_payload in
@@ -2433,6 +2585,39 @@ begin
     'version', selected_version,
     'lifecycleState', 'draft',
     'source', 'real'
+  );
+end;
+$$;
+
+create or replace function public.save_department_training_session_revision_draft(
+  p_payload jsonb,
+  p_expected_version bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  selected_property_id uuid;
+  actor_type text;
+begin
+  selected_property_id := app_private.current_training_property();
+  if selected_property_id is null then
+    raise exception '当前账号没有有效酒店成员关系。'
+      using errcode = '42501';
+  end if;
+  actor_type := app_private.assert_training_property_actor(
+    selected_property_id
+  );
+  if actor_type <> 'department' then
+    raise exception '此入口仅用于部门培训负责人。'
+      using errcode = '42501';
+  end if;
+  return public.save_training_session_revision_draft(
+    selected_property_id,
+    p_payload,
+    p_expected_version
   );
 end;
 $$;
@@ -2674,6 +2859,38 @@ begin
 end;
 $$;
 
+create or replace function public.preview_department_training_session_participants(
+  p_session_revision_id uuid
+)
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path = ''
+as $$
+declare
+  selected_property_id uuid;
+  actor_type text;
+begin
+  selected_property_id := app_private.current_training_property();
+  if selected_property_id is null then
+    raise exception '当前账号没有有效酒店成员关系。'
+      using errcode = '42501';
+  end if;
+  actor_type := app_private.assert_training_property_actor(
+    selected_property_id
+  );
+  if actor_type <> 'department' then
+    raise exception '此入口仅用于部门培训负责人。'
+      using errcode = '42501';
+  end if;
+  return public.preview_training_session_participants(
+    selected_property_id,
+    jsonb_build_object('sessionRevisionId', p_session_revision_id)
+  );
+end;
+$$;
+
 create or replace function public.publish_training_session_revision(
   p_session_revision_id uuid,
   p_expected_version bigint
@@ -2688,7 +2905,6 @@ declare
   selected_session_id uuid;
   selected_state text;
   selected_purpose text;
-  selected_course_version_id uuid;
   selected_start timestamptz;
   selected_timezone text;
   selected_capacity integer;
@@ -2709,7 +2925,6 @@ begin
     revision.training_session_id,
     revision.lifecycle_state,
     session_row.purpose_type,
-    session_row.course_version_id,
     revision.starts_at,
     revision.timezone,
     revision.capacity,
@@ -2720,7 +2935,6 @@ begin
     selected_session_id,
     selected_state,
     selected_purpose,
-    selected_course_version_id,
     selected_start,
     selected_timezone,
     selected_capacity,
@@ -2927,6 +3141,16 @@ begin
     );
   end loop;
 
+  update public.training_session_revisions previous_revision
+  set
+    lifecycle_state = 'superseded',
+    version = previous_revision.version + 1,
+    updated_by = auth.uid(),
+    updated_at = now()
+  where previous_revision.training_session_id = selected_session_id
+    and previous_revision.id <> p_session_revision_id
+    and previous_revision.lifecycle_state = 'published';
+
   update public.training_session_revisions revision
   set
     lifecycle_state = 'published',
@@ -3077,6 +3301,134 @@ begin
 end;
 $$;
 
+create or replace function app_private.training_session_revision_document(
+  p_session_revision_id uuid
+)
+returns jsonb
+language sql
+stable
+security definer
+set search_path = ''
+as $$
+  select jsonb_build_object(
+    'id', session_row.id,
+    'revisionId', revision.id,
+    'revisionNumber', revision.revision_number,
+    'code', session_row.code,
+    'nameZh', revision.name_zh,
+    'purposeType', session_row.purpose_type,
+    'currentState', session_row.current_state,
+    'lifecycleState', revision.lifecycle_state,
+    'version', session_row.version,
+    'revisionVersion', revision.version,
+    'startsAt', revision.starts_at,
+    'endsAt', revision.ends_at,
+    'timezone', revision.timezone,
+    'capacity', revision.capacity,
+    'owningDepartmentId', session_row.owning_department_id,
+    'owningDepartmentName', department.name_zh,
+    'venueName', revision.venue_name_snapshot,
+    'selectedCount', cardinality(revision.selected_employee_ids),
+    'publishedAt', revision.published_at,
+    'readiness', jsonb_build_object(
+      'trainerReady', exists (
+        select 1
+        from public.training_session_trainer_assignments assignment
+        where assignment.session_revision_id = revision.id
+          and assignment.trainer_role = 'lead'
+          and assignment.trainer_course_approval_id is not null
+      ),
+      'resourceReady', (
+        select count(*)
+        from public.training_session_resource_confirmations confirmation
+        where confirmation.session_revision_id = revision.id
+          and confirmation.confirmed
+          and confirmation.confirmation_key in (
+            'materials_ready', 'room_setup_ready'
+          )
+      ) = 2,
+      'participantPreviewRequired', revision.lifecycle_state = 'draft',
+      'attendancePreparationReady', exists (
+        select 1
+        from public.attendance_preparation_configs preparation
+        where preparation.session_revision_id = revision.id
+      )
+    ),
+    'details', jsonb_build_object(
+      'planItemId', session_row.training_plan_item_id,
+      'requirementVersionId',
+        session_row.training_requirement_version_id,
+      'acceptedLearningMethodId',
+        session_row.accepted_learning_method_id,
+      'courseVersionId', session_row.course_version_id,
+      'operationalOwnerRoleAssignmentId',
+        session_row.operational_owner_role_assignment_id,
+      'venue', case
+        when revision.venue_type = 'approved_venue' then
+          jsonb_build_object(
+            'type', 'approved_venue',
+            'venueId', revision.venue_id
+          )
+        else jsonb_build_object(
+          'type', 'other_location',
+          'locationName', revision.venue_name_snapshot,
+          'capacityAttested',
+            revision.venue_capacity_snapshot is not null
+            and revision.venue_capacity_snapshot >= revision.capacity
+        )
+      end,
+      'trainerAssignments', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'trainerProfileId', assignment.trainer_profile_id,
+          'trainerApprovalId', assignment.trainer_course_approval_id,
+          'role', case assignment.trainer_role
+            when 'assistant' then 'co_trainer'
+            else assignment.trainer_role
+          end
+        ) order by assignment.trainer_role, assignment.created_at)
+        from public.training_session_trainer_assignments assignment
+        where assignment.session_revision_id = revision.id
+      ), '[]'::jsonb),
+      'targetDepartments', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'departmentId', target.department_id,
+          'includeDescendants', target.include_descendants
+        ) order by target.created_at)
+        from public.training_session_target_departments target
+        where target.session_revision_id = revision.id
+      ), '[]'::jsonb),
+      'selectedEmployeeIds', to_jsonb(revision.selected_employee_ids),
+      'ownerConfirmations', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'key', confirmation.confirmation_key,
+          'confirmed', confirmation.confirmed
+        ) order by confirmation.confirmation_key)
+        from public.training_session_resource_confirmations confirmation
+        where confirmation.session_revision_id = revision.id
+      ), '[]'::jsonb),
+      'attendancePreparation', coalesce((
+        select jsonb_build_object(
+          'mode', preparation.preparation_mode,
+          'opensBeforeMinutes', preparation.opens_before_minutes,
+          'closesAfterMinutes', preparation.closes_after_minutes
+        )
+        from public.attendance_preparation_configs preparation
+        where preparation.session_revision_id = revision.id
+      ), jsonb_build_object(
+        'mode', 'manual_only',
+        'opensBeforeMinutes', 0,
+        'closesAfterMinutes', 0
+      ))
+    )
+  )
+  from public.training_session_revisions revision
+  join public.training_sessions session_row
+    on session_row.id = revision.training_session_id
+  join public.departments department
+    on department.id = session_row.owning_department_id
+  where revision.id = p_session_revision_id;
+$$;
+
 -- Role-scoped read projections -------------------------------------------
 
 create or replace function public.read_training_operations_foundation(
@@ -3109,6 +3461,7 @@ begin
       select jsonb_agg(jsonb_build_object(
         'id', plan_version.id,
         'planId', plan.id,
+        'identityVersion', plan.version,
         'code', plan.code,
         'nameZh', plan_version.name_zh,
         'versionNumber', plan_version.version_number,
@@ -3117,11 +3470,41 @@ begin
         'periodStart', plan_version.period_start,
         'periodEnd', plan_version.period_end,
         'purpose', plan_version.purpose,
+        'operationalOwnerRoleAssignmentId',
+          plan_version.operational_owner_role_assignment_id,
         'itemCount', (
           select count(*)
           from public.training_plan_items item
           where item.training_plan_version_id = plan_version.id
         ),
+        'items', coalesce((
+          select jsonb_agg(jsonb_build_object(
+            'id', item.id,
+            'nameZh', item.name_zh,
+            'purposeType', item.purpose_type,
+            'businessPurpose', item.business_purpose,
+            'deliveryWindowStart', item.delivery_window_start,
+            'deliveryWindowEnd', item.delivery_window_end,
+            'plannedSessionCount', item.planned_session_count,
+            'plannedSeatCapacity', item.planned_seat_capacity,
+            'ownerDepartmentId', item.owner_department_id,
+            'requirementVersionId',
+              item.training_requirement_version_id,
+            'acceptedLearningMethodId',
+              item.accepted_learning_method_id,
+            'courseVersionId', item.course_version_id,
+            'targetDepartments', coalesce((
+              select jsonb_agg(jsonb_build_object(
+                'departmentId', term.department_id,
+                'includeDescendants', term.include_descendants
+              ) order by term.created_at)
+              from public.training_plan_item_department_terms term
+              where term.training_plan_item_id = item.id
+            ), '[]'::jsonb)
+          ) order by item.sort_order, item.created_at)
+          from public.training_plan_items item
+          where item.training_plan_version_id = plan_version.id
+        ), '[]'::jsonb),
         'approvedAt', plan_version.approved_at,
         'updatedAt', plan_version.updated_at
       ) order by plan_version.updated_at desc)
@@ -3131,56 +3514,17 @@ begin
       where plan_version.property_id = p_property_id
     ), '[]'::jsonb),
     'sessions', coalesce((
-      select jsonb_agg(jsonb_build_object(
-        'id', session_row.id,
-        'revisionId', revision.id,
-        'code', session_row.code,
-        'nameZh', revision.name_zh,
-        'purposeType', session_row.purpose_type,
-        'currentState', session_row.current_state,
-        'lifecycleState', revision.lifecycle_state,
-        'version', session_row.version,
-        'revisionVersion', revision.version,
-        'startsAt', revision.starts_at,
-        'endsAt', revision.ends_at,
-        'timezone', revision.timezone,
-        'capacity', revision.capacity,
-        'owningDepartmentId', session_row.owning_department_id,
-        'owningDepartmentName', department.name_zh,
-        'venueName', revision.venue_name_snapshot,
-        'selectedCount', cardinality(revision.selected_employee_ids),
-        'publishedAt', revision.published_at,
-        'readiness', jsonb_build_object(
-          'trainerReady', exists (
-            select 1
-            from public.training_session_trainer_assignments assignment
-            where assignment.session_revision_id = revision.id
-              and assignment.trainer_role = 'lead'
-              and assignment.trainer_course_approval_id is not null
-          ),
-          'resourceReady', (
-            select count(*)
-            from public.training_session_resource_confirmations confirmation
-            where confirmation.session_revision_id = revision.id
-              and confirmation.confirmed
-              and confirmation.confirmation_key in (
-                'materials_ready', 'room_setup_ready'
-              )
-          ) = 2,
-          'participantPreviewRequired',
-            revision.lifecycle_state = 'draft',
-          'attendancePreparationReady', exists (
-            select 1
-            from public.attendance_preparation_configs preparation
-            where preparation.session_revision_id = revision.id
-          )
-        )
-      ) order by revision.starts_at)
+      select jsonb_agg(
+        app_private.training_session_revision_document(revision.id)
+        order by revision.starts_at, revision.revision_number
+      )
       from public.training_sessions session_row
       join public.training_session_revisions revision
-        on revision.id = session_row.current_revision_id
-      join public.departments department
-        on department.id = session_row.owning_department_id
+        on revision.training_session_id = session_row.id
+       and (
+         revision.id = session_row.current_revision_id
+         or revision.lifecycle_state = 'draft'
+       )
       where session_row.property_id = p_property_id
     ), '[]'::jsonb),
     'venues', coalesce((
@@ -3211,6 +3555,19 @@ begin
       ) order by trainer.display_name)
       from public.trainer_profiles trainer
       where trainer.property_id = p_property_id
+    ), '[]'::jsonb),
+    'trainerApprovals', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', approval.id,
+        'trainerProfileId', approval.trainer_profile_id,
+        'courseVersionId', approval.course_version_id,
+        'effectiveFrom', approval.effective_from,
+        'effectiveTo', approval.effective_to,
+        'evidenceNote', approval.evidence_note,
+        'approvedBy', approval.approved_by
+      ) order by approval.effective_from desc)
+      from public.trainer_course_approvals approval
+      where approval.property_id = p_property_id
     ), '[]'::jsonb),
     'referenceOptions', jsonb_build_object(
       'courseVersions', coalesce((
@@ -3349,33 +3706,43 @@ begin
         and account.account_status = 'active'
     ), '[]'::jsonb),
     'sessions', coalesce((
-      select jsonb_agg(jsonb_build_object(
-        'id', session_row.id,
-        'revisionId', revision.id,
-        'code', session_row.code,
-        'nameZh', revision.name_zh,
-        'purposeType', session_row.purpose_type,
-        'currentState', session_row.current_state,
-        'lifecycleState', revision.lifecycle_state,
-        'version', session_row.version,
-        'revisionVersion', revision.version,
-        'startsAt', revision.starts_at,
-        'endsAt', revision.ends_at,
-        'capacity', revision.capacity,
-        'owningDepartmentId', session_row.owning_department_id,
-        'owningDepartmentName', department.name_zh,
-        'venueName', revision.venue_name_snapshot,
-        'selectedCount', cardinality(revision.selected_employee_ids)
-      ) order by revision.starts_at)
+      select jsonb_agg(
+        app_private.training_session_revision_document(revision.id)
+        order by revision.starts_at, revision.revision_number
+      )
       from public.training_sessions session_row
       join public.training_session_revisions revision
-        on revision.id = session_row.current_revision_id
-      join public.departments department
-        on department.id = session_row.owning_department_id
+        on revision.training_session_id = session_row.id
+       and (
+         revision.id = session_row.current_revision_id
+         or revision.lifecycle_state = 'draft'
+       )
       where session_row.property_id = selected_property_id
         and app_private.has_authorized_department_scope(
           selected_property_id,
           session_row.owning_department_id
+        )
+    ), '[]'::jsonb),
+    'participantCandidates', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'employeeId', employee.id,
+        'employeeNumber', employee.employee_number,
+        'employeeName', coalesce(
+          nullif(employee.name_zh, ''),
+          nullif(employee.name_en, ''),
+          '姓名未提供'
+        ),
+        'departmentId', employee.department_id,
+        'departmentName', department.name_zh
+      ) order by employee.employee_number)
+      from public.employees employee
+      join public.departments department
+        on department.id = employee.department_id
+      where employee.property_id = selected_property_id
+        and employee.is_active
+        and app_private.has_authorized_department_scope(
+          selected_property_id,
+          employee.department_id
         )
     ), '[]'::jsonb),
     'referenceOptions', jsonb_build_object(
@@ -3394,11 +3761,100 @@ begin
         select jsonb_agg(jsonb_build_object(
           'id', requirement_version.id,
           'nameZh', requirement_version.name_zh,
-          'versionNumber', requirement_version.version_number
+          'versionNumber', requirement_version.version_number,
+          'acceptedMethods', coalesce((
+            select jsonb_agg(jsonb_build_object(
+              'id', method.id,
+              'labelZh', method.label_zh,
+              'methodType', method.method_type,
+              'courseVersionId', method.course_version_id
+            ) order by method.sort_order, method.label_zh)
+            from public.completion_definitions definition
+            join public.accepted_learning_methods method
+              on method.completion_definition_id = definition.id
+            where definition.training_requirement_version_id =
+              requirement_version.id
+          ), '[]'::jsonb)
         ) order by requirement_version.name_zh)
         from public.training_requirement_versions requirement_version
         where requirement_version.property_id = selected_property_id
           and requirement_version.lifecycle_state = 'effective'
+      ), '[]'::jsonb),
+      'departments', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'id', department.id,
+          'nameZh', department.name_zh,
+          'parentId', department.parent_id,
+          'depth', department.depth
+        ) order by department.path_ids)
+        from public.departments department
+        where department.property_id = selected_property_id
+          and department.is_active
+          and app_private.has_authorized_department_scope(
+            selected_property_id,
+            department.id
+          )
+      ), '[]'::jsonb),
+      'owners', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'roleAssignmentId', assignment.id,
+          'userId', assignment.user_id,
+          'displayName', profile.display_name,
+          'roleCode', role.code,
+          'roleNameZh', role.name_zh
+        ))
+        from public.user_accounts account
+        join public.role_assignments assignment
+          on assignment.user_id = account.user_id
+         and assignment.property_id = account.property_id
+         and assignment.status = 'active'
+        join public.roles role
+          on role.id = assignment.role_id
+         and role.code = 'department_training_admin'
+         and role.is_active
+        join public.profiles profile on profile.id = assignment.user_id
+        where account.auth_user_id = auth.uid()
+          and account.property_id = selected_property_id
+          and account.account_status = 'active'
+      ), '[]'::jsonb),
+      'venues', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'id', venue.id,
+          'nameZh', venue.name_zh,
+          'locationDescription', venue.location_description,
+          'capacity', venue.capacity,
+          'active', venue.is_active,
+          'version', venue.version
+        ) order by venue.name_zh)
+        from public.training_venues venue
+        where venue.property_id = selected_property_id
+          and venue.is_active
+      ), '[]'::jsonb),
+      'trainers', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'id', trainer.id,
+          'type', trainer.trainer_type,
+          'employeeId', trainer.employee_id,
+          'displayName', trainer.display_name,
+          'active', trainer.is_active,
+          'version', trainer.version
+        ) order by trainer.display_name)
+        from public.trainer_profiles trainer
+        where trainer.property_id = selected_property_id
+          and trainer.is_active
+      ), '[]'::jsonb),
+      'trainerApprovals', coalesce((
+        select jsonb_agg(jsonb_build_object(
+          'id', approval.id,
+          'trainerProfileId', approval.trainer_profile_id,
+          'courseVersionId', approval.course_version_id,
+          'effectiveFrom', approval.effective_from,
+          'effectiveTo', approval.effective_to,
+          'evidenceNote', approval.evidence_note,
+          'approvedBy', approval.approved_by
+        ))
+        from public.trainer_course_approvals approval
+        where approval.property_id = selected_property_id
       ), '[]'::jsonb)
     )
   );
@@ -3413,7 +3869,9 @@ revoke all on function
   public.save_training_plan_version_draft(uuid,jsonb,bigint),
   public.transition_training_plan_version(uuid,text,bigint,text),
   public.save_training_session_revision_draft(uuid,jsonb,bigint),
+  public.save_department_training_session_revision_draft(jsonb,bigint),
   public.preview_training_session_participants(uuid,jsonb),
+  public.preview_department_training_session_participants(uuid),
   public.publish_training_session_revision(uuid,bigint),
   public.cancel_training_session(uuid,bigint,text),
   public.save_training_venue(uuid,jsonb,bigint),
@@ -3426,7 +3884,9 @@ grant execute on function
   public.save_training_plan_version_draft(uuid,jsonb,bigint),
   public.transition_training_plan_version(uuid,text,bigint,text),
   public.save_training_session_revision_draft(uuid,jsonb,bigint),
+  public.save_department_training_session_revision_draft(jsonb,bigint),
   public.preview_training_session_participants(uuid,jsonb),
+  public.preview_department_training_session_participants(uuid),
   public.publish_training_session_revision(uuid,bigint),
   public.cancel_training_session(uuid,bigint,text),
   public.save_training_venue(uuid,jsonb,bigint),
@@ -3434,7 +3894,8 @@ grant execute on function
 to authenticated;
 
 revoke all on function
-  app_private.build_session_participant_preview(uuid)
+  app_private.build_session_participant_preview(uuid),
+  app_private.training_session_revision_document(uuid)
 from public, anon, authenticated;
 
 comment on table public.training_plans is

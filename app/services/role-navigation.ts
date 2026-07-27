@@ -21,7 +21,7 @@ const managerGroups: NavigationGroup[] = [
     items: [
       item("运营工作台", "Operations home", "/", "foundation"),
       item("培训日历", "Training calendar", "/calendar", "unavailable"),
-      item("培训场次", "Training sessions", "/sessions", "unavailable"),
+      item("培训场次", "Training sessions", "/sessions", "foundation"),
       item("出勤与反馈", "Attendance & feedback", "/attendance-feedback", "unavailable"),
       item("员工", "Employees", "/people", "foundation"),
       item("干预与提醒", "Interventions & reminders", "/interventions", "unavailable"),
@@ -32,7 +32,7 @@ const managerGroups: NavigationGroup[] = [
     en: "Periodic review",
     items: [
       item("培训要求", "Learning requirements", "/requirements", "foundation"),
-      item("培训计划", "Training plans", "/plans", "unavailable"),
+      item("培训计划", "Training plans", "/plans", "foundation"),
       item("部门表现", "Department performance", "/department-performance", "unavailable"),
       item("KPI 与目标", "KPI & targets", "/kpi", "unavailable"),
       item("课程成效", "Course effectiveness", "/effectiveness", "unavailable"),
@@ -62,7 +62,7 @@ const departmentGroups: NavigationGroup[] = [
       item("部门工作台", "Department home", "/department", "foundation"),
       item("培训要求", "Learning requirements", "/department/requirements", "foundation"),
       item("培训日历", "Training calendar", "/department/calendar", "unavailable"),
-      item("培训场次", "Training sessions", "/department/sessions", "unavailable"),
+      item("培训场次", "Training sessions", "/department/sessions", "foundation"),
       item("本部门员工", "Department employees", "/department/employees", "foundation"),
       item("出勤与反馈", "Attendance & feedback", "/department/attendance-feedback", "unavailable"),
       item("补训与提醒", "Make-up & reminders", "/department/remediation", "unavailable"),
