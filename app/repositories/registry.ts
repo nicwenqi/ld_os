@@ -13,6 +13,7 @@ import type { EmployeeRepository } from "./contracts/employee-repository.ts";
 import type { ImportRepository } from "./contracts/import-repository.ts";
 import type { InitializationRepository } from "./contracts/initialization-repository.ts";
 import type { LearningRequirementRepository } from "./contracts/learning-requirement-repository.ts";
+import type { TrainingOperationsRepository } from "./contracts/training-operations-repository.ts";
 import { createMockDepartmentRepository } from "./mock/department-repository.ts";
 import { createMockPositionRepository } from "./mock/position-repository.ts";
 import { createMockPropertyRepository } from "./mock/property-repository.ts";
@@ -27,6 +28,7 @@ import { createMockInitializationRepository } from "./mock/initialization-reposi
 import { createSupabaseInitializationRepository } from "./supabase/initialization-repository.ts";
 import { createMockLearningRequirementRepository } from "./mock/learning-requirement-repository.ts";
 import { createSupabaseLearningRequirementRepository } from "./supabase/learning-requirement-repository.ts";
+import { createSupabaseTrainingOperationsRepository } from "./supabase/training-operations-repository.ts";
 
 export type ModuleName =
   | "hotel-settings"
@@ -35,6 +37,7 @@ export type ModuleName =
   | "executive-dashboard"
   | "organization-dashboard"
   | "calendar"
+  | "plans"
   | "sessions"
   | "qr-check-in"
   | "qr-feedback"
@@ -54,6 +57,9 @@ export function dataSourceForModule(moduleName: ModuleName, dataMode: AppDataMod
     "import",
     "learning-requirements",
   ];
+  if (moduleName === "plans" || moduleName === "sessions") {
+    return dataMode === "mock" ? "unavailable" : "supabase";
+  }
   if (!foundationModules.includes(moduleName)) return "unavailable";
   return dataMode === "mock" ? "mock" : "supabase";
 }
@@ -67,6 +73,7 @@ export function createRepositoryRegistry(input?: {
   importRepository?: ImportRepository;
   initializationRepository?: InitializationRepository;
   learningRequirementRepository?: LearningRequirementRepository;
+  trainingOperationsRepository?: TrainingOperationsRepository;
 }) {
   const environment = input?.environment ?? parseAppEnvironment();
   assertProductionDataBoundary(environment.appEnv, environment.dataMode);
@@ -88,5 +95,22 @@ export function createRepositoryRegistry(input?: {
       ? createSupabaseLearningRequirementRepository(client!)
       : createMockLearningRequirementRepository()
   );
-  return { environment, property, department, position, employee, import: importCenter, initialization, learningRequirement, dataSourceForModule: (moduleName: ModuleName) => dataSourceForModule(moduleName, environment.dataMode) };
+  const trainingOperations = input?.trainingOperationsRepository ?? (
+    dataSourceForModule("sessions", environment.dataMode) === "supabase"
+      ? createSupabaseTrainingOperationsRepository(client!)
+      : null
+  );
+  return {
+    environment,
+    property,
+    department,
+    position,
+    employee,
+    import: importCenter,
+    initialization,
+    learningRequirement,
+    trainingOperations,
+    dataSourceForModule: (moduleName: ModuleName) =>
+      dataSourceForModule(moduleName, environment.dataMode),
+  };
 }

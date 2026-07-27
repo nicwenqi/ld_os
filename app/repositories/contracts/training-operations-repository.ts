@@ -164,6 +164,9 @@ export type DevelopmentParticipantSnapshot = {
   employeeId: string;
   employeeFactVersionId: string;
   selectionState: "selected";
+  selected: true;
+  evaluatedForDate: string;
+  evidenceReasons: string[];
   capturedAt?: string;
 };
 
@@ -174,10 +177,19 @@ export type ParticipantSnapshot =
 export type SessionParticipantPreview = {
   sessionRevisionId?: string;
   evaluationDate: string;
-  source: "real" | "local_review";
-  rows: ParticipantSnapshot[];
+  source: "real";
+  rows: (ParticipantSnapshot & {
+    employeeNumber?: string;
+    employeeName?: string;
+    departmentId?: string | null;
+    departmentName?: string | null;
+  })[];
+  candidateCount?: number;
   selectedCount: number;
+  eligibleCount?: number;
+  notApplicableCount?: number;
   unableToDetermineCount: number;
+  writesPerformed: false;
 };
 
 export type TrainerProfile = {
@@ -189,6 +201,7 @@ export type TrainerProfile = {
   organizationName?: string;
   active: boolean;
   version: number;
+  approvalCount?: number;
 };
 
 export type TrainerCourseApproval = {
@@ -211,28 +224,182 @@ export type TrainingVenue = {
   version: number;
 };
 
+export type TrainingPlanSummary = {
+  id: string;
+  planId: string;
+  code: string;
+  nameZh: string;
+  versionNumber: number;
+  version: number;
+  lifecycleState: TrainingPlanVersionState;
+  periodStart: string;
+  periodEnd: string;
+  purpose: string;
+  itemCount: number;
+  approvedAt?: string | null;
+  updatedAt: string;
+};
+
+export type TrainingSessionSummary = {
+  id: string;
+  revisionId: string;
+  code: string;
+  nameZh: string;
+  purposeType: PlanItemPurpose;
+  currentState: SessionCurrentState;
+  lifecycleState: SessionRevisionState;
+  version: number;
+  revisionVersion: number;
+  startsAt: string;
+  endsAt: string;
+  timezone?: string;
+  capacity: number;
+  owningDepartmentId: string;
+  owningDepartmentName: string;
+  venueName: string;
+  selectedCount: number;
+  publishedAt?: string | null;
+  readiness?: {
+    trainerReady: boolean;
+    resourceReady: boolean;
+    participantPreviewRequired: boolean;
+    attendancePreparationReady: boolean;
+  };
+};
+
+export type TrainingOperationsBoundary = {
+  planning: string;
+  sessionReadiness: string;
+  participantSnapshots: string;
+  attendance: "unavailable";
+  completion: "unavailable";
+  feedback: "unavailable";
+  kpi: "unavailable";
+};
+
+export type TrainingReferenceOptions = {
+  courseVersions: {
+    id: string;
+    courseId?: string;
+    nameZh: string;
+    versionNumber: number;
+    durationMinutes: number;
+  }[];
+  requirementVersions: {
+    id: string;
+    requirementId: string;
+    nameZh: string;
+    versionNumber: number;
+    effectiveFrom: string;
+    effectiveTo?: string | null;
+    acceptedMethods: {
+      id: string;
+      labelZh: string;
+      methodType: string;
+      courseVersionId?: string | null;
+    }[];
+  }[];
+  departments: {
+    id: string;
+    nameZh: string;
+    parentId?: string | null;
+    depth: number;
+  }[];
+  owners: {
+    roleAssignmentId: string;
+    userId: string;
+    displayName: string;
+    roleCode: string;
+    roleNameZh: string;
+  }[];
+};
+
 export type TrainingOperationsFoundation = {
   propertyId: string;
-  source: "real" | "local_review";
-  plans: TrainingPlanVersion[];
-  sessions: TrainingSessionRevision[];
+  source: "real";
+  boundary: TrainingOperationsBoundary;
+  plans: TrainingPlanSummary[];
+  sessions: TrainingSessionSummary[];
   trainers: TrainerProfile[];
   trainerApprovals: TrainerCourseApproval[];
   venues: TrainingVenue[];
+  referenceOptions: TrainingReferenceOptions;
 };
 
 export type DepartmentTrainingOperationsFoundation = {
   propertyId: string;
-  source: "real" | "local_review";
+  source: "real";
+  boundary: TrainingOperationsBoundary;
   scope: {
     departmentId: string;
     departmentName: string;
     includeDescendants: boolean;
+    breadcrumb?: string[];
   }[];
-  approvedPlans: TrainingPlanVersion[];
-  sessions: TrainingSessionRevision[];
-  selectableTrainers: TrainerProfile[];
-  selectableVenues: TrainingVenue[];
+  sessions: TrainingSessionSummary[];
+  participantCandidates: {
+    employeeId: string;
+    employeeNumber: string;
+    employeeName: string;
+    departmentId: string;
+    departmentName: string;
+  }[];
+  referenceOptions: {
+    courseVersions: TrainingReferenceOptions["courseVersions"];
+    requirements: {
+      id: string;
+      nameZh: string;
+      versionNumber: number;
+      acceptedMethods: {
+        id: string;
+        labelZh: string;
+        methodType: string;
+        courseVersionId?: string | null;
+      }[];
+    }[];
+    departments: TrainingReferenceOptions["departments"];
+    owners: TrainingReferenceOptions["owners"];
+    venues: TrainingVenue[];
+    trainers: TrainerProfile[];
+    trainerApprovals: TrainerCourseApproval[];
+  };
+};
+
+export type TrainingVenueDraft = Omit<
+  TrainingVenue,
+  "id" | "propertyId" | "version"
+> & { id?: string };
+
+export type TrainerProfileDraft = {
+  id?: string;
+  type: TrainerProfile["type"];
+  employeeId?: string;
+  displayName: string;
+  active: boolean;
+  approvals: {
+    courseVersionId: string;
+    effectiveFrom: string;
+    effectiveTo?: string;
+    evidenceNote: string;
+  }[];
+};
+
+export type TrainingPlanMutationResult = {
+  id: string;
+  planId: string;
+  version: number;
+  lifecycleState: TrainingPlanVersionState;
+  source: "real";
+};
+
+export type TrainingSessionMutationResult = {
+  id: string;
+  sessionId?: string;
+  version: number;
+  lifecycleState?: SessionRevisionState;
+  currentState?: SessionCurrentState;
+  participantSnapshotCount?: number;
+  source: "real";
 };
 
 export interface TrainingOperationsRepository {
@@ -242,26 +409,39 @@ export interface TrainingOperationsRepository {
   readDepartmentTrainingOperations(): Promise<DepartmentTrainingOperationsFoundation>;
   savePlanVersionDraft(
     input: TrainingPlanVersionDraft,
-  ): Promise<TrainingPlanVersion>;
+  ): Promise<TrainingPlanMutationResult>;
   transitionPlanVersion(
     planVersionId: string,
     targetState: TrainingPlanVersionState,
     expectedVersion: number,
     reason?: string,
-  ): Promise<TrainingPlanVersion>;
+  ): Promise<TrainingPlanMutationResult>;
   saveSessionRevisionDraft(
     input: TrainingSessionRevisionDraft,
-  ): Promise<TrainingSessionRevision>;
+  ): Promise<TrainingSessionMutationResult>;
   publishSessionRevision(
     sessionRevisionId: string,
     expectedVersion: number,
-  ): Promise<TrainingSessionRevision>;
+  ): Promise<TrainingSessionMutationResult>;
   cancelSession(
     sessionId: string,
     expectedVersion: number,
     reason: string,
-  ): Promise<TrainingSessionRevision>;
+  ): Promise<TrainingSessionMutationResult>;
   previewSessionParticipants(
-    input: TrainingSessionRevisionDraft,
+    input: {
+      propertyId: string;
+      sessionRevisionId: string;
+    },
   ): Promise<SessionParticipantPreview>;
+  saveVenue(
+    propertyId: string,
+    input: TrainingVenueDraft,
+    expectedVersion: number,
+  ): Promise<TrainingVenue>;
+  saveTrainer(
+    propertyId: string,
+    input: TrainerProfileDraft,
+    expectedVersion: number,
+  ): Promise<TrainerProfile>;
 }

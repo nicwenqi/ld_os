@@ -5,11 +5,19 @@ import {
   dataSourceForModule,
 } from "../app/repositories/registry.ts";
 
-test("training operation modules are unavailable until repositories exist",()=>{
+test("later training facts remain unavailable in every data mode",()=>{
   for (const mode of ["mock","hybrid","supabase"]) {
-    for (const moduleName of ["executive-dashboard","organization-dashboard","calendar","sessions","qr-check-in","qr-feedback","risk","course-effectiveness","kpi"]) {
+    for (const moduleName of ["executive-dashboard","organization-dashboard","calendar","qr-check-in","qr-feedback","risk","course-effectiveness","kpi"]) {
       assert.equal(dataSourceForModule(moduleName,mode),"unavailable",`${mode}: ${moduleName}`);
     }
+  }
+});
+
+test("D2 plan and Session foundations are real-only",()=>{
+  for (const moduleName of ["plans","sessions"]) {
+    assert.equal(dataSourceForModule(moduleName,"mock"),"unavailable");
+    assert.equal(dataSourceForModule(moduleName,"hybrid"),"supabase");
+    assert.equal(dataSourceForModule(moduleName,"supabase"),"supabase");
   }
 });
 
