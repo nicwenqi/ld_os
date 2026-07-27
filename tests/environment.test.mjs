@@ -78,6 +78,44 @@ test("hybrid mode requires the property hostname for local and preview environme
   }).devPropertyHostname, "training-demo.example.test");
 });
 
+test("local real-data review permits only an HTTP loopback Supabase URL", () => {
+  const local = parseAppEnvironment({
+    APP_ENV: "local",
+    APP_DATA_MODE: "supabase",
+    DEV_PROPERTY_HOSTNAME: "training-demo.example.test",
+    NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
+  });
+  assert.equal(local.supabaseUrl, "http://127.0.0.1:54321");
+
+  for (const invalid of [
+    "http://example.supabase.co",
+    "http://192.168.1.20:54321",
+  ]) {
+    assert.throws(
+      () => parseAppEnvironment({
+        APP_ENV: "local",
+        APP_DATA_MODE: "supabase",
+        DEV_PROPERTY_HOSTNAME: "training-demo.example.test",
+        NEXT_PUBLIC_SUPABASE_URL: invalid,
+        NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
+      }),
+      /valid HTTPS URL or a local loopback URL/,
+    );
+  }
+
+  assert.throws(
+    () => parseAppEnvironment({
+      APP_ENV: "preview",
+      APP_DATA_MODE: "supabase",
+      PREVIEW_PROPERTY_HOSTNAME: "training-demo.example.test",
+      NEXT_PUBLIC_SUPABASE_URL: "http://127.0.0.1:54321",
+      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
+    }),
+    /valid HTTPS URL/,
+  );
+});
+
 test("browser-visible secret and service-role variables are rejected", () => {
   assert.throws(
     () => parseAppEnvironment({ NEXT_PUBLIC_SUPABASE_SERVICE_ROLE_KEY: "forbidden" }),

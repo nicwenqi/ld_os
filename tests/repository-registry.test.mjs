@@ -21,6 +21,12 @@ test("D2 plan and Session foundations are real-only",()=>{
   }
 });
 
+test("D3 attendance facts are real-only and never fall back to local review data",()=>{
+  assert.equal(dataSourceForModule("attendance","mock"),"unavailable");
+  assert.equal(dataSourceForModule("attendance","hybrid"),"supabase");
+  assert.equal(dataSourceForModule("attendance","supabase"),"supabase");
+});
+
 test("local foundation modules use clearly labelled mock repositories",()=>{
   for (const moduleName of ["hotel-settings","organization-management","position-management","people","import"]) assert.equal(dataSourceForModule(moduleName,"mock"),"mock");
 });

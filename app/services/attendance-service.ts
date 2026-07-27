@@ -44,10 +44,9 @@ export function validateAttendanceDeterminationDraft(
     errors.push("出勤判定必须说明核对原因。");
   }
   if (
-    !Array.isArray(draft.evidenceObservationIds) ||
-    draft.evidenceObservationIds.length === 0
+    !Array.isArray(draft.evidenceObservationIds)
   ) {
-    errors.push("出勤判定必须引用至少一条签到或现场观察证据。");
+    errors.push("出勤判定必须提供现场证据选择。");
   }
   return errors;
 }

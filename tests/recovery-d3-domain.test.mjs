@@ -36,6 +36,17 @@ test("D3 accepts exactly the four lightweight attendance determinations", () => 
   );
 });
 
+test("an empty observation list explicitly requests one atomic Manual Witness", () => {
+  assert.deepEqual(
+    validateAttendanceDeterminationDraft({
+      determination: "absent",
+      reason: "现场点名确认未到",
+      evidenceObservationIds: [],
+    }),
+    [],
+  );
+});
+
 test("D3 rejects HR attendance, scoring, completion and analytical fields", () => {
   for (const forbidden of [
     "lateMinutes",

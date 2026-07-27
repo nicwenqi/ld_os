@@ -48,7 +48,11 @@ export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironment
   const appBaseDomain = validateHostname("APP_BASE_DOMAIN", input.APP_BASE_DOMAIN || "ldchub.cn", false)!;
   const devPropertyHostname = validateHostname("DEV_PROPERTY_HOSTNAME", input.DEV_PROPERTY_HOSTNAME);
   const previewPropertyHostname = validateHostname("PREVIEW_PROPERTY_HOSTNAME", input.PREVIEW_PROPERTY_HOSTNAME);
-  const supabaseUrl = optionalUrl("NEXT_PUBLIC_SUPABASE_URL", input.NEXT_PUBLIC_SUPABASE_URL);
+  const supabaseUrl = optionalUrl(
+    "NEXT_PUBLIC_SUPABASE_URL",
+    input.NEXT_PUBLIC_SUPABASE_URL,
+    appEnv === "local",
+  );
   const supabasePublishableKey = clean(input.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 
   if (dataMode !== "mock") {
@@ -95,17 +99,36 @@ function clean(value: string | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function optionalUrl(name: string, value: string | undefined): string | null {
+function optionalUrl(
+  name: string,
+  value: string | undefined,
+  allowLoopbackHttp = false,
+): string | null {
   const normalized = clean(value);
   if (!normalized) return null;
   let parsed: URL;
   try {
     parsed = new URL(normalized);
   } catch {
-    throw new Error(`${name} must be a valid HTTPS URL`);
+    throw new Error(
+      `${name} must be a valid HTTPS URL or a local loopback URL`,
+    );
   }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash)
-    throw new Error(`${name} must be a valid HTTPS URL`);
+  const isLocalLoopback =
+    allowLoopbackHttp &&
+    parsed.protocol === "http:" &&
+    ["127.0.0.1", "localhost", "::1"].includes(parsed.hostname);
+  if (
+    (parsed.protocol !== "https:" && !isLocalLoopback) ||
+    parsed.username ||
+    parsed.password ||
+    parsed.search ||
+    parsed.hash
+  ) {
+    throw new Error(
+      `${name} must be a valid HTTPS URL or a local loopback URL`,
+    );
+  }
   return parsed.toString().replace(/\/$/, "");
 }
 
