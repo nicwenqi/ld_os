@@ -11,6 +11,7 @@ const evidencePath = new URL("../docs/recovery-e0/e0-b-migration-rehearsal-evide
 const manifestArtifactPath = new URL("../docs/recovery-e0/e0-b-local-migration-manifest.sha256", import.meta.url);
 const migrationHistoryArtifactPath = new URL("../docs/recovery-e0/e0-b-local-migration-history.txt", import.meta.url);
 const commandResultsArtifactPath = new URL("../docs/recovery-e0/e0-b-command-results.md", import.meta.url);
+const e0cEntryDecisionPath = new URL("../docs/recovery-e0/e0-c-entry-decision-lock.md", import.meta.url);
 
 const requiredControls = [
   ["application-sha", "Application SHA:"],
@@ -221,4 +222,25 @@ test("completed E0-B evidence is self-contained and records a local stop-recover
     assert.equal(commandResultsArtifact.includes(requiredText), true, `command-result artifact requires: ${requiredText}`);
   }
   assert.doesNotMatch(commandResultsArtifact, /sb_(?:secret|publishable)|eyJ[a-zA-Z0-9_-]{20,}/, "command-result artifact must not contain credentials or JWTs");
+});
+
+test("E0-C remains locked until named pilot authority, baseline status, and a real requirement approval exist", async () => {
+  assert.equal(existsSync(e0cEntryDecisionPath), true, "E0-C entry decision lock must exist before pilot initialization is considered");
+
+  const entryLock = await readFile(e0cEntryDecisionPath, "utf8");
+  for (const requiredText of [
+    "**Decision:** **NO GO — E0-C has not started.**",
+    "Lint warning owner: **Unassigned — blocking**",
+    "Pilot property owner: **Unassigned — blocking**",
+    "L&D responsibility owner: **Unassigned — blocking**",
+    "Pilot scope: **Unapproved — blocking**",
+    "Employee baseline status: **Cannot start**",
+    "消防安全年度培训",
+    "**Candidate only; not an approved or Effective Requirement Version.**",
+    "No Production or other remote environment was connected.",
+    "Do not create a Course, Requirement, Plan, Session, Attendance, or Completion fact.",
+    "D0–D4 semantics remain unchanged.",
+  ]) {
+    assert.equal(entryLock.includes(requiredText), true, `E0-C entry decision lock requires: ${requiredText}`);
+  }
 });
