@@ -332,7 +332,7 @@ export function DepartmentSessionWorkspace() {
           <div>{foundation.scope.map(scope => <article key={scope.departmentId}><span>{scope.breadcrumb?.join(" › ") || "授权范围"}</span><strong>{scope.departmentName}</strong><small>{scope.includeDescendants ? "包含下级部门" : "仅当前部门"}</small></article>)}</div>
         </section>
         <section className="d2-judgment">
-          <div><span>当前部门运营边界</span><h2>{foundation.sessions.length ? "部门场次准备事实已接入" : "当前授权范围尚无场次事实"}</h2><p>这里显示计划交付与发布准备；已发布场次可进入独立出勤登记，完成证据与反馈仍未接入。</p></div>
+          <div><span>当前部门运营边界</span><h2>{foundation.sessions.length ? "部门场次准备事实已接入" : "当前授权范围尚无场次事实"}</h2><p>这里显示计划交付与发布准备；已发布场次可进入独立出勤登记，完成证据在 D4 独立核验，反馈仍未接入。</p></div>
           <div className="d2-boundary"><strong>当前场次准备边界</strong><span>场地、培训师授权、部门受众、员工事实快照和负责人确认。</span></div>
         </section>
         <section className="d2-register">

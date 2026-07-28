@@ -217,7 +217,6 @@ select results_eq(
         'shift_attendance',
         'payroll_attendance',
         'training_completion_records',
-        'completion_evidence',
         'requirement_fulfillment',
         'kpi_actuals',
         'training_forecasts',
@@ -226,7 +225,7 @@ select results_eq(
         'ai_recommendations'
       )$$,
   array[0::bigint],
-  'D3 creates no HR attendance, completion or analytical facts'
+  'D3 creates no HR attendance or analytical facts outside its boundary'
 );
 
 -- Local synthetic actors and one immutable D2 delivery.

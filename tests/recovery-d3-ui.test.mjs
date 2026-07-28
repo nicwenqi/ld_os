@@ -78,7 +78,7 @@ test("QR experience preserves Observation, determination and Completion boundari
   assert.match(checkIn, /最终出勤仍需培训负责人核对/);
   assert.doesNotMatch(checkIn, /attendanceRate|completion|KPI|完成培训/);
   assert.match(workspace, /QR 签到只形成现场 Observation/);
-  assert.match(workspace, /完成证据尚未接入/);
+  assert.match(workspace, /完成证据已在独立模块接入/);
 });
 
 test("D3 navigation is available while Feedback remains truthfully unavailable", () => {

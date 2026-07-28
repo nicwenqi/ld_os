@@ -192,7 +192,6 @@ select results_eq(
       and relation.relname in (
         'training_assignments',
         'attendance_records',
-        'completion_records',
         'training_feedback',
         'kpi_actuals',
         'training_forecasts',
@@ -200,7 +199,7 @@ select results_eq(
         'training_interventions'
   )$$,
   array[0::bigint],
-  'D1 contracts remain free of assignment, execution and analytical facts'
+  'D1 contracts remain free of assignment and analytical facts outside later recoveries'
 );
 
 reset role;

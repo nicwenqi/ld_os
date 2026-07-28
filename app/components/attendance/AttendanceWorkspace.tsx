@@ -267,7 +267,7 @@ export function AttendanceWorkspace({ mode }: { mode: Mode }) {
         <aside>
           <strong>{workspace.registers.length}</strong>
           <span>个真实场次登记边界</span>
-          <em>完成证据尚未接入</em>
+          <em>完成证据已在独立模块接入</em>
         </aside>
       </header>
 
@@ -296,7 +296,7 @@ export function AttendanceWorkspace({ mode }: { mode: Mode }) {
           <span>当前事实判断</span>
           <h2>
             {workspace.registers.length
-              ? "出勤事实已接入；完成、反馈与 KPI 仍保持不可用"
+              ? "出勤事实已接入；完成证据独立核验，反馈与 KPI 仍保持不可用"
               : "尚无已发布场次可开放出勤登记"}
           </h2>
           <p>
@@ -305,9 +305,14 @@ export function AttendanceWorkspace({ mode }: { mode: Mode }) {
               : "请先在培训场次中完成真实场次发布，再回到此处登记。"}
           </p>
         </div>
-        <Link href={mode === "manager" ? "/sessions" : "/department/sessions"}>
-          返回培训场次
-        </Link>
+        <div className="d3-return-paths">
+          <Link href={mode === "manager" ? "/sessions" : "/department/sessions"}>
+            返回培训场次
+          </Link>
+          <Link href={mode === "manager" ? "/completions" : "/department/completions"}>
+            查看完成证据
+          </Link>
+        </div>
       </section>
 
       {message && (
@@ -386,7 +391,8 @@ export function AttendanceWorkspace({ mode }: { mode: Mode }) {
           <span>FEEDBACK BOUNDARY</span>
           <h2>反馈尚未接入真实数据</h2>
           <p>
-            D3 不创建反馈、完成记录、要求履行、出勤率、KPI、风险或预测。
+            D3 不创建反馈、要求履行、出勤率、KPI、风险或预测；完成事实在独立
+            D4 模块中显式核验。
           </p>
         </div>
         <em>不可用不是零</em>

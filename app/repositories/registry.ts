@@ -15,6 +15,7 @@ import type { InitializationRepository } from "./contracts/initialization-reposi
 import type { LearningRequirementRepository } from "./contracts/learning-requirement-repository.ts";
 import type { TrainingOperationsRepository } from "./contracts/training-operations-repository.ts";
 import type { AttendanceRepository } from "./contracts/attendance-repository.ts";
+import type { CompletionRepository } from "./contracts/completion-repository.ts";
 import { createMockDepartmentRepository } from "./mock/department-repository.ts";
 import { createMockPositionRepository } from "./mock/position-repository.ts";
 import { createMockPropertyRepository } from "./mock/property-repository.ts";
@@ -31,6 +32,7 @@ import { createMockLearningRequirementRepository } from "./mock/learning-require
 import { createSupabaseLearningRequirementRepository } from "./supabase/learning-requirement-repository.ts";
 import { createSupabaseTrainingOperationsRepository } from "./supabase/training-operations-repository.ts";
 import { createSupabaseAttendanceRepository } from "./supabase/attendance-repository.ts";
+import { createSupabaseCompletionRepository } from "./supabase/completion-repository.ts";
 
 export type ModuleName =
   | "hotel-settings"
@@ -49,7 +51,8 @@ export type ModuleName =
   | "people"
   | "import"
   | "learning-requirements"
-  | "attendance";
+  | "attendance"
+  | "completion";
 
 export function dataSourceForModule(moduleName: ModuleName, dataMode: AppDataMode): RepositoryDataSource {
   const foundationModules: ModuleName[] = [
@@ -63,7 +66,8 @@ export function dataSourceForModule(moduleName: ModuleName, dataMode: AppDataMod
   if (
     moduleName === "plans" ||
     moduleName === "sessions" ||
-    moduleName === "attendance"
+    moduleName === "attendance" ||
+    moduleName === "completion"
   ) {
     return dataMode === "mock" ? "unavailable" : "supabase";
   }
@@ -82,6 +86,7 @@ export function createRepositoryRegistry(input?: {
   learningRequirementRepository?: LearningRequirementRepository;
   trainingOperationsRepository?: TrainingOperationsRepository;
   attendanceRepository?: AttendanceRepository;
+  completionRepository?: CompletionRepository;
 }) {
   const environment = input?.environment ?? parseAppEnvironment();
   assertProductionDataBoundary(environment.appEnv, environment.dataMode);
@@ -113,6 +118,11 @@ export function createRepositoryRegistry(input?: {
       ? createSupabaseAttendanceRepository(client!)
       : null
   );
+  const completion = input?.completionRepository ?? (
+    dataSourceForModule("completion", environment.dataMode) === "supabase"
+      ? createSupabaseCompletionRepository(client!)
+      : null
+  );
   return {
     environment,
     property,
@@ -124,6 +134,7 @@ export function createRepositoryRegistry(input?: {
     learningRequirement,
     trainingOperations,
     attendance,
+    completion,
     dataSourceForModule: (moduleName: ModuleName) =>
       dataSourceForModule(moduleName, environment.dataMode),
   };

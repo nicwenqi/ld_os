@@ -470,7 +470,7 @@ export function SessionWorkspace() {
           <div>
             <span>当前事实边界</span>
             <h2>{foundation.sessions.length ? "场次计划与准备事实已接入" : "尚未建立真实培训场次"}</h2>
-            <p>已发布场次冻结交付条件与参与人快照；发布后可前往“出勤与反馈”开放真实出勤登记，完成证据与反馈仍未接入。</p>
+            <p>已发布场次冻结交付条件与参与人快照；发布后可前往“出勤与反馈”开放真实出勤登记，完成证据在 D4 独立核验，反馈仍未接入。</p>
           </div>
           <div className="d2-boundary">
             <strong>发布前证据</strong>
