@@ -6,7 +6,7 @@ This runbook replays the already-approved D0-D4 release artifact only in a dispo
 
 This rehearsal makes no migration, D0-D4 semantic, application behavior, UI, D5, KPI, Feedback, AI, Forecast, Health, or Risk change.
 
-Every command below is local-only and isolates Supabase CLI state with `HOME=/tmp/codex-supabase` and `SUPABASE_TELEMETRY_DISABLED=true`. Do not replace the local flags, the isolated HOME, or the telemetry setting.
+Every command below is local-only and isolates Supabase CLI state with `HOME=/tmp/codex-supabase` and `DO_NOT_TRACK=1`. Before replay, run `supabase telemetry disable` in that temporary HOME and verify `supabase telemetry status` reports disabled. Do not replace the local flags, the isolated HOME, or the telemetry setting.
 
 ## Hard prohibitions
 

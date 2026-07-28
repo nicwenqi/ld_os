@@ -7,6 +7,8 @@ const templatePath = new URL("../docs/recovery-e0/release-manifest-template.md",
 const rehearsalRunbookPath = new URL("../docs/recovery-e0/migration-rehearsal-runbook.md", import.meta.url);
 const evidenceRunbookPath = new URL("../docs/recovery-e0/rehearsal-runbook.md", import.meta.url);
 const evidenceTemplatePath = new URL("../docs/recovery-e0/evidence-register-template.md", import.meta.url);
+const evidencePath = new URL("../docs/recovery-e0/e0-b-migration-rehearsal-evidence.md", import.meta.url);
+const manifestArtifactPath = new URL("../docs/recovery-e0/e0-b-local-migration-manifest.sha256", import.meta.url);
 
 const requiredControls = [
   ["application-sha", "Application SHA:"],
@@ -148,4 +150,38 @@ test("E0-B evidence protocol distinguishes verified local proof from unperformed
       `E0-B evidence protocol requires visible control: ${requiredText}`,
     );
   }
+});
+
+test("completed E0-B evidence is self-contained and records a local stop-recovery trail", async () => {
+  assert.equal(existsSync(evidencePath), true, "completed E0-B evidence must exist");
+  assert.equal(existsSync(manifestArtifactPath), true, "local migration manifest artifact must exist");
+
+  const [evidence, manifestArtifact] = await Promise.all([
+    readFile(evidencePath, "utf8"),
+    readFile(manifestArtifactPath, "utf8"),
+  ]);
+
+  for (const requiredText of [
+    "Release source commit (full SHA):",
+    "Supabase CLI:",
+    "UTC started:",
+    "UTC completed:",
+    "Telemetry: temporary-home `supabase telemetry disable` returned disabled; `DO_NOT_TRACK=1` was set",
+    "Migration manifest artifact:",
+    "Migration history artifact:",
+    "No-seed count artifact:",
+    "D0–D4 focused pgTAP: 5 files, 259 assertions, PASS",
+    "Full pgTAP: 22 files, 737 assertions, PASS",
+    "RLS/RPC/Storage: 7 checks, PASS",
+    "Manifest mismatch stop: Blocked",
+    "Recovery reset: Verified",
+    "Final cleanup: Verified",
+    "No Preview or Production connection was used.",
+  ]) {
+    assert.equal(evidence.includes(requiredText), true, `E0-B evidence requires: ${requiredText}`);
+  }
+
+  const manifestLines = manifestArtifact.trim().split("\n").filter(Boolean);
+  assert.equal(manifestLines.length, 29, "manifest artifact must contain every local migration checksum");
+  assert.match(manifestArtifact, /20260728145050_recovery_d4_completion_evidence\.sql/);
 });
