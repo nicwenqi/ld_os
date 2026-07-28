@@ -86,67 +86,67 @@ Each runbook must have: purpose; preconditions; prohibited commands/actions; nam
   git commit -m "docs: add E0 release readiness controls"
   ```
 
-## Task 2: Read-only production alignment and recovery controls
+## Task 2: E0-B non-production migration rehearsal contract
 
 **Files:**
 
-- Create: `docs/recovery-e0/production-alignment-runbook.md`
+- Create: `docs/recovery-e0/migration-rehearsal-runbook.md`
 - Modify: `tests/recovery-e0-readiness.test.mjs`
 
-- [ ] **Step 1: Extend the test with the required hold conditions.**
+- [ ] **Step 1: Extend the readiness test with local-rehearsal controls.**
 
-  Require manifest-vs-remote migration comparison, schema-drift recording, backup/recovery owner, explicit forward-correction default, and a stop for unexplained drift. Assert the runbook forbids remote reset, seed, migration repair, destructive correction, and mixing schema migration with employee import.
+  Require an empty local reset without seed, ordered local migration inventory/checksum comparison, local migration-history verification, focused and full pgTAP, and a local-only recovery point. Require explicit proof that no linked/remote command, real employee import, real account creation, or real business fact is permitted. Allow the repository-owned synthetic seed only after the empty replay is recorded and only for the existing pgTAP security-fixture lane.
 
 - [ ] **Step 2: Run the focused test; confirm the new assertions fail.**
 
   Run: `node --test tests/recovery-e0-readiness.test.mjs`
 
-- [ ] **Step 3: Write the alignment runbook.**
+- [ ] **Step 3: Write the non-production migration-rehearsal runbook.**
 
-  Keep all remote inspection commands as placeholders owned by the database owner; do not execute them during E0 implementation. Specify `db push --dry-run` as an inspection aid only after approved credentials/context, and record an explicit hold if any pending migration differs from the approved manifest.
+  Use local-only commands with `HOME=/tmp/codex-supabase` and `SUPABASE_TELEMETRY_DISABLED=true`. Record the expected stop criteria, including migration failure, inventory mismatch, pgTAP failure, RLS/RPC/Storage test failure, or unrecoverable local reset. Define recovery as: preserve redacted evidence, stop the run, reset the disposable local database, and diagnose from a clean replay. Do not define a Production operation.
 
 - [ ] **Step 4: Re-run the focused test.**
 
-  Expected: release and alignment assertions pass.
+  Expected: release and local-rehearsal assertions pass.
 
 - [ ] **Step 5: Commit.**
 
   ```bash
-  git add docs/recovery-e0/production-alignment-runbook.md tests/recovery-e0-readiness.test.mjs
-  git commit -m "docs: define E0 production alignment gate"
+  git add docs/recovery-e0/migration-rehearsal-runbook.md tests/recovery-e0-readiness.test.mjs
+  git commit -m "docs: define E0 local migration rehearsal"
   ```
 
-## Task 3: Clean local and protected Preview rehearsal
+## Task 3: E0-B empty-environment replay and security evidence
 
 **Files:**
 
 - Create: `docs/recovery-e0/rehearsal-runbook.md`
 - Modify: `tests/recovery-e0-readiness.test.mjs`
 
-- [ ] **Step 1: Add test assertions for rehearsal coverage.**
+- [ ] **Step 1: Add test assertions for the redacted rehearsal evidence.**
 
-  Require a clean local reset with non-identifying fixtures; D0–D4 pgTAP/application/build evidence; manager, scoped department, anonymous public QR, unrelated-department denial, deactivated-account denial, direct-route denial, private-storage denial, and append-only correction checks. Require cleanup of fixtures, browser sessions, tokens, and screenshots with personal data.
+  Require an evidence register that distinguishes verified/non-performed/blocked, records migration count/order/checksums, reset timestamp and local-only target, pgTAP totals, RLS/RPC/Storage security coverage, failure stop/recovery evidence, and privacy cleanup. No real hotel identity, employee, account, QR token, or training fact may be represented as rehearsal evidence.
 
 - [ ] **Step 2: Run test and verify failure.**
 
   Run: `node --test tests/recovery-e0-readiness.test.mjs`
 
-- [ ] **Step 3: Create the rehearsal runbook.**
+- [ ] **Step 3: Create the rehearsal runbook and evidence template.**
 
-  Define the participant roles, safe fixture standard, desktop/tablet/mobile checks, no-console/no-failed-request/no-horizontal-overflow checks, and the redacted evidence register. State that a Preview proves only the deployed candidate’s experience; it cannot prove Production data or permissions.
+  Define an empty-environment replay: start only local Supabase; reset only the local database without seed; record and compare the ordered local migration history to the manifest; then reset the same disposable database with only the repository-owned synthetic seed for focused D0–D4/full pgTAP and RLS/RPC/Storage coverage. Inspect failure stop/recovery by a deliberate non-mutating manifest mismatch check followed by a clean reset. State that no Preview or Production connection is part of E0-B.
 
-- [ ] **Step 4: Execute focused test and full existing local verification.**
+- [ ] **Step 4: Execute the local rehearsal and verification.**
 
-  Run the project’s clean local Supabase reset, D0–D4 pgTAP suite, application tests, production build, rendered-page test, and the focused readiness test. Run browser rehearsal only against local/Preview non-production context. Do not connect to Production.
+  Run `supabase db reset --local --no-seed`, local migration-list/inventory verification, then the documented synthetic test-lane reset, D0–D4 focused pgTAP, complete pgTAP suite, focused readiness test, and the application test/build already required by the release manifest. Stop immediately on failure; only a second clean local reset may begin a recovery run. Do not use `--linked`, `db push`, `db pull`, migration repair, browser login, or any remote connection.
 
-- [ ] **Step 5: Commit and stop at E0-C.**
+- [ ] **Step 5: Commit and stop at Review Stop E0-B.**
 
   ```bash
-  git add docs/recovery-e0/rehearsal-runbook.md tests/recovery-e0-readiness.test.mjs
-  git commit -m "docs: add E0 pilot rehearsal gate"
+  git add docs/recovery-e0/rehearsal-runbook.md docs/recovery-e0/evidence-register-template.md tests/recovery-e0-readiness.test.mjs
+  git commit -m "docs: record E0 local migration rehearsal"
   ```
 
-  Stop and submit the E0-C evidence plus a request for explicit authorization before any remote schema, baseline, or pilot activity.
+  Stop and submit E0-B evidence plus a request for explicit authorization before E0-C pilot-property initialization, any remote schema action, employee baseline, or pilot fact.
 
 ## Task 4: Controlled employee baseline and finite activation procedure
 

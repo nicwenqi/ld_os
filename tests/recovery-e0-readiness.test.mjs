@@ -5,6 +5,8 @@ import test from "node:test";
 
 const templatePath = new URL("../docs/recovery-e0/release-manifest-template.md", import.meta.url);
 const rehearsalRunbookPath = new URL("../docs/recovery-e0/migration-rehearsal-runbook.md", import.meta.url);
+const evidenceRunbookPath = new URL("../docs/recovery-e0/rehearsal-runbook.md", import.meta.url);
+const evidenceTemplatePath = new URL("../docs/recovery-e0/evidence-register-template.md", import.meta.url);
 
 const requiredControls = [
   ["application-sha", "Application SHA:"],
@@ -59,10 +61,12 @@ const rehearsalControls = [
   ["forbid-push", "Do not run `supabase db push`."],
   ["forbid-pull", "Do not run `supabase db pull`."],
   ["forbid-repair", "Do not run migration repair."],
-  ["forbid-seed", "Do not use seed data."],
-  ["forbid-employee-import", "Do not import employees."],
-  ["forbid-account-creation", "Do not create accounts."],
-  ["forbid-business-fixtures", "Do not create business-fact fixtures."],
+  ["empty-replay-no-seed", "supabase db reset --local --no-seed"],
+  ["synthetic-test-lane", "Synthetic test lane (local only)"],
+  ["synthetic-after-empty-replay", "Only after the empty replay has been recorded"],
+  ["forbid-real-employee-import", "Do not import real employees."],
+  ["forbid-real-account-creation", "Do not create real accounts."],
+  ["forbid-real-business-facts", "Do not create real training business facts."],
   ["forbid-remote", "Do not connect to any remote or Production environment."],
   ["forbid-production-data-change", "Do not change Production data."],
   ["recovery-preserve-evidence", "Preserve only redacted evidence."],
@@ -115,5 +119,33 @@ test("migration rehearsal runbook constrains the E0-B replay to a disposable loc
   ]) {
     const runbookWithoutControl = runbook.replace(requiredText, "");
     assert.deepEqual(missingRehearsalControls(runbookWithoutControl), [missingControl]);
+  }
+});
+
+test("E0-B evidence protocol distinguishes verified local proof from unperformed remote work", async () => {
+  assert.equal(existsSync(evidenceRunbookPath), true, "E0-B evidence runbook must exist");
+  assert.equal(existsSync(evidenceTemplatePath), true, "E0-B evidence register template must exist");
+
+  const [runbook, template] = await Promise.all([
+    readFile(evidenceRunbookPath, "utf8"),
+    readFile(evidenceTemplatePath, "utf8"),
+  ]);
+
+  for (const requiredText of [
+    "Verified",
+    "Not performed",
+    "Blocked",
+    "Accepted exception",
+    "migration count, order, and checksums",
+    "RLS/RPC/Storage",
+    "failure stop and recovery",
+    "No real hotel identity, employee, account, QR token, or training fact",
+    "No Preview or Production connection",
+  ]) {
+    assert.equal(
+      `${runbook}\n${template}`.includes(requiredText),
+      true,
+      `E0-B evidence protocol requires visible control: ${requiredText}`,
+    );
   }
 });

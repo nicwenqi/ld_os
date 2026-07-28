@@ -14,10 +14,9 @@ Every command below is local-only and isolates Supabase CLI state with `HOME=/tm
 - Do not run `supabase db push`.
 - Do not run `supabase db pull`.
 - Do not run migration repair.
-- Do not use seed data.
-- Do not import employees.
-- Do not create accounts.
-- Do not create business-fact fixtures.
+- Do not import real employees.
+- Do not create real accounts.
+- Do not create real training business facts.
 - Do not connect to any remote or Production environment.
 - Do not change Production data.
 
@@ -58,6 +57,16 @@ No production connection, schema operation, data operation, traffic operation, o
    Compare the local history with the same approved inventory; do not repair a mismatch.
 
 ## Verification sequence
+
+### Synthetic test lane (local only)
+
+Only after the empty replay has been recorded, reset the same disposable local database with the repository's built-in synthetic seed solely to supply the existing pgTAP security-fixture baseline:
+
+```sh
+HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase db reset --local
+```
+
+This second reset is not employee-baseline import, hotel activation, or Pilot data creation. It may create only repository-owned synthetic fixtures required by the test suite; those fixtures remain local and are removed when the disposable stack is stopped or reset without seed. Do not add any new fixture, workbook, account, employee, course, requirement, session, attendance, or completion record outside the test transactions already owned by the repository suite.
 
 Run the focused D0-D4 pgTAP tests in order. These commands use only the local database and the repository test files.
 
