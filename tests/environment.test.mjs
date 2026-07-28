@@ -35,6 +35,13 @@ test("production can never fall back to local-review mock data", () => {
   );
 });
 
+test("production requires the Supabase data mode", () => {
+  assert.throws(
+    () => parseAppEnvironment({ APP_ENV: "production", APP_DATA_MODE: "hybrid" }),
+    /Production must use APP_DATA_MODE=supabase/,
+  );
+});
+
 test("Supabase data modes require a URL and publishable key", () => {
   assert.throws(
     () => parseAppEnvironment({ APP_DATA_MODE: "supabase" }),

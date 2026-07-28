@@ -20,9 +20,9 @@ export function assertProductionDataBoundary(
   appEnv: AppEnvironmentName,
   dataMode: AppDataMode,
 ) {
-  if (appEnv === "production" && dataMode === "mock") {
+  if (appEnv === "production" && dataMode !== "supabase") {
     throw new Error(
-      "Production cannot use local-review repositories; set APP_DATA_MODE to hybrid or supabase",
+      "Production cannot use local-review repositories; Production must use APP_DATA_MODE=supabase",
     );
   }
 }
