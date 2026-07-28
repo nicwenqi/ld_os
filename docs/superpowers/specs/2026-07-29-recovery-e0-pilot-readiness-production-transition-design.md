@@ -70,15 +70,14 @@ No single success metric substitutes for these gates.
 
 | Gate | Decision | Evidence | Required approval | What is forbidden before it passes |
 |---|---|---|---|---|
-| E0-A | Release candidate | commit, build, migration manifest, test reports | technical owner | remote access or production action |
-| E0-B | Remote alignment | read-only migration/drift/backup record | technical owner + database owner | rehearsal conclusion |
-| E0-C | Production-like rehearsal | redacted run record and security test evidence | L&D product owner + technical owner | production schema change |
-| E0-D | Production schema release | approved pending-migration manifest and rollback/forward plan | explicit user approval + database owner | `db push` or any production DDL |
-| E0-E | Activation and employee baseline | approved import preview, data-quality report, role/scope checklist | Hotel L&D Manager | real pilot delivery facts |
-| E0-F | First closed loop | lineage audit from requirement to reviewed completion | Hotel L&D Manager + pilot department owner | pilot expansion |
-| E0-G | Continue, hold, or correct | post-pilot review and open-issue register | Hotel L&D Manager + product owner | additional departments or broad launch |
+| E0-A | Release manifest and environment checks | commit, build, migration manifest, mode-boundary checks | technical owner | local migration rehearsal |
+| E0-B | Non-production migration rehearsal | clean-reset/rehearsal record, security test evidence | technical owner + database owner | pilot-property initialization request |
+| E0-C | Pilot-property initialization | approved activation/role/scope checklist and remote-alignment record | explicit user approval + Hotel L&D Manager + database owner | real employee baseline request |
+| E0-D | Employee-baseline import verification | approved zero-write preview, data-quality report, authoritative re-read | explicit user approval + Hotel L&D Manager | real pilot delivery facts |
+| E0-E | First closed-loop verification | lineage audit from requirement to reviewed completion | explicit user approval + Hotel L&D Manager + pilot department owner | Pilot acceptance report |
+| E0-F | Pilot acceptance report | evidence register, open-issue register, Go/Conditional Go/No Go | Hotel L&D Manager + product owner | additional departments or broad launch |
 
-E0 stops at the next unapproved gate. Approval of E0 design is not approval for E0-D, E0-E, or E0-F.
+E0 stops at the next unapproved gate. Approval of E0 design is not approval for E0-C, E0-D, or E0-E.
 
 ## 6. Production migration strategy
 
@@ -103,7 +102,7 @@ Supabase’s CLI workflow supports inspecting pending changes with `db push --dr
 
 ### 6.3 Approved schema window
 
-Only after E0-D approval may the database owner apply the exact pending manifest migrations once, without seeds, employee import, or unrelated data change in that same operation. Record the resulting remote migration history, database timestamp, and post-change read-only probes.
+Only after E0-C approval may the database owner apply the exact pending manifest migrations once, without seeds, employee import, or unrelated data change in that same operation. Record the resulting remote migration history, database timestamp, and post-change read-only probes.
 
 The application is deployed or traffic is switched only through the separately approved release process after post-migration verification. E0 itself does not authorize Production deployment, DNS, environment-variable change, or merge.
 
@@ -231,4 +230,3 @@ E0 is complete only when:
 - no E0 implementation changes D0–D4 semantics or introduces a prohibited feature;
 - Review Stop E0 provides a clear `Go`, `Conditional Go`, or `No Go` for the first production pilot; and
 - no Production schema, employee, account, deployment, DNS, or environment change occurs during E0 design work.
-

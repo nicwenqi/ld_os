@@ -23,15 +23,14 @@ The plan deliberately separates local deliverables from remote actions:
 
 | Gate | Deliverable | Approval needed to continue |
 |---|---|---|
-| E0-A | release manifest and release-boundary checks | technical owner |
-| E0-B | read-only production-alignment runbook and recovery decision record | database owner + technical owner |
-| E0-C | clean local/Preview rehearsal and redacted evidence | product/L&D owner + technical owner |
-| E0-D | exact production migration release request | explicit user approval + database owner |
-| E0-E | employee-baseline and activation request | explicit Hotel L&D Manager approval |
-| E0-F | first-loop execution request | explicit Hotel L&D Manager + pilot owner approval |
-| E0-G | pilot continuation decision | named business and product approvers |
+| E0-A | release manifest and environment checks | technical owner |
+| E0-B | non-production migration rehearsal | technical owner + database owner |
+| E0-C | pilot-property initialization request | explicit user approval + Hotel L&D Manager + database owner |
+| E0-D | employee-baseline import verification request | explicit user approval + Hotel L&D Manager |
+| E0-E | first-loop verification request | explicit user approval + Hotel L&D Manager + pilot owner |
+| E0-F | pilot acceptance report | named business and product approvers |
 
-Implementation must stop at E0-C until the user explicitly authorizes E0-D. E0-D/E/F are procedures and evidence templates now, not actions now.
+Implementation must stop after E0-B until the user explicitly authorizes E0-C. E0-C/D/E are procedures and evidence templates now, not actions now.
 
 ## Proposed deliverable structure
 
@@ -58,11 +57,13 @@ Each runbook must have: purpose; preconditions; prohibited commands/actions; nam
 
 - Create: `docs/recovery-e0/release-manifest-template.md`
 - Create: `tests/recovery-e0-readiness.test.mjs`
-- Modify: `package.json` only if the existing test runner has no safe way to include the new Node test
+- Modify: `app/lib/environment.ts`
+- Modify: `tests/environment.test.mjs`
+- Modify: `package.json` to include the readiness test in the explicit standard test suite
 
 - [ ] **Step 1: Write the failing source-boundary test.**
 
-  Assert that the manifest template requires application SHA, branch, build identifier, ordered migration filenames/checksums, local reset/pgTAP/app/build/browser evidence, named owners, compatibility declaration, redaction statement, and a `not performed` state. Assert it rejects a manifest that records an unapproved production action as complete.
+  Assert that the manifest template requires the substantive application SHA, branch, build identifier, ordered migration filenames/checksums, local reset/pgTAP/app/build/browser evidence, named owners, compatibility declaration, redaction statement, and `not performed` statements. Assert it rejects removal of substantive safety text, not merely metadata. Add an environment regression proving `APP_ENV=production` rejects `APP_DATA_MODE=hybrid` while local and Preview may retain their approved hybrid behavior.
 
 - [ ] **Step 2: Run the focused test and confirm it fails because the template is absent.**
 
@@ -72,7 +73,7 @@ Each runbook must have: purpose; preconditions; prohibited commands/actions; nam
 
 - [ ] **Step 3: Create the release-manifest template.**
 
-  Require `APP_ENV=production` and `APP_DATA_MODE=supabase` as the production mode declaration. Include an explicit forbidden-command list (`db reset --linked`, `--include-seed`, migration history repair, raw employee export) and a statement that the manifest author does not authorize production work.
+  Require `APP_ENV=production` and `APP_DATA_MODE=supabase` as the production mode declaration. Make the existing environment boundary fail closed for every non-Supabase Production data mode, without changing local or Preview hybrid behavior. Include an explicit forbidden-command list (`db reset --linked`, `--include-seed`, migration history repair, raw employee export) and a statement that the manifest author does not authorize production work.
 
 - [ ] **Step 4: Re-run the focused test.**
 
@@ -252,4 +253,3 @@ Each runbook must have: purpose; preconditions; prohibited commands/actions; nam
 - [ ] RLS/RPC/Storage, source-mode, property, role, scope, browser, accessibility, and cleanup evidence are complete or honestly marked not performed.
 - [ ] D0–D4 contracts are unchanged; no migration or Production change occurred while implementing the E0 local deliverables.
 - [ ] E0-C is reviewed before any E0-D, E0-E, or E0-F approval request.
-
