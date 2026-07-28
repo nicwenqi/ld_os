@@ -145,6 +145,35 @@ select results_eq(
   'D3 exposes no direct browser table access'
 );
 
+select results_eq(
+  $$select count(*)
+    from pg_constraint constraint_row
+    join pg_namespace namespace
+      on namespace.oid = constraint_row.connamespace
+    where constraint_row.contype = 'f'
+      and namespace.nspname = 'public'
+      and constraint_row.conrelid::regclass::text in (
+        'session_participant_snapshots',
+        'attendance_registers',
+        'attendance_register_events',
+        'attendance_evidence',
+        'attendance_observations',
+        'attendance_determinations',
+        'attendance_determination_observations',
+        'attendance_checkin_grants',
+        'attendance_checkin_attempts'
+      )
+      and not exists (
+        select 1
+        from pg_index index_row
+        where index_row.indrelid = constraint_row.conrelid
+          and index_row.indisvalid
+          and index_row.indkey[0] = constraint_row.conkey[1]
+      )$$,
+  array[0::bigint],
+  'every D3 foreign-key path has a leading supporting index'
+);
+
 select function_privs_are(
   'public',
   'submit_attendance_checkin',
@@ -634,6 +663,18 @@ select ok(
   ),
   'manager can issue a purpose-bound QR check-in grant'
 );
+select throws_ok(
+  format(
+    $$select public.issue_attendance_checkin_grant(
+      %L::uuid,
+      1
+    )$$,
+    (select value from d3_test_ids where key = 'register')
+  ),
+  'P0001',
+  '出勤登记版本已变化，请刷新后重试。',
+  'stale attendance versions return a non-retryable business conflict'
+);
 
 reset role;
 select is(
@@ -700,13 +741,13 @@ select is(
   20::bigint,
   'distinct participants are not blocked by one register-wide QR attempt cap'
 );
+reset role;
 select is(
   (select count(*) from public.attendance_checkin_attempts),
   22::bigint,
   'privacy-minimized attempts remain auditable without globally blocking a normal session'
 );
 
-reset role;
 select is(
   (select count(*) from public.attendance_observations),
   1::bigint,

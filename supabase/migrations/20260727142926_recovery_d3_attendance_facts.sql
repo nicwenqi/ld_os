@@ -331,12 +331,22 @@ create index attendance_registers_property_idx
   on public.attendance_registers(property_id);
 create index attendance_registers_revision_idx
   on public.attendance_registers(session_revision_id);
+create index participant_snapshots_supplemental_authorizer_idx
+  on public.session_participant_snapshots(supplemental_authorized_by);
+create index attendance_registers_opened_by_idx
+  on public.attendance_registers(opened_by);
+create index attendance_registers_closed_by_idx
+  on public.attendance_registers(closed_by);
 create index attendance_register_events_register_idx
   on public.attendance_register_events(attendance_register_id);
+create index attendance_register_events_actor_idx
+  on public.attendance_register_events(actor_user_id);
 create index attendance_evidence_register_idx
   on public.attendance_evidence(attendance_register_id);
 create index attendance_evidence_participant_idx
   on public.attendance_evidence(participant_snapshot_id);
+create index attendance_evidence_recorded_by_idx
+  on public.attendance_evidence(recorded_by);
 create index attendance_observations_register_idx
   on public.attendance_observations(attendance_register_id);
 create index attendance_observations_participant_idx
@@ -345,6 +355,8 @@ create index attendance_observations_fact_version_idx
   on public.attendance_observations(employee_fact_version_id);
 create index attendance_observations_evidence_idx
   on public.attendance_observations(attendance_evidence_id);
+create index attendance_observations_created_by_idx
+  on public.attendance_observations(created_by);
 create index attendance_determinations_register_idx
   on public.attendance_determinations(attendance_register_id);
 create index attendance_determinations_participant_idx
@@ -353,6 +365,8 @@ create index attendance_determinations_fact_version_idx
   on public.attendance_determinations(employee_fact_version_id);
 create index attendance_determinations_supersedes_idx
   on public.attendance_determinations(supersedes_determination_id);
+create index attendance_determinations_decided_by_idx
+  on public.attendance_determinations(decided_by);
 create index determination_observations_register_idx
   on public.attendance_determination_observations(attendance_register_id);
 create index determination_observations_determination_idx
@@ -365,6 +379,10 @@ create index determination_observations_observation_idx
   );
 create index attendance_checkin_grants_register_idx
   on public.attendance_checkin_grants(attendance_register_id);
+create index attendance_checkin_grants_issued_by_idx
+  on public.attendance_checkin_grants(issued_by);
+create index attendance_checkin_grants_revoked_by_idx
+  on public.attendance_checkin_grants(revoked_by);
 create index attendance_checkin_attempts_register_idx
   on public.attendance_checkin_attempts(attendance_register_id);
 create index attendance_checkin_attempts_grant_idx
@@ -1223,7 +1241,7 @@ begin
       where revision.id = p_session_revision_id
     ) then
       raise exception '场次修订版本已变化，请刷新后重试。'
-        using errcode = '40001';
+        using errcode = 'P0001';
     end if;
     raise exception '未找到可开放出勤的已发布场次。'
       using errcode = 'P0002';
@@ -1313,7 +1331,7 @@ begin
   end if;
   if selected_register.version <> p_expected_version then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   select revision.* into selected_revision
@@ -1378,7 +1396,7 @@ begin
   returning version into selected_version;
   if selected_version is null then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   insert into public.attendance_register_events(
@@ -1745,7 +1763,7 @@ begin
   end if;
   if selected_register.version <> p_expected_version then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
   if selected_register.lifecycle_state = 'closed' then
     raise exception '登记册已关闭，请由经理重新开启后更正。'
@@ -1931,7 +1949,7 @@ begin
   returning version into selected_version;
   if selected_version is null then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   return jsonb_build_object(
@@ -2000,7 +2018,7 @@ begin
   end if;
   if selected_register.version <> p_expected_version then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   select revision.* into selected_revision
@@ -2155,7 +2173,7 @@ begin
   returning version into selected_version;
   if selected_version is null then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   insert into public.attendance_register_events(
@@ -2225,7 +2243,7 @@ begin
   end if;
   if selected_register.version <> p_expected_version then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   update public.attendance_registers register_row
@@ -2300,7 +2318,7 @@ begin
   end if;
   if selected_register.version <> p_expected_version then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
   if exists (
     select 1
@@ -2424,7 +2442,7 @@ begin
   end if;
   if selected_register.version <> p_expected_version then
     raise exception '出勤登记版本已变化，请刷新后重试。'
-      using errcode = '40001';
+      using errcode = 'P0001';
   end if;
 
   update public.attendance_registers register_row
