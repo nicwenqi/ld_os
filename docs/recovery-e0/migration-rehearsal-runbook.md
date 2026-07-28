@@ -26,10 +26,18 @@ No production connection, schema operation, data operation, traffic operation, o
 
 1. Start from the approved release artifact and release-manifest migration inventory. Record only redacted evidence references; never copy credentials, employee data, accounts, workbooks, tokens, or business facts into rehearsal evidence.
 2. Confirm the target is the disposable local stack. If the local stack cannot be started, stop without substituting Preview, remote, or Production.
-3. Start the local stack:
+3. Explicitly disable telemetry inside the disposable CLI home, then verify the persisted setting before any replay command:
 
    ```sh
-   HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase start
+   HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase telemetry disable
+   HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase telemetry status
+   ```
+
+   Stop if the status does not report disabled. `DO_NOT_TRACK=1` is required on every Supabase command even after the temporary-home setting is disabled.
+4. Start the local stack:
+
+   ```sh
+   HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase start
    ```
 
 ## Empty local replay
@@ -37,21 +45,21 @@ No production connection, schema operation, data operation, traffic operation, o
 1. Reset the disposable database without seed data. This is the required empty local reset:
 
    ```sh
-   HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase db reset --local --no-seed
+   HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase db reset --local --no-seed
    ```
 
 2. Record the reset timestamp and the literal local target in the redacted evidence register.
 3. Build the ordered local migration inventory and checksums:
 
    ```sh
-   HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true sh -c "find supabase/migrations -type f -name '*.sql' -print | sort | xargs shasum -a 256"
+   HOME=/tmp/codex-supabase DO_NOT_TRACK=1 sh -c "find supabase/migrations -type f -name '*.sql' -print | sort | xargs shasum -a 256"
    ```
 
 4. Compare that ordered output, including every filename, order, and checksum, against the approved release-manifest inventory. Record the comparison result without copying sensitive content.
 5. Verify local migration history:
 
    ```sh
-   HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase migration list --local
+   HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase migration list --local
    ```
 
    Compare the local history with the same approved inventory; do not repair a mismatch.
@@ -63,7 +71,7 @@ No production connection, schema operation, data operation, traffic operation, o
 Only after the empty replay has been recorded, reset the same disposable local database with the repository's built-in synthetic seed solely to supply the existing pgTAP security-fixture baseline:
 
 ```sh
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase db reset --local
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase db reset --local
 ```
 
 This second reset is not employee-baseline import, hotel activation, or Pilot data creation. It may create only repository-owned synthetic fixtures required by the test suite; those fixtures remain local and are removed when the disposable stack is stopped or reset without seed. Do not add any new fixture, workbook, account, employee, course, requirement, session, attendance, or completion record outside the test transactions already owned by the repository suite.
@@ -71,23 +79,23 @@ This second reset is not employee-baseline import, hotel activation, or Pilot da
 Run the focused D0-D4 pgTAP tests in order. These commands use only the local database and the repository test files.
 
 ```sh
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase test db --local supabase/tests/recovery_d0_foundation_gate_test.sql
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase test db --local supabase/tests/recovery_d1_learning_requirement_foundation_test.sql
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase test db --local supabase/tests/recovery_d2_training_operations_foundation_test.sql
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase test db --local supabase/tests/recovery_d3_attendance_facts_test.sql
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase test db --local supabase/tests/recovery_d4_completion_evidence_test.sql
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase test db --local supabase/tests/recovery_d0_foundation_gate_test.sql
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase test db --local supabase/tests/recovery_d1_learning_requirement_foundation_test.sql
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase test db --local supabase/tests/recovery_d2_training_operations_foundation_test.sql
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase test db --local supabase/tests/recovery_d3_attendance_facts_test.sql
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase test db --local supabase/tests/recovery_d4_completion_evidence_test.sql
 ```
 
 Then run the full local pgTAP suite:
 
 ```sh
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true npx --no-install supabase test db --local
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 npx --no-install supabase test db --local
 ```
 
 Run the repository's existing local RLS, RPC, and Storage security coverage only with its synthetic test fixtures; do not create any additional business-fact fixture:
 
 ```sh
-HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true node --test tests/security-tenancy-source.test.mjs tests/recovery-c-storage-api.test.mjs
+HOME=/tmp/codex-supabase DO_NOT_TRACK=1 node --test tests/security-tenancy-source.test.mjs tests/recovery-c-storage-api.test.mjs
 ```
 
 Recovery point (local only): after the reset, inventory comparison, local migration-history verification, focused pgTAP, full pgTAP, and RLS/RPC/Storage validation have passed, record a redacted evidence reference and the local reset timestamp. This is a local checkpoint, not a backup or a remote recovery point.

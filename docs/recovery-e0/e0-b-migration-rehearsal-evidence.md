@@ -11,8 +11,9 @@
 **Data classification:** no real hotel data, accounts, employee records, or training facts
 
 **Migration manifest artifact:** [`e0-b-local-migration-manifest.sha256`](./e0-b-local-migration-manifest.sha256) — 29 ordered migration checksums.
-**Migration history artifact:** local `supabase migration list --local` returned the same 29 migration versions in database history as the manifest; no mismatch or repair operation occurred.
-**No-seed count artifact:** aggregate local query returned `0` for `auth.users`, `user_accounts`, `employees`, `training_sessions`, `attendance_registers`, and `completion_records` after the no-seed reset and again at cleanup.
+**Migration history artifact:** [`e0-b-local-migration-history.txt`](./e0-b-local-migration-history.txt) — the same 29 local history versions as the manifest; no mismatch or repair operation occurred.
+**No-seed count artifact:** [`e0-b-command-results.md`](./e0-b-command-results.md) — aggregate local query returned `0` for `auth.users`, `user_accounts`, `employees`, `training_sessions`, `attendance_registers`, and `completion_records` after the no-seed reset and again at cleanup.
+**Command-result artifact:** [`e0-b-command-results.md`](./e0-b-command-results.md) — redacted, timestamped local command outcomes for replay, stop/recovery, tests, lint, and cleanup; contains no credentials, personal data, or business facts.
 
 | Item | Status | Redacted evidence | Disposition |
 |---|---|---|---|

@@ -9,6 +9,8 @@ const evidenceRunbookPath = new URL("../docs/recovery-e0/rehearsal-runbook.md", 
 const evidenceTemplatePath = new URL("../docs/recovery-e0/evidence-register-template.md", import.meta.url);
 const evidencePath = new URL("../docs/recovery-e0/e0-b-migration-rehearsal-evidence.md", import.meta.url);
 const manifestArtifactPath = new URL("../docs/recovery-e0/e0-b-local-migration-manifest.sha256", import.meta.url);
+const migrationHistoryArtifactPath = new URL("../docs/recovery-e0/e0-b-local-migration-history.txt", import.meta.url);
+const commandResultsArtifactPath = new URL("../docs/recovery-e0/e0-b-command-results.md", import.meta.url);
 
 const requiredControls = [
   ["application-sha", "Application SHA:"],
@@ -42,7 +44,9 @@ function missingControls(manifest) {
 }
 
 const rehearsalControls = [
-  ["isolated-cli-environment", "HOME=/tmp/codex-supabase SUPABASE_TELEMETRY_DISABLED=true"],
+  ["isolated-cli-environment", "HOME=/tmp/codex-supabase DO_NOT_TRACK=1"],
+  ["persistent-telemetry-opt-out", "supabase telemetry disable"],
+  ["telemetry-status-verification", "supabase telemetry status"],
   ["empty-local-reset", "supabase db reset --local"],
   ["ordered-inventory", "find supabase/migrations -type f -name '*.sql' -print | sort"],
   ["migration-checksums", "shasum -a 256"],
@@ -114,6 +118,11 @@ test("migration rehearsal runbook constrains the E0-B replay to a disposable loc
 
   const runbook = await readFile(rehearsalRunbookPath, "utf8");
   assert.deepEqual(missingRehearsalControls(runbook), []);
+  assert.equal(
+    runbook.includes("SUPABASE_TELEMETRY_DISABLED=true"),
+    false,
+    "the installed CLI did not honor the obsolete telemetry-only environment variable",
+  );
 
   for (const [missingControl, requiredText] of [
     ["forbid-linked", "Do not use `--linked`."],
@@ -155,10 +164,14 @@ test("E0-B evidence protocol distinguishes verified local proof from unperformed
 test("completed E0-B evidence is self-contained and records a local stop-recovery trail", async () => {
   assert.equal(existsSync(evidencePath), true, "completed E0-B evidence must exist");
   assert.equal(existsSync(manifestArtifactPath), true, "local migration manifest artifact must exist");
+  assert.equal(existsSync(migrationHistoryArtifactPath), true, "local migration history artifact must exist");
+  assert.equal(existsSync(commandResultsArtifactPath), true, "sanitized command-result artifact must exist");
 
-  const [evidence, manifestArtifact] = await Promise.all([
+  const [evidence, manifestArtifact, migrationHistoryArtifact, commandResultsArtifact] = await Promise.all([
     readFile(evidencePath, "utf8"),
     readFile(manifestArtifactPath, "utf8"),
+    readFile(migrationHistoryArtifactPath, "utf8"),
+    readFile(commandResultsArtifactPath, "utf8"),
   ]);
 
   for (const requiredText of [
@@ -170,6 +183,7 @@ test("completed E0-B evidence is self-contained and records a local stop-recover
     "Migration manifest artifact:",
     "Migration history artifact:",
     "No-seed count artifact:",
+    "Command-result artifact:",
     "D0–D4 focused pgTAP: 5 files, 259 assertions, PASS",
     "Full pgTAP: 22 files, 737 assertions, PASS",
     "RLS/RPC/Storage: 7 checks, PASS",
@@ -184,4 +198,27 @@ test("completed E0-B evidence is self-contained and records a local stop-recover
   const manifestLines = manifestArtifact.trim().split("\n").filter(Boolean);
   assert.equal(manifestLines.length, 29, "manifest artifact must contain every local migration checksum");
   assert.match(manifestArtifact, /20260728145050_recovery_d4_completion_evidence\.sql/);
+
+  const migrationHistoryLines = migrationHistoryArtifact.trim().split("\n").filter(Boolean);
+  assert.equal(migrationHistoryLines.length, 29, "history artifact must contain every applied local migration version");
+  assert.equal(migrationHistoryLines.at(-1), "20260728145050", "history artifact must end with the D4 migration version");
+
+  for (const requiredText of [
+    "Sanitized command-output record",
+    "Telemetry status: Telemetry is disabled.",
+    "Empty migration lane: PASS (29 migrations applied)",
+    "No-seed counts: auth.users=0; user_accounts=0; employees=0; training_sessions=0; attendance_registers=0; completion_records=0",
+    "Deliberate checksum mismatch: BLOCKED before database command",
+    "Recovery reset: PASS",
+    "D0-D4 focused pgTAP: PASS (5 files, 259 assertions)",
+    "Full pgTAP: PASS (22 files, 737 assertions)",
+    "RLS/RPC/Storage: PASS (7 checks)",
+    "Application and build: PASS (274 Node tests; production build; rendered HTML)",
+    "Lint: BLOCKED FOR FOLLOW-UP",
+    "Cleanup: PASS (final no-seed reset, local stack stopped, temporary CLI home removed)",
+    "No remote or Production command was issued.",
+  ]) {
+    assert.equal(commandResultsArtifact.includes(requiredText), true, `command-result artifact requires: ${requiredText}`);
+  }
+  assert.doesNotMatch(commandResultsArtifact, /sb_(?:secret|publishable)|eyJ[a-zA-Z0-9_-]{20,}/, "command-result artifact must not contain credentials or JWTs");
 });
