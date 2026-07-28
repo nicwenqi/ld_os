@@ -29,4 +29,3 @@ If a migration, inventory, test, security check, or local reset fails, mark the 
 ## Boundary confirmation
 
 No Preview or Production connection is permitted in E0-B. Do not retain browser sessions, CLI credentials, local service keys, raw fixtures, workbooks, or screenshots after the run.
-

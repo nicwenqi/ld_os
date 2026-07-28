@@ -1,8 +1,8 @@
 # E0-B migration rehearsal evidence
 
-**Status:** Complete local rehearsal — Review Stop E0-B  
-**Release commit:** `d61cff2` plus E0-A/E0-B local-readiness commits  
-**Target:** disposable local Supabase only  
+**Status:** Complete local rehearsal — Review Stop E0-B
+**Release commit:** `d61cff2` plus E0-A/E0-B local-readiness commits
+**Target:** disposable local Supabase only
 **Data classification:** no real hotel data, accounts, employee records, or training facts
 
 | Item | Status | Redacted evidence | Disposition |
@@ -27,4 +27,3 @@
 ## Review recommendation
 
 **Go to Review Stop E0-B.** The approved D0–D4 migration set replays cleanly into a no-seed local database, existing security/integrity suites pass in their documented synthetic test lane, and the rehearsal ends clean. E0-C remains blocked pending explicit approval and named Pilot/property owners.
-

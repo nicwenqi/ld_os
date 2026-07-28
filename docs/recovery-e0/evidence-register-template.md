@@ -1,8 +1,8 @@
 # E0-B migration rehearsal evidence register template
 
-**Release commit:** `[SHA]`  
-**Rehearsal date:** `[UTC date]`  
-**Environment:** `disposable local Supabase only`  
+**Release commit:** `[SHA]`
+**Rehearsal date:** `[UTC date]`
+**Environment:** `disposable local Supabase only`
 **Owner:** `[name or role]`
 
 | Item | Status | Redacted evidence | Owner / disposition |
@@ -21,4 +21,3 @@
 | Cleanup | Verified / Not performed / Blocked / Accepted exception | final no-seed aggregate counts and stopped stack | |
 
 No real hotel identity, employee, account, QR token, or training fact belongs in this register. No Preview or Production connection is allowed. Any item not run must remain **Not performed**, not inferred from a local result.
-
