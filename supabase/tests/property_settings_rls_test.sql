@@ -60,11 +60,12 @@ select lives_ok(
 select results_eq('select count(*) from public.property_settings', array[1::bigint], 'property manager cannot read A2 settings');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000102';
-select results_eq('select count(*) from public.property_settings', array[2::bigint], 'Tenant A admin reads both Tenant A settings');
-select lives_ok(
+select results_eq('select count(*) from public.property_settings', array[0::bigint], 'tenant admin has no implicit hotel settings access');
+select is_empty(
   $$update public.property_settings set ctc_mandatory = false
-    where property_id = '20000000-0000-0000-0000-000000000012'$$,
-  'Tenant A admin updates A2 settings'
+    where property_id = '20000000-0000-0000-0000-000000000012'
+    returning id$$,
+  'tenant admin cannot update hotel settings without an explicit hotel role'
 );
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000106';

@@ -79,9 +79,9 @@ select throws_ok('select * from public.position_aliases', '42501', null, 'anonym
 
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000101';
-select results_eq('select count(*) from public.departments', array[11::bigint], 'platform admin reads every synthetic property organization');
+select results_eq('select count(*) from public.departments', array[0::bigint], 'platform provisioner cannot read hotel organization data');
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000102';
-select results_eq('select count(*) from public.departments', array[10::bigint], 'Tenant A admin reads both Tenant A property organizations only');
+select results_eq('select count(*) from public.departments', array[0::bigint], 'tenant admin has no implicit hotel organization authority');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000103';
 select results_eq('select count(*) from public.departments', array[9::bigint], 'A1 L&D manager reads only A1 departments');

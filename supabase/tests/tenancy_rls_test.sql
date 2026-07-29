@@ -32,8 +32,8 @@ $$;
 set local role authenticated;
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000101';
 select ok((select app_private.is_platform_admin()), 'platform admin is resolved from platform_memberships');
-select results_eq('select count(*) from public.tenants', array[2::bigint], 'platform admin can read every tenant');
-select results_eq('select count(*) from public.properties', array[3::bigint], 'platform admin can read every property');
+select results_eq('select count(*) from public.tenants', array[0::bigint], 'platform provisioner cannot read tenant business data');
+select results_eq('select count(*) from public.properties', array[0::bigint], 'platform provisioner cannot read hotel properties');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000102';
 select ok(not (select app_private.is_platform_admin()), 'tenant admin is not a platform admin');
@@ -46,10 +46,10 @@ select results_eq(
 );
 select results_eq(
   'select code from public.properties order by code',
-  $$values ('a1'::text), ('a2'::text)$$,
-  'Tenant A admin can read both Tenant A properties'
+  $$select null::text where false$$,
+  'tenant admin has no implicit property access'
 );
-select results_eq('select count(*) from public.property_memberships', array[3::bigint], 'Tenant A admin can read Tenant A property memberships only');
+select results_eq('select count(*) from public.property_memberships', array[0::bigint], 'tenant admin cannot read hotel membership data without an explicit hotel role');
 
 set local request.jwt.claim.sub = '00000000-0000-0000-0000-000000000104';
 select ok((select app_private.is_property_member('20000000-0000-0000-0000-000000000011')), 'A1 ordinary member belongs to A1');

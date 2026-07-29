@@ -88,9 +88,9 @@ select throws_ok(
     '20000000-0000-0000-0000-000000000012'::uuid,
     (select version from public.property_settings where property_id='20000000-0000-0000-0000-000000000012')
   )$$,
-  'P4017',
+  'P4010',
   null,
-  'activation requires an active hotel L&D manager account'
+  'platform provisioner cannot advance hotel activation without an explicit hotel role'
 );
 
 reset role;
