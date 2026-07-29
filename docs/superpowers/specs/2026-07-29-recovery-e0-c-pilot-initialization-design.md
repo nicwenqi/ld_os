@@ -1,172 +1,208 @@
-# Recovery E0-C — Pilot Initialization Design
+# Recovery E0-C — Property Initialization Design
 
-**Status:** Approved design direction with final refinements; implementation not started  
-**Current gate:** `No Go` until the implementation plan and any required security migration are separately approved  
-**Fact scope:** Reuse D0–D4 only; introduce no D5 or new training-business fact semantics  
+**Status:** Final design approved subject to this scope lock; implementation not started
+**Current gate:** `No Go` until the C0 security boundary and its migration proposal are separately approved
+**Fact scope:** Property activation and the existing D0 employee-baseline workflow only
 **Data boundary:** No Production connection, migration, employee import, account mutation, or training fact is authorized by this document
 
-## 1. Product decision
+## 1. Final scope decision
 
-E0-C is the SaaS product flow for initializing the first Pilot property. It is not an enterprise procurement, external-owner, or document-signing workflow.
+E0-C initializes one Pilot property. It ends when the hotel has a usable property context, an active Hotel L&D Manager, a confirmed organization and department authorization foundation, and a committed employee baseline.
 
-The product journey is:
+E0-C does not execute training.
+
+The final E0-C journey is:
 
 ```text
-Super Admin provisions the property foundation
-→ Super Admin assigns the first Hotel L&D Manager
-→ Hotel L&D Manager completes hotel activation and authorized scope
-→ Hotel L&D Manager uploads the employee baseline
-→ System produces a zero-write preview
-→ Hotel L&D Manager approves the exact preview
-→ System commits Employee Fact Versions
-→ Hotel L&D Manager creates the first Requirement
-→ Hotel team delivers one governed training
-→ Authorized operator records Attendance
-→ Authorized manager verifies Completion
+Super Admin creates Property container
+→ Super Admin creates initial Hotel L&D Manager invitation
+→ Hotel L&D Manager accepts invitation and logs in
+→ Hotel L&D Manager confirms hotel business profile and rules
+→ Hotel L&D Manager confirms organization and department scope
+→ Hotel L&D Manager previews and commits employee baseline
+→ E0-C initialization review
 ```
 
-Each stage uses the existing D0–D4 fact boundaries. E0-C joins those capabilities into one controlled Pilot journey; it does not create a parallel data model or reinterpret an existing fact.
+The later training journey is a separate **Pilot Training Cycle**:
 
-The previous external governance-owner and signature-matrix approach is superseded. Git history may retain those documents as historical artifacts, but they are not E0-C product gates.
+```text
+Requirement
+→ Plan
+→ Session
+→ Attendance
+→ Completion
+```
 
-## 2. Role and identity model
+That cycle reuses the accepted D1–D4 capabilities. It is not part of E0-C implementation or acceptance.
+
+## 2. Role boundaries
 
 ### 2.1 Super Admin
 
 Super Admin is an internal platform-provisioning role.
 
-It may:
+It may only:
 
-- create the tenant/property foundation required for one Pilot property;
-- establish minimum technical property identity and hostname context;
-- provision and assign the first Hotel L&D Manager;
-- verify that the property can be handed off to the manager;
-- view only the provisioning status and redacted technical evidence needed for those actions.
+- create the tenant/property container required for the first Pilot property;
+- establish the minimum technical property context needed for handoff;
+- create the initial Hotel L&D Manager invitation;
+- confirm that the invitation and property context are available for manager login;
+- view redacted provisioning status for those operations.
 
-It may not, by platform authority alone:
+The Property container may contain provisional technical values required by the existing schema, such as property code, preliminary names, hostname context, timezone, and language. These values are not treated as manager-confirmed hotel business data.
 
-- edit hotel training business rules after handoff;
-- maintain the hotel department hierarchy, positions, or employee data;
-- upload or inspect employee workbooks;
+Super Admin may not, through platform authority:
+
+- confirm or maintain the hotel’s business profile or training rules;
+- create, edit, or approve departments, operational units, positions, or position families;
+- appoint Department Training Responsible Persons or define their scopes;
+- upload, inspect, preview, or commit employee data;
+- access People Center;
 - create or alter Course, Requirement, Plan, Session, Attendance, or Completion facts;
-- view hotel employee or training-business data;
-- impersonate the Hotel L&D Manager;
-- enter the hotel operations workspace.
+- enter a hotel operations workspace;
+- impersonate the Hotel L&D Manager.
 
-If the same person also needs hotel business authority, that person must separately receive an active property membership, active backend account, and an approved hotel role through the normal hotel account process. Platform membership is never treated as hotel authorization.
+If the same person also requires hotel business authority, that person must separately receive an active property membership, active hotel backend account, and approved hotel role. Platform membership alone never grants hotel access.
 
 ### 2.2 Hotel L&D Manager
 
-The Hotel L&D Manager is the primary hotel administrator and the accountable business owner for the property.
+The Hotel L&D Manager is the primary hotel administrator and business owner.
 
 The manager:
 
-- confirms hotel identity and business rules;
-- maintains the official organization and position foundation;
-- appoints Department Training Responsible Persons and grants explicit department scopes;
-- owns the employee-baseline preview and commit decision;
-- creates and governs the first Requirement;
-- owns or delegates the first Session within approved department scope;
-- reviews Attendance exceptions;
-- verifies Completion through the D4 evidence path;
-- decides whether the Pilot is ready, conditionally ready, or blocked.
+- accepts the initial invitation and completes the required password change;
+- confirms the Chinese and English hotel identity, brand, location, timezone, language, and business rules;
+- maintains the official department hierarchy and operational units;
+- maintains the positions and position families required for reliable employee attribution;
+- appoints Department Training Responsible Persons;
+- grants explicit official department branches and descendant rules;
+- owns employee-workbook inspection, mapping, zero-write preview, approval, and commit;
+- confirms whether E0-C initialization is ready.
 
-No Super Admin approval substitutes for the Hotel L&D Manager’s business decision.
+A Super Admin handoff cannot substitute for the manager’s business confirmation.
 
 ### 2.3 Department Training Responsible Person
 
-This remains the only department-scoped authenticated hotel role. It may operate only inside explicit active department branches and descendant rules. It cannot widen its own scope, manage the employee workbook, change hotel settings, or access unrelated departments.
+This remains the only department-scoped authenticated hotel role. It receives one or more explicit official department branches and descendant rules from the Hotel L&D Manager.
 
-### 2.4 Trainer
+It cannot:
 
-Trainer is an operational resource identity used for delivery readiness and immutable Session Revision context. Trainer is not automatically an authenticated hotel administrator and gains no employee or hotel-wide access from being named as a trainer.
+- widen its own scope;
+- configure hotel business rules or global organization;
+- administer accounts or roles;
+- access raw employee workbooks or employee import controls;
+- access unrelated departments.
 
-### 2.5 Employee
+Its scope must be ready before E0-C can pass when the Pilot intends to use a department role. A manager-only Pilot may pass with no department-role account, provided the organization foundation is ready and the absence is explicitly represented.
 
-Employee remains a managed business record and may later use constrained QR/token experiences. Employee has no hotel administration login, workspace, backend account, or role.
+### 2.4 Trainer and Employee
 
-### 2.6 Authenticated-workspace invariant
+Trainer is an operational resource identity, not an automatically authenticated hotel administrator.
 
-The hotel administration application still has only two authenticated hotel workspace roles:
+Employee is a managed business record and constrained QR/token participant. Employee has no administration login, workspace, backend account, or role.
+
+### 2.5 Authenticated-workspace invariant
+
+The hotel administration application continues to expose only:
 
 1. Hotel L&D Manager;
 2. Department Training Responsible Person.
 
-Super Admin operates a separate internal provisioning plane. Trainer and Employee are business identities, not hotel administration roles.
+Super Admin operates a separate internal provisioning plane. Trainer and Employee are not hotel administration roles.
 
-## 3. Two-plane authorization model
+## 3. Platform plane versus hotel business plane
 
 ### Platform provisioning plane
 
-The platform plane answers only:
+The platform plane answers:
 
-- Does the platform operator have an active Super Admin membership?
-- May this operator provision this new property foundation?
-- Was the property and first-manager handoff performed atomically and audited?
+- Is this an active Super Admin?
+- May this operator create a new property container?
+- May this operator issue the initial manager invitation?
+- Was the handoff completed without a partial or orphaned identity?
 
 It does not answer whether the operator may manage hotel business data.
 
 ### Hotel business plane
 
-The hotel plane continues to require:
+Every hotel-business operation continues to require:
 
 ```text
 Active account
 + active tenant/property membership
 + active hotel role
-+ property context
-+ department scope and descendant rule where applicable
++ hostname-resolved property context
++ department scope and descendant rule when applicable
 ```
 
-Every employee or training-business read and mutation must use the hotel plane. A Super Admin membership must neither satisfy nor bypass these checks.
+Employee and training-business reads and mutations always use this hotel plane.
 
 ### Current implementation conflict
 
-The existing D0–D4 employee and training-fact helpers already use active hotel-account and hotel-role assertions. However, earlier foundation helpers and policies still include `platform_admin` in parts of property settings, organization, profile, account, and property-management access.
+D0–D4 employee and training-fact helpers already require active hotel-account and hotel-role assertions. Earlier foundation helpers and RLS policies still include `platform_admin` in parts of property settings, organization, profile, account, and property-management access.
 
-That legacy breadth conflicts with this approved design. Hiding platform navigation is insufficient. Before E0-C implementation may expose a Super Admin provisioning flow, a separately reviewed additive security migration must:
+This conflicts with the final Super Admin boundary. Navigation hiding is insufficient.
 
-- isolate platform provisioning assertions from hotel business-management assertions;
-- remove platform membership as an implicit hotel-business authorization;
-- route provisioning mutations through a narrow server RPC;
-- preserve RLS, actor identity, transactionality, and audit;
+Before implementation may expose the Super Admin provisioning flow, a separately approved additive security migration must:
+
+- separate platform-container provisioning from hotel business management;
+- remove platform membership as implicit hotel-business authorization;
+- prevent direct platform DML from replacing the provisioning RPC;
+- preserve the Hotel L&D Manager’s existing administration authority;
+- preserve RLS, server authorization, transactionality, and existing audit evidence;
 - leave D0–D4 fact semantics unchanged.
 
-No such migration is created by this design checkpoint.
+No migration is created by this design checkpoint.
 
-## 4. Pilot property initialization
+## 4. E0-C initialization stages
 
-### Stage C1 — Platform provisioning
+### Stage C1 — Property container and manager invitation
 
-Super Admin supplies only the minimum property foundation:
+Super Admin supplies only:
 
-- tenant/property identity;
-- Chinese and English hotel names;
-- property code;
-- timezone and language;
+- tenant/property code and container identity;
+- preliminary property names required for initial branded context;
 - primary hostname context;
-- initial property status;
-- first Hotel L&D Manager identity.
+- timezone and default language;
+- initial manager User ID, display name, and temporary credential.
 
-The system must show a confirmation preview before mutation. Property foundation and initial manager assignment must use server-side authorization and auditable operations. A partial property without a usable manager must not be presented as successfully handed off.
+The system must:
 
-The Super Admin does not configure employee data, training business rules, organization content, or training facts.
+1. validate the normalized values;
+2. show a redacted zero-write confirmation preview;
+3. require explicit confirmation;
+4. create the property container and invitation through one narrow server-authorized operation;
+5. compensate by removing a newly created Auth identity if the database operation fails;
+6. return a redacted handoff state.
 
-### Stage C2 — Manager handoff and finite activation
+The manager account begins as invited or password-change-required. The property is not business-ready merely because the container exists.
 
-After hotel-branded login, the Hotel L&D Manager completes the existing finite activation:
+### Stage C2 — Manager activation and business confirmation
 
-1. confirm hotel identity and business rules;
-2. establish the official department structure and relevant operational units;
-3. confirm positions and position families needed by the Pilot cohort;
-4. assign any Department Training Responsible Person and explicit scope;
-5. review readiness and enter the employee-baseline workflow.
+The invited Hotel L&D Manager:
 
-Activation remains escapable and finite. After handoff, maintenance belongs in normal administration pages.
+1. signs in through the hotel-branded User ID + Password flow;
+2. completes the required password change;
+3. confirms the hotel identity and business rules;
+4. saves and re-reads authoritative server state.
 
-### Stage C3 — Employee baseline
+Super Admin cannot perform this confirmation through platform authority.
 
-The manager uses **员工资料更新**:
+### Stage C3 — Organization and scope readiness
+
+The Hotel L&D Manager confirms:
+
+- at least one active official department;
+- the department hierarchy required by the Pilot;
+- operational units when they are needed;
+- positions and position families needed by the employee baseline;
+- Department Training Responsible Person accounts and explicit scopes when the Pilot will use that role.
+
+Department scope uses official branches and an explicit descendant setting. Frontend visibility and direct URL authorization must agree.
+
+### Stage C4 — Employee baseline
+
+The Hotel L&D Manager uses the existing D0 workflow:
 
 ```text
 private workbook upload
@@ -182,155 +218,161 @@ private workbook upload
 → People Center verification
 ```
 
-The workflow preserves employee numbers as text, excludes training history and CTC/GTC completion facts, creates no Auth user, and never guesses identity, department, position, date, or status.
+The workflow:
 
-## 5. Employee baseline states
+- preserves employee numbers as text;
+- excludes training history and CTC/GTC completion facts;
+- creates no Auth user or backend account;
+- never guesses employee identity, department, position, date, or status;
+- never deactivates an employee merely because one workbook omits them;
+- preserves Employee Fact Version and import audit semantics.
 
-Baseline classification describes the coverage trusted for Pilot operation. It is not an employee status and does not replace row-level validation.
+## 5. Employee baseline readiness states
 
-| State | Meaning | Allowed Pilot scope | Prohibited claims |
-|---|---|---|---|
-| **Full** | The expected current property employee population is committed; all material exceptions are resolved or explicitly excluded with evidence. | The approved Pilot may use any clean, eligible property cohort. | No claim beyond the committed as-of date or excluded evidence. |
-| **Restricted** | The baseline is broadly usable, but documented limitations remain outside or immaterial to the selected Pilot cohort. The limitations and exclusions are visible. | Only cohorts proven unaffected by the stated limitations. | No use of excluded/unresolved records; no unqualified property-wide completeness claim. |
-| **Pilot Limited** | Only a named department branch or cohort has a complete, trustworthy baseline. The rest of the property is explicitly outside the Pilot boundary. | Only the named cohort and its approved department scope. | No hotel-wide denominator, completeness, compliance, KPI, Health, Forecast, or Risk conclusion. |
+Baseline readiness is recorded inside the existing import approval evidence. It does not create a new fact table or alter Employee Fact Version meaning.
 
-`No Go` or `Blocked` is a gate outcome, not a fourth baseline state.
+| State | Meaning | E0-C decision boundary |
+|---|---|---|
+| **Full** | The expected current property employee population is committed; material exceptions are resolved or explicitly excluded in existing import evidence. | May support a property-wide initialization conclusion for the committed as-of date. |
+| **Restricted** | The committed baseline is broadly usable, but declared limitations remain outside or immaterial to the intended Pilot scope. | E0-C may pass only with the limitations visible and the intended Pilot scope provably unaffected. |
+| **Pilot Limited** | Only one named department branch or bounded cohort has a trustworthy committed baseline. The rest of the property remains outside the Pilot boundary. | E0-C may pass only for the named scope; no property-wide completeness claim is allowed. |
 
-Perfect property-wide data is not required to start a limited Pilot. Regardless of baseline state, every employee included in the Pilot must have:
+`No Go` or `Blocked` is a gate outcome, not a baseline state.
 
-- a resolved employee identity and external identifier;
-- an effective Employee Fact Version for the relevant event date;
-- a resolved official department;
-- the position and employee-status evidence required by the Requirement rule;
-- no unresolved conflict that could change eligibility or authorized scope.
+Perfect property-wide data is not required. Every employee inside the declared ready scope must still have:
 
-Missing evidence stays missing. It is not converted to a default, zero, inactive status, or `Not Applicable`.
+- resolved identity and external identifier;
+- an effective Employee Fact Version;
+- resolved official department;
+- position and status evidence required for future eligibility;
+- no unresolved conflict that would change identity, department authorization, or future eligibility.
 
-## 6. First governed training loop
+Missing evidence remains missing. It is never converted to zero, inactive, `Not Applicable`, or complete.
 
-The recommended first Pilot case remains **消防安全年度培训**, but the hint does not create a Course or Requirement.
+## 6. E0-C initialization success criteria
 
-### Stage C4 — Requirement
+E0-C passes only when these four conditions are backed by authoritative data:
 
-The Hotel L&D Manager confirms:
+### 6.1 Property ready
 
-- the formal Requirement identity and effective Requirement Version;
-- its Completion Definition;
-- its Accepted Learning Method;
-- the published Course Version when the method is course-based;
-- the effective Eligibility Rule Set;
-- the point-in-time Eligibility Evaluation for the selected cohort.
+- property container exists under the intended tenant;
+- hostname resolves to the intended property;
+- the Hotel L&D Manager has confirmed the hotel business profile and rules;
+- initialization is finite, reviewable, and not trapping the manager.
 
-Eligibility remains three-state and is not an assignment. An intended participant with `Unable to Determine` cannot enter the controlled proof cohort until the missing evidence is resolved.
+### 6.2 Manager ready
 
-### Stage C5 — Plan, Session, and delivery
+- at least one Hotel L&D Manager account is active;
+- property and tenant memberships are active;
+- manager role assignment is active;
+- required password change is complete;
+- the final active manager protection remains effective.
 
-The manager or authorized department role creates:
+### 6.3 Organization ready
 
-- an approved Training Plan Version and Plan Item;
-- an immutable published Session Revision;
-- a responsible owner;
-- trainer and venue/resource readiness;
-- a Participant Snapshot referencing Employee Fact Versions.
+- at least one active official department exists;
+- Pilot departments, positions, and attribution foundations are confirmed;
+- any Department Training Responsible Person has an active account and explicit official scope;
+- unrelated-department and self-scope-widening access is denied.
 
-Publishing a Session is not delivery. Delivery is demonstrated only by the governed D3 attendance process.
+### 6.4 Employee baseline ready
 
-### Stage C6 — Attendance
+- one zero-write preview was explicitly approved;
+- the exact preview version/hash was committed transactionally;
+- the commit was authoritatively re-read;
+- People Center reflects the committed employees;
+- the baseline is classified as `Full`, `Restricted`, or `Pilot Limited`;
+- declared ready-scope employees have no blocking identity or organization issue;
+- no employee Auth user or backend account was created.
 
-Authorized hotel users open the register, record QR observations and/or manual witness evidence, reconcile conflicts, make explicit determinations, and close the register.
+No Requirement, Plan, Session, Attendance, or Completion record is needed for E0-C success.
 
-QR observation is not `Present`. Attendance is not Completion.
+## 7. Separate Pilot Training Cycle
 
-### Stage C7 — Completion verification
+The Pilot Training Cycle begins only after E0-C passes and receives separate approval.
 
-An authorized manager reviews D4 Completion Evidence against the exact:
+It uses existing capabilities:
 
-- Requirement Version;
-- Accepted Learning Method;
-- Course Version where applicable;
-- Employee Fact Version;
-- Session Revision and attendance source where attendance-derived.
+- D1 Requirement Version and Eligibility Evaluation;
+- D2 Training Plan Version, Session Revision, and Participant Snapshot;
+- D3 Attendance Observation, Evidence, and Determination;
+- D4 Completion Evidence and Completion Record.
 
-The system creates no completion without evidence and no KPI, reminder, task, risk, or health result from the completion.
+Its success criteria are:
 
-## 7. Pilot success criteria
+1. **Requirement created** — one governed Requirement Version is effective with an accepted learning method.
+2. **Training delivered** — one immutable Session Revision is actually delivered; publication alone is insufficient.
+3. **Attendance recorded** — one register is reconciled and closed with explicit determinations.
+4. **Completion verified** — one reviewed Completion Record traces to valid evidence and immutable source versions.
 
-The Pilot succeeds only when all six conditions are proven from authoritative, scoped facts:
+This separate cycle must preserve:
 
-1. **One property initialized**  
-   The property has a valid hostname context, finite activation status, official organization foundation, and at least one active Hotel L&D Manager.
+- Eligibility is not Assignment;
+- Published Session is not Delivered Session;
+- QR Observation is not Attendance Determination;
+- Attendance is not Completion.
 
-2. **Employee baseline committed**  
-   The exact approved preview version/hash is committed, audited, re-read, and classified as `Full`, `Restricted`, or `Pilot Limited`.
+E0-C neither implements nor verifies this cycle.
 
-3. **One Requirement created**  
-   One Requirement Version is effective with an accepted method and a deterministic Eligibility Evaluation for the Pilot cohort.
-
-4. **One training delivered**  
-   An immutable Session Revision and Participant Snapshot exist, the scheduled delivery occurred, and D3 evidence—not publication alone—supports that delivery.
-
-5. **Attendance recorded**  
-   The register contains explicit determinations, conflicts are resolved or represented according to D3, and the register is closed through an authorized action.
-
-6. **Completion verified**  
-   At least one reviewed Completion Record traces through valid Completion Evidence to the exact Requirement Version, accepted method, Employee Fact Version, and source Session Revision where applicable.
-
-Passing these criteria does not claim training effectiveness, hotel compliance, KPI achievement, Health, Forecast, or Risk.
-
-## 8. Review stops and failure behavior
-
-E0-C implementation and execution remain sequential:
+## 8. E0-C review stops
 
 | Review stop | Evidence required | Stop condition |
 |---|---|---|
-| **C0 — Security boundary** | Platform/hotel authorization separation, migration impact, RLS/RPC/audit tests | Any platform role can read or mutate hotel business data without a separate hotel role |
-| **C1 — Property handoff** | Property preview, atomic creation result, first-manager assignment, hotel login | Partial property, unusable manager, hostname ambiguity, or missing audit |
-| **C2 — Activation and scope** | Settings, official organization, role/scope direct-route denial | Scope ambiguity, self-widening, inactive account, or unrelated-department access |
-| **C3 — Employee baseline** | Zero-write preview, manager approval, commit audit, authoritative re-read, classification | Stale preview, unresolved Pilot employee, guessed mapping, or unclassified baseline |
-| **C4 — Requirement readiness** | Effective Requirement Version, accepted method, three-state eligibility evidence | Intended participant is `Unable to Determine` or method/version is invalid |
-| **C5 — Delivery and attendance** | Immutable Session Revision, snapshot, readiness, closed register | Publication used as delivery, unresolved evidence conflict, or unauthorized action |
-| **C6 — Completion and Pilot close** | Reviewed completion lineage and redacted Pilot report | Attendance used as automatic completion or lineage cannot be traced |
+| **C0 — Security boundary** | Platform/hotel authorization separation and approved migration impact | Platform authority can read or mutate hotel business data |
+| **C1 — Property handoff** | Redacted preview, container creation, invitation, hotel login path | Partial property, orphaned identity, unusable invitation, or hostname ambiguity |
+| **C2 — Manager readiness** | Active manager, password change, saved/re-read hotel profile | Manager inactive, membership/role invalid, or business profile unconfirmed |
+| **C3 — Organization and scope** | Official organization and direct-route authorization evidence | Scope ambiguity, self-widening, or unrelated-department access |
+| **C4 — Employee baseline** | Zero-write preview, exact commit evidence, classification, People Center re-read | Stale preview, guessed mapping, unresolved ready-scope employee, or unclassified baseline |
+| **C5 — E0-C close** | Four initialization success criteria and redacted report | Any criterion unavailable, misleading, or supported only by mock data |
 
-Failure stops the current stage. It does not authorize synthetic repair, direct DML, broader scope, or a later-stage fact.
+Failure stops E0-C. It does not authorize a Pilot Training Cycle, synthetic repair, direct DML, or broader scope.
 
 ## 9. Interaction and evidence contract
 
-Every enabled action must perform a real, authorized state transition or explain why it is unavailable. No toast-only success and no automatic cross-stage transitions are allowed.
+Every enabled action must make a real authorized transition, navigate to a real page, or explain why it is unavailable.
 
-Each stage must preserve:
+Each initialization stage preserves:
 
 - actor;
 - time;
 - property and authorized scope;
-- action;
-- source version/hash or immutable fact reference;
+- action and target;
+- preview version/hash or authoritative record version;
 - before/after or transition evidence where applicable;
-- failure or conflict reason;
+- conflict or failure reason;
 - authoritative re-read result.
 
-Approvals are product decisions recorded by the authorized user at the relevant transition. E0-C does not require external owner signatures or enterprise governance forms.
+E0-C does not require external owner signatures. The authorized Super Admin or Hotel L&D Manager records the relevant product decision through the governed transition.
 
 ## 10. Migration impact
 
 No migration is created at this checkpoint.
 
-Implementation planning must assume one separately approved additive security/readiness migration may be required to:
+A separately approved additive migration is expected to:
 
-- create a narrow, audited platform-provisioning RPC;
-- ensure property and initial-manager creation are atomic or safely compensating;
-- separate platform provisioning from hotel business-management helpers and policies;
-- prevent direct platform DML from bypassing provisioning;
-- persist a baseline classification and its approved scope/evidence without changing Employee Fact Version semantics;
-- record redacted Pilot provisioning/readiness audit events.
+- create a narrow platform provisioning assertion and RPC;
+- remove implicit platform authority from hotel business helpers and policies;
+- prevent direct platform DML from bypassing the provisioning RPC;
+- preserve property and invitation actor/time evidence using existing tenancy, membership, role, account, and initialization records;
+- extend existing employee import approval evidence with `Full`, `Restricted`, or `Pilot Limited` metadata;
+- add a read-only manager-scoped initialization-readiness RPC if existing repositories cannot safely supply the four criteria.
 
-The migration must not alter the meaning or immutability of D0 Employee Fact Version, D1 Requirement Version, D2 Session Revision/Participant Snapshot, D3 Attendance Facts, or D4 Completion Evidence.
+The migration must not:
 
-If the implementation audit proves the existing schema can meet every requirement without a migration, the migration proposal is withdrawn. Convenience is not sufficient evidence to skip the security gate.
+- create a new readiness-fact table;
+- create a new training-business table;
+- alter D0–D4 historical meaning;
+- create any Requirement, Plan, Session, Attendance, or Completion record;
+- be applied to Production without separate explicit approval.
 
 ## 11. Explicit non-scope
 
 E0-C does not introduce:
 
+- the Pilot Training Cycle;
+- Course or Requirement creation;
+- Training Plan or Session creation;
+- Attendance, QR, or Completion creation;
 - D5;
 - KPI;
 - Forecast;
@@ -339,24 +381,20 @@ E0-C does not introduce:
 - automation;
 - Health;
 - Risk;
-- reminders or notifications;
-- employee login or employee workspace;
-- a generic multi-hotel business console;
-- automatic Requirement, Session, Attendance, or Completion creation.
-
-Every real fact remains a deliberate, authorized human action through the existing D0–D4 workflow.
+- reminder or notification;
+- employee login;
+- a hotel-user multi-property console.
 
 ## 12. Design acceptance
 
 This design is accepted when:
 
-- Super Admin is demonstrably limited to platform provisioning;
-- Hotel L&D Manager is the primary property administrator and business owner;
-- hotel workspaces remain limited to the two approved authenticated hotel roles;
-- `Full`, `Restricted`, and `Pilot Limited` are explicit, auditable baseline states;
-- imperfect property-wide data can support a bounded Pilot without weakening row-level trust;
-- the six Pilot success criteria preserve the D0–D4 lineage;
+- E0-C ends at a committed, classified employee baseline;
+- Super Admin creates only the Property container and initial manager invitation;
+- Hotel L&D Manager confirms business property, organization, scopes, and employee baseline;
+- the four E0-C success criteria are authoritative and independently visible;
+- the four Pilot Training Cycle criteria are documented but excluded from E0-C;
+- no new readiness or training fact is introduced;
 - no platform authority silently becomes hotel business authority;
-- no fake facts, automatic cross-stage transitions, or analytics are introduced;
-- implementation cannot cross a failed Review Stop;
-- Production and all real data remain untouched until separately approved.
+- no implementation crosses a failed Review Stop;
+- Production remains untouched until separately approved.
