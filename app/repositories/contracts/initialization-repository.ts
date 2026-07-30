@@ -4,6 +4,8 @@ export type InitializationAccessSummary = {
   currentManager: { displayName: string; loginId: string; accountStatus: string } | null;
   activePropertyManagers: number;
   activeDepartmentAdministrators: number;
+  activeDepartmentAdministratorsWithScope: number;
+  departmentScopesResolved: boolean;
   canConfirm: boolean;
 };
 export interface InitializationRepository {

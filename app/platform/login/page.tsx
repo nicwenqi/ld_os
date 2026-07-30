@@ -2,7 +2,6 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import "../platform.css";
 
 export default function PlatformLoginPage() {
   const router = useRouter();

@@ -21,6 +21,10 @@ import {
   type WizardStepKey,
 } from "../services/initialization-wizard-service.ts";
 import {
+  deriveC2EmployeeBaselineReadiness,
+  resolveC2InitializationState,
+} from "../services/c2-activation-readiness.ts";
+import {
   validateBusinessRules,
   validatePropertyIdentity,
 } from "../services/property-settings-service.ts";
@@ -206,6 +210,17 @@ function Wizard() {
     unresolvedPositionLabels: positionLabels.filter(label => label.resolutionStatus === "deferred").length,
     activePropertyAdministrator: Boolean(accessSummary?.activePropertyManagers),
     progress,
+  });
+  const c2Readiness = deriveC2EmployeeBaselineReadiness({
+    initializationState: resolveC2InitializationState({
+      progressState: progress.state,
+      completedAt: progress.completedAt,
+      propertySettingsState: authoritative.settings.initializationState,
+    }),
+    activeDepartments: tree.filter(node => node.isActive).length,
+    activePropertyManagers: accessSummary?.activePropertyManagers ?? 0,
+    activeDepartmentAdministrators: accessSummary?.activeDepartmentAdministrators ?? 0,
+    activeDepartmentAdministratorsWithScope: accessSummary?.activeDepartmentAdministratorsWithScope ?? 0,
   });
   const current = state.steps[step - 1];
   const currentSaveState = {
@@ -810,6 +825,14 @@ function Wizard() {
                     ? "已启用状态保持可复核；发现基础资料缺口时转为具体维护提醒。"
                     : "员工资料、职位和归属准备是后续运营就绪事项，不阻塞本次启用。"}
                 </small>
+              </div>
+              <div className={`c2-baseline-gate ${c2Readiness.ready ? "complete" : "pending"}`}>
+                <span>员工基线准入状态</span>
+                <strong>{c2Readiness.label}</strong>
+                <small>{c2Readiness.nextAction}</small>
+                <div>
+                  {c2Readiness.checks.map(check => <p className={check.state} key={check.label}><i>{check.state === "ready" ? "✓" : "!"}</i><b>{check.label}</b><em>{check.detail}</em></p>)}
+                </div>
               </div>
               <div className="readiness-list">
                 {requiredChecks.map(item => (

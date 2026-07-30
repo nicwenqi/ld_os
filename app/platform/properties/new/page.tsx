@@ -3,7 +3,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { NormalizedPropertyProvisioningDraft, PropertyProvisioningDraft } from "../../../services/platform-property-provisioning.ts";
-import "../../platform.css";
 
 type Session = { authenticated: boolean; displayName?: string };
 type Preview = { token: string; expiresAt: string; normalized: NormalizedPropertyProvisioningDraft };
