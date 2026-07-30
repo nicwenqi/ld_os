@@ -338,7 +338,8 @@ select results_eq(
 );
 select throws_ok(
   $$select public.commit_employee_import(
-    '81000000-0000-0000-0000-00000000d001',5,repeat('0',64),true
+    '81000000-0000-0000-0000-00000000d001',5,repeat('0',64),true,
+    'full', null, false, ''
   )$$,
   'P3001',
   'IMPORT_APPROVAL_EVIDENCE_MISMATCH',
@@ -355,7 +356,8 @@ select lives_ok(
     '81000000-0000-0000-0000-00000000d001',
     5,
     (select result->>'previewHash' from d0_employee_preview),
-    true
+    true,
+    'full', null, false, ''
   )$$,
   'exact approved preview commits atomically'
 );

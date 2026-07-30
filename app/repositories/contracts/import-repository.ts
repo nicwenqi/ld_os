@@ -1,4 +1,5 @@
 import type { WorkbookInspection } from "../../services/import/workbook-parser.ts";
+import type { EmployeeBaselineClassification } from "../../services/pilot-employee-baseline.ts";
 
 export type ImportConflict =
   | "batch_stale"
@@ -71,6 +72,11 @@ export type EmployeeUpdatePreviewRow = {
 export type EmployeeUpdateApproval = {
   acknowledged: boolean;
   previewHash: string;
+  baseline: EmployeeBaselineClassification;
+};
+
+export type ImportBatchBaselineEvidence = EmployeeBaselineClassification & {
+  approvedAt: string;
 };
 
 export type ImportBatch = {
@@ -81,6 +87,7 @@ export type ImportBatch = {
   status: string;
   version: number;
   createdAt: string;
+  baseline: ImportBatchBaselineEvidence | null;
   summary: {
     inserted: number;
     updated: number;

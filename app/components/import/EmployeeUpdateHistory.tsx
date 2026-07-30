@@ -95,6 +95,9 @@ export function EmployeeUpdateHistory({
                 ) : (
                   <p>处理中 · 更新预览尚未计算</p>
                 )}
+                {batch.baseline && (
+                  <p className="employee-history-baseline">基线分类 · {baselineLabel(batch.baseline.state)}{batch.baseline.limitations ? ` · ${batch.baseline.limitations}` : ""}</p>
+                )}
                 {batch.status === "completed" || batch.status === "completed_with_warnings" ? (
                   <button type="button" onClick={event => void openRevert(batch, event.currentTarget)}>撤销预览</button>
                 ) : batch.status === "reverted" ? (
@@ -148,6 +151,14 @@ function hasAuthoritativePreview(status: string) {
     || status === "completed"
     || status === "completed_with_warnings"
     || status === "reverted";
+}
+
+function baselineLabel(state: NonNullable<ImportBatch["baseline"]>["state"]) {
+  return ({
+    full: "Full · 酒店完整基线",
+    restricted: "Restricted · 有声明限制",
+    pilot_limited: "Pilot Limited · 仅限试运行范围",
+  } as const)[state];
 }
 
 function formatDate(value: string) {

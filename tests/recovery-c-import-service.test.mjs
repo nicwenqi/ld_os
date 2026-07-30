@@ -228,12 +228,14 @@ test("Recovery C import service resumes, persists decisions, rereads authority, 
     () => service.confirmUpdate("batch-1", preview.workflow.batch.version, {
       acknowledged: false,
       previewHash: preview.preview.previewHash,
+      baseline: { state: "full", departmentId: null, includeDescendants: false, limitations: "" },
     }, confirmationDraft),
     /请先确认更新范围/,
   );
   const committed = await service.confirmUpdate("batch-1", preview.workflow.batch.version, {
     acknowledged: true,
     previewHash: preview.preview.previewHash,
+    baseline: { state: "full", departmentId: null, includeDescendants: false, limitations: "" },
   }, confirmationDraft);
   assert.equal(committed.commitId, "commit-1");
   assert.equal(committed.batch.status, "completed");

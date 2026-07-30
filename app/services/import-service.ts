@@ -11,6 +11,7 @@ import type {
   ImportSourceLabelResolution,
   ImportSourceLabelDecision,
 } from "../repositories/contracts/import-repository.ts";
+import { validateEmployeeBaselineClassification } from "./pilot-employee-baseline.ts";
 
 type ImportWorkflowRepository = Pick<
   ImportRepository,
@@ -183,7 +184,11 @@ export function createImportService(repository: ImportWorkflowRepository) {
       assertDraftReady(draft, expectedVersion);
       if (!approval.acknowledged) throw new Error("请先确认更新范围、排除行与状态处理方式");
       if (!approval.previewHash.trim()) throw new Error("审批缺少服务器预览证据，请重新生成更新预览");
-      const commitId = await repository.commitBatch(batchId, expectedVersion, approval);
+      if (!approval.baseline) throw new Error("请先确认员工基线分类与适用范围");
+      const commitId = await repository.commitBatch(batchId, expectedVersion, {
+        ...approval,
+        baseline: validateEmployeeBaselineClassification(approval.baseline),
+      });
       const [batch, audit] = await Promise.all([
         readBatch(batchId),
         repository.getBatchAudit(batchId),

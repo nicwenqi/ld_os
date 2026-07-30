@@ -112,6 +112,7 @@ test("D0 preview returns exact row and field evidence and binds commit approval 
   const approval = {
     acknowledged: true,
     previewHash: prepared.preview.previewHash,
+    baseline: { state: "full", departmentId: null, includeDescendants: false, limitations: "" },
   };
   await service.confirmUpdate(
     "batch-d0",
@@ -135,7 +136,7 @@ test("D0 confirmation rejects acknowledgement that is not bound to a preview has
     service.confirmUpdate(
       "batch-d0",
       workflow.batch.version,
-      { acknowledged: true, previewHash: "" },
+      { acknowledged: true, previewHash: "", baseline: { state: "full", departmentId: null, includeDescendants: false, limitations: "" } },
       createEmployeeUpdateDecisionDraft(workflow),
     ),
     /预览证据/,

@@ -192,7 +192,8 @@ select lives_ok($$select public.commit_employee_import(
   '81000000-0000-0000-0000-000000000011',
   4,
   (select result->>'previewHash' from employee_import_approved_preview),
-  true
+  true,
+  'full', null, false, ''
 )$$,'authorized commit RPC completes with bound approval evidence');
 select results_eq($$select employee_number from public.employees where source_batch_id='81000000-0000-0000-0000-000000000011'$$,array['0007'::text],'leading zeros survive commit');
 select results_eq($$select count(*) from public.import_commit_items where action='insert' and before_snapshot is null and after_snapshot is not null$$,array[1::bigint],'insert audit captures after snapshot');

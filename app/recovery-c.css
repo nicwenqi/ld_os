@@ -145,6 +145,7 @@
 .employee-history-list article>span{width:max-content;padding:5px 8px;border-radius:999px;background:#eef0e9;color:#50766f;font-size:10px}
 .employee-history-list article>p{font-size:11px;color:#768487;margin:0}
 .employee-history-list article>p b{color:#315961}
+.employee-history-list .employee-history-baseline{color:#806943;font-size:10px;line-height:1.45}
 .employee-history-list article>button{background:transparent;color:#806943;padding:0 10px}
 .employee-revert-backdrop{z-index:120}
 .employee-revert-dialog{padding:0;overflow:hidden}
@@ -160,6 +161,11 @@
 .revert-evidence-card span,.revert-evidence-card small{font-size:10px;color:#806943;margin-top:4px}
 .employee-revert-dialog>footer{display:flex;justify-content:flex-end;gap:9px;margin-top:20px;padding:17px 24px;background:#f4efe7}
 .foundation-work-links{margin-top:17px}
+
+.employee-baseline-classification{margin-top:18px;padding:20px;border:1px solid rgba(191,161,106,.3);border-radius:15px;background:linear-gradient(135deg,#fcf8ef,#f7f1e6)}
+.employee-baseline-classification>header{display:flex;justify-content:space-between;gap:18px;align-items:flex-start}.employee-baseline-classification header span{display:block;color:#92774c;font-size:9px;letter-spacing:.08em}.employee-baseline-classification h3{margin:6px 0 5px;font:20px var(--serif);color:#294650}.employee-baseline-classification header p{max-width:620px;margin:0;font-size:11px;line-height:1.6;color:#6d7c7f}.employee-baseline-classification header em{max-width:230px;padding:7px 9px;border-radius:8px;background:#f5e7e2;color:#9a554c;font-style:normal;font-size:10px;line-height:1.45}
+.baseline-state-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:17px}.baseline-state-options label{min-height:118px;padding:14px;border:1px solid #ded5c6;border-radius:12px;background:rgba(255,254,250,.66);cursor:pointer}.baseline-state-options label.selected{border-color:#bfa16a;box-shadow:inset 3px 0 #bfa16a;background:#fffdf8}.baseline-state-options input{margin:0 0 11px;accent-color:#315365}.baseline-state-options strong,.baseline-state-options small{display:block}.baseline-state-options strong{font-size:12px;color:#315365}.baseline-state-options small{margin-top:7px;font-size:10px;line-height:1.5;color:#738083}
+.baseline-scope-fields{display:grid;grid-template-columns:1fr 1fr;gap:13px;margin-top:16px;padding-top:16px;border-top:1px solid #e1d8c9}.baseline-scope-fields>label>span{display:block;margin-bottom:6px;font-size:10px;color:#53696f}.baseline-scope-fields select,.baseline-scope-fields textarea{width:100%;border:1px solid #d9cfbf;border-radius:9px;background:#fffefb;color:#315365;font:12px var(--sans);padding:10px}.baseline-scope-fields textarea{resize:vertical}.baseline-descendant-toggle{display:flex;gap:10px;align-items:flex-start;padding:11px;border-radius:10px;background:rgba(255,254,250,.55)}.baseline-descendant-toggle input{width:18px;height:18px;margin:0;accent-color:#315365}.baseline-descendant-toggle strong,.baseline-descendant-toggle small{display:block}.baseline-descendant-toggle strong{font-size:11px;color:#315365}.baseline-descendant-toggle small{margin-top:3px;font-size:9px;line-height:1.45;color:#728084}.baseline-limitations{grid-column:1/-1}.employee-baseline-complete{color:#4d7a73!important}
 
 @media(max-width:1100px){
   .employee-update-assurance{grid-template-columns:minmax(0,1fr) repeat(3,minmax(120px,.45fr))}
@@ -179,6 +185,7 @@
   .employee-issue-list article{grid-template-columns:minmax(0,1fr) minmax(200px,.8fr)}
   .employee-issue-list article>label:last-child{grid-column:2}
   .employee-stage-actions.split{display:grid;grid-template-columns:auto minmax(0,1fr) auto}
+  .baseline-state-options{grid-template-columns:1fr}.baseline-state-options label{min-height:0}
 }
 @media(max-width:640px){
   .recovery-c-employee-update{padding-left:14px;padding-right:14px;padding-bottom:54px}
@@ -223,4 +230,5 @@
   .employee-history-list article>button{grid-column:1/-1;width:100%;background:#eee8de;color:#425960}
   .employee-revert-dialog>footer{flex-direction:column-reverse}
   .employee-revert-dialog>footer button{width:100%}
+  .employee-baseline-classification{padding:16px}.employee-baseline-classification>header{flex-direction:column}.employee-baseline-classification header em{max-width:none}.baseline-scope-fields{grid-template-columns:1fr}.baseline-limitations{grid-column:auto}
 }

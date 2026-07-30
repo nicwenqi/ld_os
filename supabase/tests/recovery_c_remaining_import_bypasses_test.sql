@@ -410,7 +410,8 @@ select throws_ok(
     '81000000-0000-0000-0000-00000000c205',
     2,
     (select result->>'previewHash' from recovery_c_inactive_target_preview),
-    true
+    true,
+    'full', null, false, ''
   )$$,
   '23514',
   'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',

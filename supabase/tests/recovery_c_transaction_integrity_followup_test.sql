@@ -349,7 +349,8 @@ select lives_ok(
     '81000000-0000-0000-0000-00000000c102',
     2,
     (select result->>'previewHash' from recovery_c_identifier_only_preview),
-    true
+    true,
+    'full', null, false, ''
   )$$,
   'identifier-only update commits through the guarded transaction'
 );
@@ -459,7 +460,8 @@ select throws_ok(
     '81000000-0000-0000-0000-00000000c103',
     2,
     (select result->>'previewHash' from recovery_c_active_target_preview),
-    true
+    true,
+    'full', null, false, ''
   )$$,
   '23514',
   'EMPLOYEE_ORGANIZATION_TARGET_INACTIVE',

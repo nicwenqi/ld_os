@@ -60,6 +60,7 @@ import {
   createImportService,
   type EmployeeUpdateWorkflow,
 } from "../services/import-service";
+import type { EmployeeBaselineClassification } from "../services/pilot-employee-baseline";
 import { useAuthSession } from "../state/auth-session";
 
 const approvedStepLabels = "文件检查 · 字段识别 · 部门归属确认 · 职位归属确认 · 数据问题处理 · 更新预览 · 确认更新";
@@ -115,6 +116,7 @@ function EmployeeDataUpdateContent() {
   const [statusTreatment, setStatusTreatment] = useState<EmployeeImportPreviewOptions["statusTreatment"]>("retain_existing_set_additions_active");
   const [effectiveDate, setEffectiveDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [acknowledged, setAcknowledged] = useState(false);
+  const [baseline, setBaseline] = useState<EmployeeBaselineClassification | null>(null);
   const [auditCount, setAuditCount] = useState<number | null>(null);
   const [phase, setPhase] = useState<AdministrationSavePhase>("pristine");
   const [savedAt, setSavedAt] = useState<string | null>(null);
@@ -145,6 +147,12 @@ function EmployeeDataUpdateContent() {
     setPositionDecisions({});
     setIssueDecisions({});
     setAcknowledged(false);
+    setBaseline(next.batch.baseline ? {
+      state: next.batch.baseline.state,
+      departmentId: next.batch.baseline.departmentId,
+      includeDescendants: next.batch.baseline.includeDescendants,
+      limitations: next.batch.baseline.limitations,
+    } : null);
     setAuditCount(null);
     if (next.batch.status === "ready_for_review" && next.preview) {
       setPreview(next.preview);
@@ -385,13 +393,18 @@ function EmployeeDataUpdateContent() {
 
   const confirmUpdate = async () => {
     if (!workflow || !preview) return;
+    if (!baseline) {
+      setPhase("failed");
+      setStatusMessage("请先选择员工基线分类与适用范围");
+      return;
+    }
     try {
       setPhase("saving");
       setStatusMessage("正在事务提交员工主数据并读取审计证据");
       const result = await importService.confirmUpdate(
         workflow.batch.id,
         workflow.batch.version,
-        { acknowledged, previewHash: preview.previewHash },
+        { acknowledged, previewHash: preview.previewHash, baseline },
         createEmployeeUpdateDecisionDraft(workflow),
       );
       const authoritative = await importService.resume(workflow.batch.id);
@@ -547,10 +560,13 @@ function EmployeeDataUpdateContent() {
             statusTreatment={statusTreatment}
             effectiveDate={effectiveDate}
             acknowledged={acknowledged}
+            baseline={baseline}
+            departments={departments}
             saving={phase === "saving"}
             onStatusTreatment={value => { setStatusTreatment(value); setPreview(null); setActiveStep(6); markDirty("员工状态处理方式尚未写入预览"); }}
             onEffectiveDate={value => { setEffectiveDate(value); setPreview(null); setActiveStep(6); markDirty("资料生效日尚未写入预览"); }}
             onAcknowledged={value => { setAcknowledged(value); if (value) markDirty("已准备确认本次员工主数据更新"); else setPhase("saved"); }}
+            onBaselineChange={value => { setBaseline(value); setAcknowledged(false); markDirty("员工基线分类有未保存更改"); }}
             onBack={() => setActiveStep(5)}
             onPrepare={() => void preparePreview()}
             onConfirm={() => void confirmUpdate()}

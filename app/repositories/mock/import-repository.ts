@@ -7,6 +7,7 @@ import {
   type ImportRepository,
   type ImportSourceLabelResolution,
 } from "../contracts/import-repository.ts";
+import { validateEmployeeBaselineClassification } from "../../services/pilot-employee-baseline.ts";
 
 const initialBatch: ImportBatch = {
   id: "synthetic-batch-202607",
@@ -16,6 +17,7 @@ const initialBatch: ImportBatch = {
   status: "mapping_required",
   version: 1,
   createdAt: "2026-07-13T09:00:00Z",
+  baseline: null,
   summary: {
     inserted: 0,
     updated: 0,
@@ -225,7 +227,13 @@ export function createMockImportRepository(): ImportRepository {
       if (!approval.acknowledged || approval.previewHash !== "sha256:synthetic-d0-preview") {
         throw new Error("审批预览证据无效");
       }
-      batch = { ...batch, status: "completed", version: batch.version + 1 };
+      const baseline = validateEmployeeBaselineClassification(approval.baseline);
+      batch = {
+        ...batch,
+        status: "completed",
+        version: batch.version + 1,
+        baseline: { ...baseline, approvedAt: new Date().toISOString() },
+      };
       return "synthetic-commit";
     },
     async previewRevert() {

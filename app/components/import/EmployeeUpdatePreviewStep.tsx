@@ -3,6 +3,9 @@ import type {
   EmployeeImportPreviewOptions,
   EmployeeUpdatePreview,
 } from "../../repositories/contracts/import-repository";
+import type { EmployeeBaselineClassification } from "../../services/pilot-employee-baseline.ts";
+import type { AttributionTarget } from "./AttributionStep.tsx";
+import { BaselineClassificationPanel } from "./BaselineClassificationPanel.tsx";
 
 export function EmployeeUpdatePreviewStep({
   mode,
@@ -12,10 +15,13 @@ export function EmployeeUpdatePreviewStep({
   statusTreatment,
   effectiveDate,
   acknowledged,
+  baseline,
+  departments,
   saving,
   onStatusTreatment,
   onEffectiveDate,
   onAcknowledged,
+  onBaselineChange,
   onBack,
   onPrepare,
   onConfirm,
@@ -27,10 +33,13 @@ export function EmployeeUpdatePreviewStep({
   statusTreatment: EmployeeImportPreviewOptions["statusTreatment"];
   effectiveDate: string;
   acknowledged: boolean;
+  baseline: EmployeeBaselineClassification | null;
+  departments: readonly AttributionTarget[];
   saving: boolean;
   onStatusTreatment: (value: EmployeeImportPreviewOptions["statusTreatment"]) => void;
   onEffectiveDate: (value: string) => void;
   onAcknowledged: (value: boolean) => void;
+  onBaselineChange: (value: EmployeeBaselineClassification) => void;
   onBack: () => void;
   onPrepare: () => void;
   onConfirm: () => void;
@@ -41,6 +50,7 @@ export function EmployeeUpdatePreviewStep({
         <span>更新完成</span>
         <h2 id="employee-update-complete-title">员工主数据已提交并重新读取</h2>
         <p>本次提交保留完整批次、行级变更与审计证据{auditCount === null ? "。" : `，已读取 ${auditCount} 条提交证据。`}</p>
+        {baseline && <p className="employee-baseline-complete">基线分类：{baseline.state === "full" ? "酒店完整基线" : baseline.state === "restricted" ? "有声明限制" : "仅限试运行范围"}。</p>}
         <div><Link href="/people">前往员工中心核对</Link><a href="#update-history">查看更新记录</a></div>
       </section>
     );
@@ -104,10 +114,18 @@ export function EmployeeUpdatePreviewStep({
       )}
 
       {mode === "confirmation" && preview && (
-        <label className="employee-update-acknowledgement">
-          <input type="checkbox" checked={acknowledged} onChange={event => onAcknowledged(event.target.checked)} />
-          <span><strong>我已逐员工核对更新范围、资料生效日与状态处理方式</strong><small>本次审批证据会绑定服务器预览版本与内容摘要；只有明确确认后才会事务写入，不会创建 Auth 用户或后台账号。</small></span>
-        </label>
+        <>
+          <BaselineClassificationPanel
+            baseline={baseline}
+            departments={departments}
+            disabled={saving}
+            onChange={onBaselineChange}
+          />
+          <label className="employee-update-acknowledgement">
+            <input type="checkbox" checked={acknowledged} onChange={event => onAcknowledged(event.target.checked)} />
+            <span><strong>我已逐员工核对更新范围、资料生效日、状态处理方式与基线分类</strong><small>本次审批证据会绑定服务器预览版本、内容摘要和基线范围；只有明确确认后才会事务写入，不会创建 Auth 用户或后台账号。</small></span>
+          </label>
+        </>
       )}
 
       <footer className="employee-stage-actions split">
@@ -116,7 +134,7 @@ export function EmployeeUpdatePreviewStep({
         {mode === "preview" ? (
           <button type="button" disabled={saving || !effectiveDate} onClick={onPrepare}>{saving ? "正在计算…" : preview ? "重新生成预览" : "生成零写入预览"}</button>
         ) : (
-          <button type="button" disabled={saving || !preview || !acknowledged || preview.blocked > 0 || preview.unresolved > 0} onClick={onConfirm}>{saving ? "正在确认更新…" : "确认更新员工主数据"}</button>
+          <button type="button" disabled={saving || !preview || !acknowledged || !baseline || preview.blocked > 0 || preview.unresolved > 0} onClick={onConfirm}>{saving ? "正在确认更新…" : "确认更新员工主数据"}</button>
         )}
       </footer>
     </section>

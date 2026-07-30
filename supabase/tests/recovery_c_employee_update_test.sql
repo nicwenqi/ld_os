@@ -1130,7 +1130,8 @@ select public.commit_employee_import(
   '81000000-0000-0000-0000-00000000c001',
   7,
   (select result->>'previewHash' from recovery_c_main_preview),
-  true
+  true,
+  'full', null, false, ''
 ) commit_id;
 select ok(
   (
@@ -1196,7 +1197,8 @@ select results_eq(
       '81000000-0000-0000-0000-00000000c001',
       7,
       (select result->>'previewHash' from recovery_c_main_preview),
-      true
+      true,
+      'full', null, false, ''
     )$$,
   $$select commit_id from recovery_c_main_commit$$,
   'retrying a completed commit returns the original commit identity'
@@ -1254,7 +1256,8 @@ select throws_ok(
     '81000000-0000-0000-0000-00000000c003',
     2,
     (select result->>'previewHash' from recovery_c_stale_preview),
-    true
+    true,
+    'full', null, false, ''
   )$$,
   'P3005',
   'IMPORT_EMPLOYEE_STALE_VERSION',

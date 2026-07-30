@@ -19,6 +19,7 @@ function commitRow(row: any) {
 function mapBatch(row: any): ImportBatch {
   const commit = commitRow(row);
   const preview = row.preview_summary ?? {};
+  const baseline = mapBaselineEvidence(commit?.approval_evidence?.baseline);
   return {
     id: row.id,
     tenantId: row.tenant_id,
@@ -27,6 +28,7 @@ function mapBatch(row: any): ImportBatch {
     status: row.status,
     version: Number(row.version),
     createdAt: row.created_at,
+    baseline,
     summary: {
       inserted: Number(commit?.inserted_employee_count ?? preview.additions ?? 0),
       updated: Number(commit?.updated_employee_count ?? preview.updates ?? 0),
@@ -38,13 +40,34 @@ function mapBatch(row: any): ImportBatch {
   };
 }
 
+function mapBaselineEvidence(value: unknown): ImportBatch["baseline"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const baseline = value as Record<string, unknown>;
+  if (
+    !["full", "restricted", "pilot_limited"].includes(String(baseline.state))
+    || typeof baseline.includeDescendants !== "boolean"
+    || typeof baseline.limitations !== "string"
+    || typeof baseline.approvedAt !== "string"
+  ) return null;
+  const departmentId = typeof baseline.departmentId === "string" && baseline.departmentId.trim()
+    ? baseline.departmentId
+    : null;
+  return {
+    state: baseline.state as ImportBatch["baseline"]["state"],
+    departmentId,
+    includeDescendants: baseline.includeDescendants,
+    limitations: baseline.limitations,
+    approvedAt: baseline.approvedAt,
+  };
+}
+
 async function rpc<T>(client: Client, name: string, args: Record<string, unknown>): Promise<T> {
   const { data, error } = await client.rpc(name, args);
   if (error) throw mapImportRepositoryError(error);
   return data as T;
 }
 
-const batchSelect = "*,import_commits(inserted_employee_count,updated_employee_count,unchanged_employee_count,excluded_row_count,unresolved_row_count)";
+const batchSelect = "*,import_commits(inserted_employee_count,updated_employee_count,unchanged_employee_count,excluded_row_count,unresolved_row_count,approval_evidence)";
 
 export function createSupabaseImportRepository(client: Client): ImportRepository {
   return {
@@ -211,6 +234,10 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
         p_expected_version: expectedVersion,
         p_preview_hash: approval.previewHash,
         p_confirmed: approval.acknowledged,
+        p_baseline_state: approval.baseline.state,
+        p_baseline_department_id: approval.baseline.departmentId,
+        p_baseline_include_descendants: approval.baseline.includeDescendants,
+        p_baseline_limitations: approval.baseline.limitations,
       });
     },
     previewRevert(batchId) {
