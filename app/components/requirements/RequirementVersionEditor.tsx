@@ -709,11 +709,16 @@ function LearningMethodEditor({
         </div>
       )}
       {method.type === "assessment" && (
-        <div className="requirement-form-grid">
-          <label><span>评估名称</span><input value={method.assessmentName} onChange={event => patch({ assessmentName: event.target.value })} /></label>
-          <label><span>通过标准</span><input value={method.passCriteria} onChange={event => patch({ passCriteria: event.target.value })} /></label>
-          <label><span>证据要求</span><input value={method.evidenceDescription} onChange={event => patch({ evidenceDescription: event.target.value })} /></label>
-        </div>
+        <>
+          <small className="field-guidance">
+            评估仅定义未来可接受证据和通过标准；考试事实尚未接入。
+          </small>
+          <div className="requirement-form-grid">
+            <label><span>评估名称</span><input value={method.assessmentName} onChange={event => patch({ assessmentName: event.target.value })} /></label>
+            <label><span>通过标准</span><input value={method.passCriteria} onChange={event => patch({ passCriteria: event.target.value })} /></label>
+            <label><span>证据要求</span><input value={method.evidenceDescription} onChange={event => patch({ evidenceDescription: event.target.value })} /></label>
+          </div>
+        </>
       )}
       {method.type === "manager_equivalency" && (
         <div className="requirement-form-grid">

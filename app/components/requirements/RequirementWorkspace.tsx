@@ -191,7 +191,7 @@ export function RequirementWorkspace() {
             <p>
               {latestRequirements.length > 0
                 ? "只有已批准并按生效日期激活的版本才会向部门角色显示。"
-                : "请先建立课程版本（如需要），再建立酒店业务义务、完成定义和适用规则。"}
+                : "建议由经理以“消防安全年度培训”作为首个 Pilot 案例，明确填写 Requirement Version；系统不会自动生成课程、要求、员工任务或执行事实。课程版本仅在选择内部课程方式时才需要。"}
             </p>
           </div>
           <div className="requirement-boundary-note">
