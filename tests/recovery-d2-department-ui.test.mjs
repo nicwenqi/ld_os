@@ -18,7 +18,8 @@ test("department workflow creates only scoped Session drafts and honest readines
   assert.match(source, /saveDepartmentSessionRevisionDraft/);
   assert.match(source, /previewDepartmentSessionParticipants/);
   assert.match(source, /publishSessionRevision/);
-  assert.match(source, /独立出勤登记/);
+  assert.match(source, /发布仅表示该场次修订已准备交付/);
+  assert.match(source, /不会创建出勤、签到或完成事实/);
   assert.match(source, /当前场次准备边界/);
   assert.match(source, /isDepartmentInTarget/);
   assert.match(

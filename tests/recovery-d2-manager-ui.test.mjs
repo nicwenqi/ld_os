@@ -18,7 +18,7 @@ const navigation = await readFile(
 test("manager D2 workspaces explain planning and execution boundaries", () => {
   assert.match(planWorkspace, /培训计划不是培训场次/);
   assert.match(planWorkspace, /已批准计划不会自动创建场次/);
-  assert.match(sessionWorkspace, /发布后可开放独立出勤登记/);
+  assert.match(sessionWorkspace, /发布仅表示该场次修订已准备交付/);
   assert.match(sessionWorkspace, /参与人预览为零写入/);
   assert.match(sessionWorkspace, /Unable to Determine|无法判断/);
 });

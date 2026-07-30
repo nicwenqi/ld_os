@@ -470,7 +470,7 @@ export function SessionWorkspace() {
           <div>
             <span>当前事实边界</span>
             <h2>{foundation.sessions.length ? "场次计划与准备事实已接入" : "尚未建立真实培训场次"}</h2>
-            <p>已发布场次冻结交付条件与参与人快照；发布后可前往“出勤与反馈”开放真实出勤登记，完成证据在 D4 独立核验，反馈仍未接入。</p>
+            <p>已发布场次冻结交付条件与参与人快照。发布仅表示该场次修订已准备交付；不会创建出勤、签到或完成事实。</p>
           </div>
           <div className="d2-boundary">
             <strong>发布前证据</strong>
@@ -601,7 +601,7 @@ export function SessionWorkspace() {
 }
 
 function ParticipantPreview({ preview, onClose, onPublish, publishing, message, sessionId }: { preview: SessionParticipantPreview; onClose: () => void; onPublish: () => void; publishing: boolean; message: string | null; sessionId: string }) {
-  return <div className="d2-editor-layer"><section className="d2-editor wide d2-preview"><header><div><span>ZERO-WRITE REVIEW</span><h2>参与人适用性与快照预览</h2><p>参与人预览为零写入；发布后才保存候选证据。</p></div><button type="button" onClick={onClose}>关闭</button></header><div className="d2-preview-summary"><div><strong>{preview.selectedCount}</strong><span>明确选择</span></div><div><strong>{preview.eligibleCount ?? "—"}</strong><span>适用</span></div><div><strong>{preview.unableToDetermineCount}</strong><span>无法判断</span></div></div>{message && <p className="d2-inline-note">{message}</p>}<div className="d2-preview-list">{preview.rows.map(row => <article key={row.employeeId}><div><strong>{"employeeName" in row ? row.employeeName : row.employeeId}</strong><small>{"employeeNumber" in row ? row.employeeNumber : ""}</small></div><span>{"eligibilityState" in row ? eligibilityLabel(row.eligibilityState) : "发展性选择"}</span><em>{row.selected ? "已选择" : "未选择"}</em></article>)}</div><footer><span>场次 {sessionId || "新建草稿"} · 发布后可开放独立出勤登记</span><button className="primary-action" type="button" onClick={onPublish} disabled={publishing || preview.selectedCount === 0}>发布并冻结证据</button></footer></section></div>;
+  return <div className="d2-editor-layer"><section className="d2-editor wide d2-preview"><header><div><span>ZERO-WRITE REVIEW</span><h2>参与人适用性与快照预览</h2><p>参与人预览为零写入；发布后才保存候选证据。</p></div><button type="button" onClick={onClose}>关闭</button></header><div className="d2-preview-summary"><div><strong>{preview.selectedCount}</strong><span>明确选择</span></div><div><strong>{preview.eligibleCount ?? "—"}</strong><span>适用</span></div><div><strong>{preview.unableToDetermineCount}</strong><span>无法判断</span></div></div>{message && <p className="d2-inline-note">{message}</p>}<div className="d2-preview-list">{preview.rows.map(row => <article key={row.employeeId}><div><strong>{"employeeName" in row ? row.employeeName : row.employeeId}</strong><small>{"employeeNumber" in row ? row.employeeNumber : ""}</small></div><span>{"eligibilityState" in row ? eligibilityLabel(row.eligibilityState) : "发展性选择"}</span><em>{row.selected ? "已选择" : "未选择"}</em></article>)}</div><footer><span>场次 {sessionId || "新建草稿"} · 发布仅表示已准备交付，不会创建出勤、签到或完成事实。</span><button className="primary-action" type="button" onClick={onPublish} disabled={publishing || preview.selectedCount === 0}>发布并冻结证据</button></footer></section></div>;
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) { return <label><span>{label}</span>{children}</label>; }

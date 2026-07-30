@@ -331,7 +331,8 @@ export function TrainingPlanWorkspace() {
           {!referenceReady && (
             <div className="d2-prerequisite">
               <strong>计划前置基础尚不完整</strong>
-              <span>请先确认已发布课程版本、正式部门和有效后台负责人。</span>
+              <span>请先确认已发布课程版本、正式部门和有效后台负责人。只有引用已发布课程版本的认可学习方式才可建立培训要求交付计划。</span>
+              <span>外部证书、受控评估或经理等价认定不会自动生成课程、计划或场次。</span>
               <Link href="/requirements">检查培训要求与课程版本</Link>
             </div>
           )}
@@ -409,6 +410,7 @@ export function TrainingPlanWorkspace() {
             <Field label="计划业务目的"><textarea required value={form.purpose} onChange={e => updateForm("purpose", e.target.value)} /></Field>
             <fieldset>
               <legend>首个计划项目</legend>
+              <p className="field-guidance">培训要求是酒店义务；课程版本只是可交付的认可学习方式。只有引用已发布课程版本的认可学习方式才可建立培训要求交付计划；外部证书、受控评估或经理等价认定不会自动生成课程、计划或场次。</p>
               <div className="d2-form-grid">
                 <Field label="项目名称"><input required value={form.itemName} onChange={e => updateForm("itemName", e.target.value)} /></Field>
                 <Field label="交付目的"><select value={form.itemPurpose} onChange={e => updateForm("itemPurpose", e.target.value as PlanForm["itemPurpose"])}><option value="requirement_delivery">培训要求交付</option><option value="development_delivery">发展性培训</option></select></Field>

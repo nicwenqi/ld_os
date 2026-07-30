@@ -332,7 +332,7 @@ export function DepartmentSessionWorkspace() {
           <div>{foundation.scope.map(scope => <article key={scope.departmentId}><span>{scope.breadcrumb?.join(" › ") || "授权范围"}</span><strong>{scope.departmentName}</strong><small>{scope.includeDescendants ? "包含下级部门" : "仅当前部门"}</small></article>)}</div>
         </section>
         <section className="d2-judgment">
-          <div><span>当前部门运营边界</span><h2>{foundation.sessions.length ? "部门场次准备事实已接入" : "当前授权范围尚无场次事实"}</h2><p>这里显示计划交付与发布准备；已发布场次可进入独立出勤登记，完成证据在 D4 独立核验，反馈仍未接入。</p></div>
+          <div><span>当前部门运营边界</span><h2>{foundation.sessions.length ? "部门场次准备事实已接入" : "当前授权范围尚无场次事实"}</h2><p>这里显示计划交付与发布准备；发布仅表示该场次修订已准备交付，不会创建出勤、签到或完成事实。</p></div>
           <div className="d2-boundary"><strong>当前场次准备边界</strong><span>场地、培训师授权、部门受众、员工事实快照和负责人确认。</span></div>
         </section>
         <section className="d2-register">
@@ -413,7 +413,7 @@ export function DepartmentSessionWorkspace() {
               }}>{foundation.referenceOptions.trainers.map(value => <option value={value.id} key={value.id}>{value.displayName}</option>)}</select></Field>
             </div>
             <fieldset><legend>授权员工参与人</legend><p className="field-guidance">系统只返回服务器授权部门范围内的必要身份字段；选择上级部门时包含其授权下级部门。</p><div className="d2-employee-picker">{foundation.participantCandidates.filter(value => isDepartmentInTarget(value.departmentId, form.departmentId, foundation.referenceOptions.departments)).map(value => <label key={value.employeeId}><input type="checkbox" checked={form.selectedEmployeeIds.includes(value.employeeId)} onChange={() => update("selectedEmployeeIds", toggle(form.selectedEmployeeIds, value.employeeId))} /><span><strong>{value.employeeName}</strong><small>{value.employeeNumber} · {value.departmentName}</small></span></label>)}</div></fieldset>
-            <fieldset><legend>当前场次准备边界</legend><label className="d2-check"><input type="checkbox" checked={form.materialsReady} onChange={e => update("materialsReady", e.target.checked)} />教材已准备</label><label className="d2-check"><input type="checkbox" checked={form.roomReady} onChange={e => update("roomReady", e.target.checked)} />场地布置已准备</label><p className="field-guidance">发布后可在“出勤与反馈”开放真实登记；二维码只形成 Observation，最终判定仍需授权人员核对。</p></fieldset>
+            <fieldset><legend>当前场次准备边界</legend><label className="d2-check"><input type="checkbox" checked={form.materialsReady} onChange={e => update("materialsReady", e.target.checked)} />教材已准备</label><label className="d2-check"><input type="checkbox" checked={form.roomReady} onChange={e => update("roomReady", e.target.checked)} />场地布置已准备</label><p className="field-guidance">发布仅表示该场次修订已准备交付；不会创建出勤、签到或完成事实。</p></fieldset>
             <footer><button type="button" onClick={() => setEditorOpen(false)}>取消</button><button className="primary-action" type="submit">保存并零写入预览</button></footer>
           </form>
         </div>
