@@ -114,7 +114,7 @@ test("access-token release is limited by the server-resolved workspace role", as
   assert.match(tokenRoute, /resolveAuthenticatedRequest\(request\)/);
   assert.match(
     requestAuthentication,
-    /resolveSessionForAuthUser\(identity\.userId, identity\.hostname\)/,
+    /resolveSessionForAccessToken\(identity\.accessToken, identity\.hostname\)/,
   );
   assert.match(
     requestAuthentication,
@@ -126,12 +126,12 @@ test("access-token release is limited by the server-resolved workspace role", as
     requestAuthentication,
     /session\.role === ["']department_training_responsible["']/,
   );
-  assert.match(authenticationService, /role\?\.code === ["']property_ld_manager["']/);
-  assert.match(authenticationService, /role\?\.code === ["']department_training_admin["']/);
-  assert.match(authenticationService, /role: ["']department_training_responsible["']/);
+  assert.match(authenticationService, /resolve_hotel_application_session/);
+  assert.match(authenticationService, /value\.role === ["']property_ld_manager["']/);
+  assert.match(authenticationService, /value\.role === ["']department_training_responsible["']/);
   assert.doesNotMatch(
     authenticationService,
-    /role\?\.code === ["'](?:platform_admin|tenant_admin)["']/,
+    /value\.role === ["'](?:platform_admin|tenant_admin)["']/,
   );
 });
 
@@ -165,7 +165,11 @@ test("Vite exposes only the validated public runtime boundary to browser reposit
   ]);
   assert.match(viteConfig, /browserEnvironmentDefines/);
   assert.match(viteConfig, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
-  assert.doesNotMatch(viteConfig, /SUPABASE_SECRET_KEY|SERVICE_ROLE/);
+  const browserDefines = viteConfig.match(
+    /const browserEnvironmentDefines = \{([\s\S]*?)\n  \};/,
+  )?.[1] ?? "";
+  assert.doesNotMatch(browserDefines, /SUPABASE_SECRET_KEY|SERVICE_ROLE/);
+  assert.match(viteConfig, /environment\.appEnv === "local" && serverSecret/);
   assert.match(environment, /defaultEnvironmentInput/);
   assert.match(statusCard, /session\.propertyId/);
   assert.doesNotMatch(statusCard, /resolveContext\(hostname\)/);

@@ -2,7 +2,7 @@ import { parseAppEnvironment } from "../lib/environment.ts";
 import { resolveRequestHostname } from "../lib/request-hostname.ts";
 import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
 import type { AuthSession } from "../repositories/contracts/auth-repository.ts";
-import { resolveSessionForAuthUser } from "./authentication-service.ts";
+import { resolveSessionForAccessToken } from "./authentication-service.ts";
 import { readCookie, readRefreshCookie } from "../api/auth/cookies.ts";
 
 export type AuthenticatedRequest = {
@@ -70,7 +70,7 @@ async function resolveBackendRequest(
 ): Promise<AuthenticatedRequest | null> {
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) return null;
-  const session = await resolveSessionForAuthUser(identity.userId, identity.hostname);
+  const session = await resolveSessionForAccessToken(identity.accessToken, identity.hostname);
   if (!isApprovedBackendSession(session)) return null;
   if (!allowPasswordChangeRequired && session.mustChangePassword) return null;
   return { session, accessToken: identity.accessToken, refreshToken: identity.refreshToken, refreshed: identity.refreshed };

@@ -183,3 +183,52 @@ test("initialization remains a manager tool with a real return and save states",
   assert.doesNotMatch(page,/tenant_admin|platform_admin/);
   for(const token of ["未修改","有未保存更改","保存中","已保存","保存失败，点击重试","保存冲突，请重新读取"]) assert.match(saveState,new RegExp(token));
 });
+
+test("hotel authentication uses only the approved identity and actor RPC boundary", async () => {
+  const [service, requestAuthentication, sessionRoute] = await Promise.all([
+    read("../app/services/authentication-service.ts"),
+    read("../app/services/request-authentication.ts"),
+    read("../app/api/auth/session/route.ts"),
+  ]);
+  assert.match(service, /rpc\(\s*["']resolve_hotel_login_identity["']/);
+  assert.match(service, /rpc\(\s*["']resolve_hotel_application_session["']/);
+  assert.match(service, /rpc\(\s*["']record_hotel_login_success["']/);
+  assert.doesNotMatch(
+    service,
+    /\.from\(["'](?:property_domains|user_accounts|profiles|tenant_memberships|property_memberships|role_assignments|trainer_scopes|departments)["']\)/,
+  );
+  assert.doesNotMatch(service, /resolveSessionForAuthUser/);
+  assert.match(requestAuthentication, /resolveSessionForAccessToken\(identity\.accessToken, identity\.hostname\)/);
+  assert.match(sessionRoute, /resolveSessionForAccessToken\(identity\.accessToken,identity\.hostname\)/);
+});
+
+test("hotel session resolution accepts an access token and hostname, never browser authority fields", async () => {
+  const service = await read("../app/services/authentication-service.ts");
+  assert.match(
+    service,
+    /resolveSessionForAccessToken\(\s*accessToken:\s*string,\s*hostname:\s*string/,
+  );
+  assert.doesNotMatch(
+    service,
+    /resolveSessionForAccessToken\([^)]*(?:userId|propertyId|tenantId|role|departmentId|scope)/,
+  );
+});
+
+test("the disposable C5-A browser harness uses the server runtime and derives local keys", async () => {
+  const [harness, fixture, viteConfig] = await Promise.all([
+    read("../scripts/c5a-local-browser-harness.mjs"),
+    read("../supabase/snippets/c5a_local_browser_auth_fixture.sql"),
+    read("../vite.config.ts"),
+  ]);
+  assert.match(harness, /command === "serve"/);
+  assert.match(harness, /supabase", "status", "-o", "env"/);
+  assert.match(harness, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: local\.PUBLISHABLE_KEY/);
+  assert.match(harness, /SUPABASE_SECRET_KEY: local\.SECRET_KEY/);
+  assert.doesNotMatch(harness, /sb_(?:publishable|secret)_/);
+  assert.match(harness, /randomBytes/);
+  assert.match(fixture, /:'c5a_password'/);
+  assert.doesNotMatch(fixture, /encrypted_password\s*=\s*extensions\.crypt\(\s*'/);
+  assert.match(viteConfig, /environment\.appEnv === "local" && serverSecret/);
+  assert.match(viteConfig, /vars:\s*localServerBindings/);
+  assert.doesNotMatch(viteConfig, /browserEnvironmentDefines[^;]*SUPABASE_SECRET_KEY/s);
+});

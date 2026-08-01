@@ -35,7 +35,12 @@ const localBindingConfig = {
 };
 
 export default defineConfig(async ({ mode }) => {
-  const environment = parseAppEnvironment({ ...loadEnv(mode, process.cwd(), ""), ...process.env });
+  const loadedEnvironment = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
+  const environment = parseAppEnvironment(loadedEnvironment);
+  const serverSecret = loadedEnvironment.SUPABASE_SECRET_KEY?.trim();
+  const localServerBindings = environment.appEnv === "local" && serverSecret
+    ? { SUPABASE_SECRET_KEY: serverSecret }
+    : {};
   const browserEnvironmentDefines = {
     "process.env.APP_ENV": JSON.stringify(environment.appEnv),
     "process.env.APP_DATA_MODE": JSON.stringify(environment.dataMode),
@@ -84,7 +89,7 @@ export default defineConfig(async ({ mode }) => {
       sites(),
       cloudflare({
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
-        config: localBindingConfig,
+        config: { ...localBindingConfig, vars: localServerBindings },
       }),
     ],
   };

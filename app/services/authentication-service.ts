@@ -1,4 +1,3 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AppDataMode, AppEnvironmentName } from "../lib/environment.ts";
 import type {
   AuthSession,
@@ -96,7 +95,6 @@ export async function authenticateSyntheticAccount(input: {
 
 export type ResolvedAccount = {
   session: AuthSession;
-  internalEmail: string;
   accessToken?: string;
   refreshToken?: string;
 };
@@ -119,255 +117,152 @@ export async function resolveAccountForLogin(input: {
         appEnv: environment.appEnv,
         dataMode: environment.dataMode,
       }),
-      internalEmail: "local-only@example.test",
     };
   }
 
-  const admin = createServerAdminClient();
-  const hostname = input.hostname.trim().toLowerCase().split(":")[0];
-  const { data: domain } = await admin
-    .from("property_domains")
-    .select("tenant_id,property_id,properties(name_zh,name_en),is_active,verification_status")
-    .eq("hostname", hostname)
-    .eq("is_primary", true)
-    .maybeSingle();
-  if (!domain || !domain.is_active || domain.verification_status !== "verified") {
-    throw genericLoginError();
-  }
-  const { data: account } = await admin
-    .from("user_accounts")
-    .select(
-      "user_id,auth_user_id,tenant_id,property_id,account_status,must_change_password,locked_until,profiles(email,display_name,is_active)",
-    )
-    .eq("property_id", domain.property_id)
-    .eq("normalized_login_id", input.loginId.trim().toLowerCase())
-    .maybeSingle();
-  const profile = relationOne(account?.profiles);
-  if (
-    !account ||
-    !profile ||
-    account.account_status !== "active" ||
-    profile.is_active !== true ||
-    (account.locked_until && Date.parse(account.locked_until) > Date.now())
-  ) {
-    throw genericLoginError();
-  }
+  const hostname = normalizeHostname(input.hostname);
+  const technicalClient = createServerAdminClient();
+  const { data: identityData, error: identityError } = await technicalClient.rpc(
+    "resolve_hotel_login_identity",
+    { p_hostname: hostname, p_login_id: input.loginId },
+  );
+  const internalEmail = readInternalEmail(identityData);
+  if (identityError || !internalEmail) throw genericLoginError();
+
   const passwordClient = createServerPasswordClient();
-  const { data: auth, error } = await passwordClient.auth.signInWithPassword({
-    email: profile.email,
+  const { data: auth, error: passwordError } = await passwordClient.auth.signInWithPassword({
+    email: internalEmail,
     password: input.password,
   });
-  if (error || !auth.user || auth.user.id !== account.auth_user_id || !auth.session) {
-    throw genericLoginError();
+  if (passwordError || !auth.user || !auth.session) throw genericLoginError();
+
+  const session = await resolveSessionForAccessToken(auth.session.access_token, hostname);
+  if (!session.authenticated) throw genericLoginError();
+  if (isApprovedHotelRole(session.role)) {
+    const { createServerActorClient } = await import("../lib/supabase/server-admin.ts");
+    const actorClient = createServerActorClient(auth.session.access_token);
+    const { error: transitionError } = await actorClient.rpc(
+      "record_hotel_login_success",
+      { p_hostname: hostname },
+    );
+    if (transitionError) throw genericLoginError();
   }
-  const session = await resolveSessionForAuthUser(account.auth_user_id, hostname);
-  await admin
-    .from("user_accounts")
-    .update({ last_login_at: new Date().toISOString(), failed_login_count: 0 })
-    .eq("auth_user_id", account.auth_user_id)
-    .eq("property_id", account.property_id);
+
   return {
     session,
-    internalEmail: profile.email,
     accessToken: auth.session.access_token,
     refreshToken: auth.session.refresh_token,
   };
 }
 
-export async function resolveSessionForAuthUser(
-  authUserId: string,
+export async function resolveSessionForAccessToken(
+  accessToken: string,
   hostname: string,
 ): Promise<AuthSession> {
-  const { createServerAdminClient } = await import("../lib/supabase/server-admin.ts");
-  const admin = createServerAdminClient();
-  const normalizedHostname = hostname.trim().toLowerCase().split(":")[0];
-  const { data: domain } = await admin
-    .from("property_domains")
-    .select("tenant_id,property_id,properties(name_zh,name_en),is_active,verification_status")
-    .eq("hostname", normalizedHostname)
-    .eq("is_primary", true)
-    .maybeSingle();
-  if (!domain || !domain.is_active || domain.verification_status !== "verified") {
-    return unauthorizedSession();
-  }
-  const property = relationOne(domain.properties);
-  const { data: account } = await admin
-    .from("user_accounts")
-    .select(
-      "user_id,property_id,account_status,must_change_password,locked_until,profiles(display_name,is_active)",
-    )
-    .eq("auth_user_id", authUserId)
-    .eq("property_id", domain.property_id)
-    .maybeSingle();
-  const profile = relationOne(account?.profiles);
-  if (
-    !account ||
-    !profile ||
-    account.account_status !== "active" ||
-    profile.is_active !== true ||
-    (account.locked_until && Date.parse(account.locked_until) > Date.now())
-  ) {
-    return unauthorizedSession();
-  }
-  const [{ data: tenantMembership }, { data: propertyMembership }] = await Promise.all([
-    admin
-      .from("tenant_memberships")
-      .select("status")
-      .eq("tenant_id", domain.tenant_id)
-      .eq("user_id", account.user_id)
-      .maybeSingle(),
-    admin
-      .from("property_memberships")
-      .select("status")
-      .eq("property_id", domain.property_id)
-      .eq("user_id", account.user_id)
-      .maybeSingle(),
-  ]);
-  if (tenantMembership?.status !== "active" || propertyMembership?.status !== "active") {
-    return unauthorizedSession(true, profile.display_name, property?.name_zh, property?.name_en);
-  }
-
-  const authority = await resolveHotelAuthority(
-    admin,
-    account.user_id,
-    domain.tenant_id,
-    domain.property_id,
+  const { createServerActorClient } = await import("../lib/supabase/server-admin.ts");
+  const actorClient = createServerActorClient(accessToken);
+  const { data, error } = await actorClient.rpc(
+    "resolve_hotel_application_session",
+    { p_hostname: normalizeHostname(hostname) },
   );
+  if (error) return unauthorizedSession();
+  return readAuthSession(data) ?? unauthorizedSession();
+}
+
+function readInternalEmail(value: unknown): string | null {
+  if (!isRecord(value) || typeof value.internalEmail !== "string") return null;
+  const email = value.internalEmail.trim().toLowerCase();
+  return email && email.length <= 320 ? email : null;
+}
+
+function readAuthSession(value: unknown): AuthSession | null {
+  if (!isRecord(value) || value.authenticated !== true) return null;
+  if (typeof value.userId !== "string" || typeof value.propertyId !== "string") return null;
+  if (typeof value.displayName !== "string" || typeof value.mustChangePassword !== "boolean") {
+    return null;
+  }
+  if (!isEffectiveRole(value.role)) return null;
+  const scopes = readDepartmentScopes(value.departmentScopes);
+  if (!scopes || (value.role === "department_training_responsible" && scopes.length === 0)) {
+    return null;
+  }
   return {
     authenticated: true,
-    userId: account.user_id,
-    displayName: profile.display_name,
-    propertyId: account.property_id,
-    propertyNameZh: property?.name_zh ?? null,
-    propertyNameEn: property?.name_en ?? null,
-    propertyLogoUrl: null,
-    role: authority.role,
-    departmentScopes: authority.departmentScopes,
-    mustChangePassword: account.must_change_password,
+    userId: value.userId,
+    displayName: value.displayName,
+    propertyId: value.propertyId,
+    propertyNameZh: nullableString(value.propertyNameZh),
+    propertyNameEn: nullableString(value.propertyNameEn),
+    propertyLogoUrl: nullableString(value.propertyLogoUrl),
+    role: value.role,
+    departmentScopes: value.role === "property_ld_manager" ? [] : scopes,
+    mustChangePassword: value.mustChangePassword,
   };
 }
 
-type RoleAssignmentRow = {
-  id: string;
-  property_id: string | null;
-  roles:
-    | { code: string; is_active: boolean }
-    | Array<{ code: string; is_active: boolean }>
-    | null;
-};
-
-type ScopeRow = {
-  department_id: string;
-  include_descendants: boolean;
-  departments:
-    | {
-        id: string;
-        name_zh: string;
-        name_en: string | null;
-        path_ids: string[];
-        is_active: boolean;
-      }
-    | Array<{
-        id: string;
-        name_zh: string;
-        name_en: string | null;
-        path_ids: string[];
-        is_active: boolean;
-      }>
-    | null;
-};
-
-async function resolveHotelAuthority(
-  admin: SupabaseClient,
-  userId: string,
-  tenantId: string,
-  propertyId: string,
-): Promise<{ role: EffectiveRole; departmentScopes: AuthorizedDepartmentScope[] }> {
-  const { data: assignments, error: assignmentsError } = await admin
-    .from("role_assignments")
-    .select("id,property_id,roles(code,is_active)")
-    .eq("user_id", userId)
-    .eq("tenant_id", tenantId)
-    .eq("property_id", propertyId)
-    .eq("status", "active");
-  if (assignmentsError) return { role: "unauthorized", departmentScopes: [] };
-
-  const activeAssignments = ((assignments ?? []) as RoleAssignmentRow[])
-    .map(assignment => ({ assignment, role: relationOne(assignment.roles) }))
-    .filter(entry => entry.role?.is_active === true);
-  if (activeAssignments.some(entry => entry.role?.code === "property_ld_manager")) {
-    return { role: "property_ld_manager", departmentScopes: [] };
+function readDepartmentScopes(value: unknown): AuthorizedDepartmentScope[] | null {
+  if (!Array.isArray(value)) return null;
+  const scopes: AuthorizedDepartmentScope[] = [];
+  for (const candidate of value) {
+    if (!isRecord(candidate)
+      || typeof candidate.departmentId !== "string"
+      || typeof candidate.departmentNameZh !== "string"
+      || (candidate.departmentNameEn !== null && typeof candidate.departmentNameEn !== "string")
+      || !isStringArray(candidate.breadcrumb)
+      || !isStringArray(candidate.breadcrumbEn)
+      || typeof candidate.includeDescendants !== "boolean") {
+      return null;
+    }
+    scopes.push({
+      departmentId: candidate.departmentId,
+      departmentNameZh: candidate.departmentNameZh,
+      departmentNameEn: candidate.departmentNameEn,
+      breadcrumb: candidate.breadcrumb,
+      breadcrumbEn: candidate.breadcrumbEn,
+      includeDescendants: candidate.includeDescendants,
+    });
   }
-
-  const departmentAssignmentIds = activeAssignments
-    .filter(entry => entry.role?.code === "department_training_admin")
-    .map(entry => entry.assignment.id);
-  if (!departmentAssignmentIds.length) {
-    return { role: "unauthorized", departmentScopes: [] };
-  }
-
-  const { data: scopeData, error: scopeError } = await admin
-    .from("trainer_scopes")
-    .select(
-      "department_id,include_descendants,departments!trainer_scopes_department_scope_fkey(id,name_zh,name_en,path_ids,is_active)",
-    )
-    .in("role_assignment_id", departmentAssignmentIds)
-    .eq("property_id", propertyId)
-    .eq("is_active", true);
-  if (scopeError) return { role: "unauthorized", departmentScopes: [] };
-
-  const activeScopes = ((scopeData ?? []) as ScopeRow[])
-    .map(scope => ({ scope, department: relationOne(scope.departments) }))
-    .filter(entry => entry.department?.is_active === true);
-  if (!activeScopes.length) return { role: "unauthorized", departmentScopes: [] };
-
-  const ancestorIds = [
-    ...new Set(activeScopes.flatMap(entry => entry.department?.path_ids ?? [])),
-  ];
-  const { data: ancestorData, error: ancestorError } = await admin
-    .from("departments")
-    .select("id,name_zh,name_en")
-    .eq("property_id", propertyId)
-    .in("id", ancestorIds);
-  if (ancestorError) return { role: "unauthorized", departmentScopes: [] };
-  const ancestors = new Map(
-    (ancestorData ?? []).map(department => [department.id, department]),
-  );
-  const departmentScopes = activeScopes.map(({ scope, department }) => {
-    const path = department!.path_ids.map(id => ancestors.get(id)).filter(Boolean);
-    return {
-      departmentId: scope.department_id,
-      departmentNameZh: department!.name_zh,
-      departmentNameEn: department!.name_en,
-      breadcrumb: path.map(item => item!.name_zh),
-      breadcrumbEn: path.map(item => item!.name_en ?? item!.name_zh),
-      includeDescendants: scope.include_descendants,
-    };
-  });
-  return { role: "department_training_responsible", departmentScopes };
+  return scopes;
 }
 
-function relationOne<T>(value: T | T[] | null | undefined): T | null {
-  return Array.isArray(value) ? value[0] ?? null : value ?? null;
+function isApprovedHotelRole(role: EffectiveRole) {
+  return role === "property_ld_manager" || role === "department_training_responsible";
+}
+
+function isEffectiveRole(value: unknown): value is EffectiveRole {
+  return value === "property_ld_manager"
+    || value === "department_training_responsible"
+    || value === "unauthorized";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every(item => typeof item === "string");
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function normalizeHostname(hostname: string) {
+  return hostname.trim().toLowerCase().split(":")[0];
 }
 
 function genericLoginError() {
   return new Error("账号或密码错误");
 }
 
-function unauthorizedSession(
-  authenticated = false,
-  displayName: string | null = null,
-  propertyNameZh: string | null = null,
-  propertyNameEn: string | null = null,
-): AuthSession {
+function unauthorizedSession(): AuthSession {
   return {
-    authenticated,
+    authenticated: false,
     userId: null,
-    displayName,
+    displayName: null,
     propertyId: null,
-    propertyNameZh,
-    propertyNameEn,
+    propertyNameZh: null,
+    propertyNameEn: null,
     propertyLogoUrl: null,
     role: "unauthorized",
     departmentScopes: [],
