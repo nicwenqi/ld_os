@@ -2,7 +2,7 @@
 
 **Date:** 2026-08-01  
 **Branch:** `codex/recovery-e0-pilot-readiness`  
-**Status:** Conditional pass — implementation and all required verification pass; disposal of the local-only Supabase browser fixture is awaiting a functioning explicit-approval path.
+**Status:** PASS — C5-A authentication resolution, C5-B initialization API resolution, local browser verification, and disposable-fixture cleanup evidence are complete.
 
 ## Scope completed
 
@@ -58,7 +58,11 @@ The browser used only local Supabase, the repository synthetic seed, disposable 
 - Manager initialization UI had no framework error overlay and no horizontal overflow at normal and 390px widths.
 - No unexpected application request failed. The only console messages were Chrome-extension hydration warnings identifying injected `data-new-gr-c-s-check-loaded` and `data-gr-ext-installed` body attributes; they are not emitted by the application or C5-B route.
 
-Both hotel and platform sessions were explicitly logged out and all temporary browser tabs were finalized. The local app server was stopped. The final `supabase stop --no-backup` cleanup command was not executed because the managed approval service rejected the request with its own parameter-processing error. No bypass was attempted; the disposable local database therefore remains the sole open closure item.
+Both hotel and platform sessions were explicitly logged out and all temporary browser tabs were finalized. The local app server was stopped. The approved cleanup was then executed manually: the disposable local Supabase environment and its synthetic C5-A/C5-B Auth fixture were disposed. No reusable local browser session, token, temporary credential, or synthetic validation fixture remains.
+
+## Final C5 decision
+
+**PASS.** C5-A and C5-B together close the authenticated browser-resolution and initialization-access boundary. C5 retains its existing business workflow; no C6, Pilot execution, or new business fact was started as part of this closure.
 
 ## Boundary confirmation
 
