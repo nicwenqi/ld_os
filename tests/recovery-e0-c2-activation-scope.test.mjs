@@ -52,8 +52,8 @@ test("C2 activation UI presents the manager-only baseline gate and the server re
   assert.match(readiness, /Property Ready for Employee Baseline/);
   assert.match(page, /deriveC2EmployeeBaselineReadiness/);
   assert.match(page, /resolveC2InitializationState/);
-  assert.match(accessRoute, /trainer_scopes/);
-  assert.match(accessRoute, /activeDepartmentAdministratorsWithScope/);
+  assert.match(accessRoute, /get_property_initialization_access_summary/);
+  assert.doesNotMatch(accessRoute, /createServerAdminClient|\.from\(/);
   assert.match(accessStep, /已配置明确范围/);
   assert.match(styles, /\.wizard-primary,\.wizard-link-button\{min-height:44px/);
   assert.doesNotMatch(page, /createEmployee|Employee Fact Version|Requirement|Training Plan|Session Revision|Completion Evidence/);
