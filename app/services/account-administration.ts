@@ -12,7 +12,6 @@ export type DepartmentScopeDraft = {
 export type BackendAccountDraft = {
   displayName: string;
   loginId: string;
-  temporaryPassword?: string;
   roleCode: string;
   status?: BackendAccountStatus;
   scopes: DepartmentScopeDraft[];
@@ -43,22 +42,72 @@ export type BackendAccountCollection = {
   accounts: BackendAccountSummary[];
 };
 
+export type BackendAccountMutation = BackendAccountCollection & {
+  issuedTemporaryPassword?: string;
+};
+
 export function accountRoleLabel(roleCode: HotelBackendRoleCode) {
   return roleCode === "property_ld_manager"
     ? "酒店学习与发展经理"
     : "部门培训负责人";
 }
 
-export function validateBackendPassword(password: string) {
+const temporaryPasswordAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+const temporaryPasswordUppercase = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+const temporaryPasswordLowercase = "abcdefghijkmnopqrstuvwxyz";
+const temporaryPasswordDigits = "23456789";
+
+export function validateTemporaryPassword(password: string) {
   if (password.length < 12) throw new Error("密码至少 12 位");
   if (!/[A-Za-z]/.test(password) || !/\d/.test(password)) {
     throw new Error("密码需同时包含字母和数字");
   }
 }
 
+/**
+ * First-login and self-service password changes are deliberately less
+ * burdensome than one-time handoff credentials while still requiring three
+ * character classes. This is a user-chosen password policy, not a temporary
+ * credential policy.
+ */
+export function validateUserSelectedPassword(password: string) {
+  if (password.length < 8) throw new Error("密码至少 8 位");
+  if (!/[A-Z]/.test(password) || !/[a-z]/.test(password) || !/\d/.test(password)) {
+    throw new Error("密码需同时包含大写字母、小写字母和数字");
+  }
+}
+
+export function generateTemporaryPassword() {
+  const characters = [
+    secureCharacter(temporaryPasswordUppercase),
+    secureCharacter(temporaryPasswordLowercase),
+    secureCharacter(temporaryPasswordDigits),
+    ...Array.from({ length: 9 }, () => secureCharacter(temporaryPasswordAlphabet)),
+  ];
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const replacement = secureIndex(index + 1);
+    [characters[index], characters[replacement]] = [characters[replacement], characters[index]];
+  }
+  return characters.join("");
+}
+
+function secureCharacter(alphabet: string) {
+  return alphabet[secureIndex(alphabet.length)];
+}
+
+function secureIndex(size: number) {
+  const upperBound = Math.floor(256 / size) * size;
+  const value = new Uint8Array(1);
+  do crypto.getRandomValues(value); while (value[0] >= upperBound);
+  return value[0] % size;
+}
+
+// Compatibility alias for existing account provisioning and reset callers.
+// New user-selected password flows must call validateUserSelectedPassword.
+export const validateBackendPassword = validateTemporaryPassword;
+
 export function validateAccountDraft(
   input: BackendAccountDraft,
-  options: { requireTemporaryPassword?: boolean } = {},
 ): asserts input is BackendAccountDraft & { roleCode: HotelBackendRoleCode } {
   const displayName = input.displayName.trim();
   const loginId = input.loginId.trim();
@@ -72,18 +121,6 @@ export function validateAccountDraft(
     input.roleCode !== "department_training_admin"
   ) {
     throw new Error("仅支持酒店学习与发展经理和部门培训负责人");
-  }
-  if (options.requireTemporaryPassword !== false) {
-    const password = input.temporaryPassword ?? "";
-    try {
-      validateBackendPassword(password);
-    } catch (error) {
-      throw new Error(
-        error instanceof Error
-          ? error.message.replace(/^密码/, "临时密码")
-          : "临时密码不符合要求",
-      );
-    }
   }
   const uniqueScopes = new Set(input.scopes.map(scope => scope.departmentId));
   if (uniqueScopes.size !== input.scopes.length) {
@@ -103,7 +140,7 @@ export async function loadBackendAccounts(): Promise<BackendAccountCollection> {
 
 export async function createBackendAccount(
   draft: BackendAccountDraft,
-): Promise<BackendAccountCollection> {
+): Promise<BackendAccountMutation> {
   validateAccountDraft(draft);
   return accountRequest("/api/admin/accounts", {
     method: "POST",
@@ -117,7 +154,7 @@ export async function updateBackendAccount(
   expectedVersion: number,
   draft: BackendAccountDraft,
 ): Promise<BackendAccountCollection> {
-  validateAccountDraft(draft, { requireTemporaryPassword: false });
+  validateAccountDraft(draft);
   return accountRequest("/api/admin/accounts", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
@@ -128,26 +165,24 @@ export async function updateBackendAccount(
 export async function resetBackendAccountPassword(
   accountId: string,
   expectedVersion: number,
-  temporaryPassword: string,
-): Promise<BackendAccountCollection> {
-  validateBackendPassword(temporaryPassword);
+): Promise<BackendAccountMutation> {
   return accountRequest("/api/admin/accounts", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ accountId, expectedVersion, temporaryPassword }),
+    body: JSON.stringify({ accountId, expectedVersion }),
   });
 }
 
 async function accountRequest(
   url: string,
   init?: RequestInit,
-): Promise<BackendAccountCollection> {
+): Promise<BackendAccountMutation> {
   const response = await fetch(url, {
     ...init,
     credentials: "same-origin",
     cache: "no-store",
   });
-  const payload = await response.json() as BackendAccountCollection & { message?: string };
+  const payload = await response.json() as BackendAccountMutation & { message?: string };
   if (!response.ok) {
     const error = new Error(payload.message ?? "账号管理服务暂时不可用");
     if (response.status === 409) error.name = "ConflictError";

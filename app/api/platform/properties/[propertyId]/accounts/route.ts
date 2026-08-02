@@ -3,6 +3,7 @@ import { parseAppEnvironment } from "../../../../../lib/environment.ts";
 import { requirePlatformProvisioner } from "../../../../../services/platform-authorization.ts";
 import { PlatformAccountApiError, mapPlatformAccountError, normalizePlatformManagerDraft } from "../../../../../services/platform-property-accounts.ts";
 import { recordPlatformManagerAuthCleanup, resolvePlatformManagerAuthIdentity } from "../../../../../services/platform-property-account-server.ts";
+import { generateTemporaryPassword } from "../../../../../services/account-administration.ts";
 
 export async function GET(request: Request, context: { params: Promise<{ propertyId: string }> }) {
   return withPlatform(request, context, async ({ actor, propertyId }) => {
@@ -19,13 +20,14 @@ export async function POST(request: Request, context: { params: Promise<{ proper
     const body = await readBody(request);
     if (body.operation === "replace") return replaceManager(actor, propertyId, body, request);
     const draft = normalizePlatformManagerDraft(body);
+    const temporaryPassword = generateTemporaryPassword();
     const generatedAuthEmail = `${crypto.randomUUID()}@accounts.ldchub.cn`;
     const actorClient = createServerActorClient(actor.accessToken);
     const requestIdentifier = requestId(request);
     const admin = createServerAdminClient();
     const { data: created, error: authError } = await admin.auth.admin.createUser({
       email: generatedAuthEmail,
-      password: draft.temporaryPassword,
+      password: temporaryPassword,
       email_confirm: true,
       app_metadata: { hotel_ld_internal_account: true, role: "property_ld_manager" },
     });
@@ -40,7 +42,7 @@ export async function POST(request: Request, context: { params: Promise<{ proper
         p_request_id: requestIdentifier,
       });
       if (error || !data) throw rpcError(error);
-      return response({ source: "real", account: data }, actor.refreshedCookies);
+      return response({ source: "real", account: data, issuedTemporaryPassword: temporaryPassword }, actor.refreshedCookies);
     } catch (error) {
       await cleanupCreatedAuthIdentity({ admin, actorClient, propertyId, authUserId: created.user.id, operation: "create", requestId: requestIdentifier });
       throw error;
@@ -76,9 +78,8 @@ export async function PUT(request: Request, context: { params: Promise<{ propert
     const body = await readBody(request);
     const accountId = text(body.accountId);
     const expectedVersion = integer(body.expectedVersion);
-    const temporaryPassword = text(body.temporaryPassword);
     if (!accountId || expectedVersion === null) throw inputError("账号版本或标识无效，请重新读取");
-    normalizePlatformManagerDraft({ displayName: "占位", loginId: "manager-reset", temporaryPassword });
+    const temporaryPassword = generateTemporaryPassword();
     const actorClient = createServerActorClient(actor.accessToken);
     const { data: prepared, error: prepareError } = await actorClient.rpc("platform_prepare_manager_password_reset", {
       p_property_id: propertyId,
@@ -97,19 +98,20 @@ export async function PUT(request: Request, context: { params: Promise<{ propert
     });
     if (recordError) throw new PlatformAccountApiError({ status: 500, code: "PASSWORD_RESET_AUDIT_UNAVAILABLE", message: "密码重置状态需要平台管理员复核。" });
     if (passwordError) throw new PlatformAccountApiError({ status: 500, code: "PASSWORD_RESET_FAILED", message: "临时密码更新未完成，请稍后重试。" });
-    return response({ source: "real", accountId, reset: true }, actor.refreshedCookies);
+    return response({ source: "real", accountId, reset: true, issuedTemporaryPassword: temporaryPassword }, actor.refreshedCookies);
   });
 }
 
 async function replaceManager(actor: Awaited<ReturnType<typeof requirePlatformProvisioner>>, propertyId: string, body: Record<string, unknown>, request: Request) {
   const draft = normalizePlatformManagerDraft(body);
+  const temporaryPassword = generateTemporaryPassword();
   const oldAccountId = text(body.oldAccountId);
   if (!oldAccountId) throw inputError("请选择需要更换的现任经理");
   const generatedAuthEmail = `${crypto.randomUUID()}@accounts.ldchub.cn`;
   const actorClient = createServerActorClient(actor.accessToken);
   const requestIdentifier = requestId(request);
   const admin = createServerAdminClient();
-  const { data: created, error: authError } = await admin.auth.admin.createUser({ email: generatedAuthEmail, password: draft.temporaryPassword, email_confirm: true, app_metadata: { hotel_ld_internal_account: true, role: "property_ld_manager" } });
+  const { data: created, error: authError } = await admin.auth.admin.createUser({ email: generatedAuthEmail, password: temporaryPassword, email_confirm: true, app_metadata: { hotel_ld_internal_account: true, role: "property_ld_manager" } });
   if (authError || !created.user) throw new PlatformAccountApiError({ status: 500, code: "AUTH_IDENTITY_CREATE_FAILED", message: "无法建立新经理登录身份，请稍后重试。" });
   try {
     const { data, error } = await actorClient.rpc("platform_replace_property_manager", {
@@ -122,7 +124,7 @@ async function replaceManager(actor: Awaited<ReturnType<typeof requirePlatformPr
       p_request_id: requestIdentifier,
     });
     if (error || !data) throw rpcError(error);
-    return response({ source: "real", replacement: data }, actor.refreshedCookies);
+    return response({ source: "real", replacement: data, issuedTemporaryPassword: temporaryPassword }, actor.refreshedCookies);
   } catch (error) {
     await cleanupCreatedAuthIdentity({ admin, actorClient, propertyId, authUserId: created.user.id, operation: "replace", requestId: requestIdentifier });
     throw error;

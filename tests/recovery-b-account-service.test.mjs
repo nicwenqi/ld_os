@@ -51,22 +51,11 @@ test("department responsible accounts require explicit unique department scopes"
   );
 });
 
-test("manager accounts cannot carry department scopes and passwords are validated", () => {
+test("manager accounts cannot carry department scopes and temporary credentials are server-generated", () => {
   assert.throws(
     () => validateAccountDraft({
       displayName: "经理",
       loginId: "manager",
-      temporaryPassword: "short",
-      roleCode: "property_ld_manager",
-      scopes: [],
-    }),
-    /临时密码至少 12 位/,
-  );
-  assert.throws(
-    () => validateAccountDraft({
-      displayName: "经理",
-      loginId: "manager",
-      temporaryPassword: "HotelManager2026",
       roleCode: "property_ld_manager",
       scopes: [{ departmentId: "front-office", includeDescendants: true }],
     }),
@@ -135,8 +124,14 @@ test("new backend passwords have a complete forced-change and manager-reset flow
   assert.match(sessionGate, /mustChangePassword/);
   assert.match(loginRoute, /change-password/);
   assert.match(changeRoute, /resolvePasswordChangeRequest/);
-  assert.match(changeRoute, /updateUserById/);
-  assert.match(changeRoute, /must_change_password:\s*false/);
+  assert.match(changeRoute, /auth\.updateUser/);
+  assert.match(changeRoute, /auth\.setSession/);
+  assert.match(changeRoute, /prepare_hotel_password_change/);
+  assert.match(changeRoute, /complete_hotel_password_change/);
+  assert.match(changeRoute, /reauthenticationRequired/);
+  assert.match(changeRoute, /validateUserSelectedPassword/);
+  assert.match(changePage, /minLength=\{8\}/);
+  assert.doesNotMatch(changeRoute, /must_change_password:\s*false/);
   assert.match(changePage, /保存新密码并继续/);
   assert.match(accountRoute, /prepare_property_backend_account_password_reset/);
   assert.match(accountRoute, /updateUserById/);

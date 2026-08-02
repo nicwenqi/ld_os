@@ -49,6 +49,7 @@ test("platform account routes use the platform RPC boundary and do not expose ho
   assert.match(accountRoute, /createServerAdminClient/);
   assert.match(accountRoute, /auth\.admin\.createUser/);
   assert.match(accountRoute, /auth\.admin\.deleteUser/);
+  assert.match(accountRoute, /generateTemporaryPassword/);
 });
 
 test("platform console has existing-property routes separate from new-property provisioning", async () => {
@@ -73,27 +74,17 @@ test("platform manager validation keeps User ID global and Auth email internal",
   assert.deepEqual(service.normalizePlatformManagerDraft({
     displayName: "王经理",
     loginId: "wang.manager",
-    temporaryPassword: "ValidManager2026",
   }), {
     displayName: "王经理",
     loginId: "wang.manager",
-    temporaryPassword: "ValidManager2026",
   });
   assert.throws(() => service.normalizePlatformManagerDraft({
     displayName: "王经理",
     loginId: "bad id",
-    temporaryPassword: "ValidManager2026",
   }), /用户 ID/);
   assert.throws(() => service.normalizePlatformManagerDraft({
     displayName: "王经理",
     loginId: "wang.manager",
-    temporaryPassword: "short",
-    email: "manager@example.com",
-  }), /密码/);
-  assert.throws(() => service.normalizePlatformManagerDraft({
-    displayName: "王经理",
-    loginId: "wang.manager",
-    temporaryPassword: "ValidManager2026",
     roleCode: "department_training_admin",
   }), /平台仅管理酒店学习与发展经理/);
 });

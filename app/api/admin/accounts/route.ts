@@ -9,11 +9,12 @@ import type {
   BackendAccountScope,
   BackendAccountStatus,
   BackendAccountSummary,
+  BackendAccountMutation,
   HotelBackendRoleCode,
 } from "../../../services/account-administration.ts";
 import {
   validateAccountDraft,
-  validateBackendPassword,
+  generateTemporaryPassword,
 } from "../../../services/account-administration.ts";
 import { requireLocalReviewManager } from "../../../services/local-review-authorization.ts";
 import {
@@ -33,13 +34,14 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   return handle(request, async actor => {
-    const draft = await accountDraft(request, true);
+    const draft = await accountDraft(request);
+    const temporaryPassword = generateTemporaryPassword();
     const admin = createServerAdminClient();
     const actorClient = createServerActorClient(actor.accessToken);
     const internalEmail = `${crypto.randomUUID()}@accounts.ldchub.cn`;
     const { data: auth, error: authError } = await admin.auth.admin.createUser({
       email: internalEmail,
-      password: draft.temporaryPassword!,
+      password: temporaryPassword,
       email_confirm: true,
       app_metadata: { hotel_ld_internal_account: true },
     });
@@ -57,8 +59,8 @@ export async function POST(request: Request) {
       await admin.auth.admin.deleteUser(auth.user.id);
       throw rpcError(error.message, "账号基础资料保存失败");
     }
-    return listRealAccounts(actor);
-  }, async () => createMockAccount(await accountDraft(request, true)));
+    return issueTemporaryPassword(await listRealAccounts(actor), temporaryPassword);
+  }, async () => createMockAccount(await accountDraft(request)));
 }
 
 export async function PATCH(request: Request) {
@@ -100,11 +102,10 @@ export async function PUT(request: Request) {
     const body = await safeJson(request);
     const accountId = text(body.accountId);
     const expectedVersion = Number(body.expectedVersion);
-    const temporaryPassword = text(body.temporaryPassword);
     if (!accountId || !Number.isInteger(expectedVersion) || expectedVersion < 1) {
       throw new Error("账号版本或标识无效，请重新读取");
     }
-    validateBackendPassword(temporaryPassword);
+    const temporaryPassword = generateTemporaryPassword();
     const actorClient = createServerActorClient(actor.accessToken);
     const { error: prepareError } = await actorClient.rpc(
       "prepare_property_backend_account_password_reset",
@@ -131,7 +132,7 @@ export async function PUT(request: Request) {
     if (passwordError) {
       throw new Error("账号已标记为需要修改密码，但初始密码更新失败，请重试");
     }
-    return listRealAccounts(actor);
+    return issueTemporaryPassword(await listRealAccounts(actor), temporaryPassword);
   }, async () => {
     throw new Error("本地验证账号不支持密码重置");
   });
@@ -139,8 +140,8 @@ export async function PUT(request: Request) {
 
 async function handle(
   request: Request,
-  realAction: (actor: PropertyManagerActor) => Promise<BackendAccountCollection>,
-  mockAction?: () => Promise<BackendAccountCollection> | BackendAccountCollection,
+  realAction: (actor: PropertyManagerActor) => Promise<BackendAccountMutation>,
+  mockAction?: () => Promise<BackendAccountMutation> | BackendAccountMutation,
 ) {
   try {
     const environment = parseAppEnvironment();
@@ -245,9 +246,9 @@ async function listRealAccounts(
   return { source: "real", accounts: visibleAccounts };
 }
 
-async function accountDraft(request: Request, requirePassword: boolean) {
+async function accountDraft(request: Request) {
   const draft = normalizedDraft(await safeJson(request));
-  validateAccountDraft(draft, { requireTemporaryPassword: requirePassword });
+  validateAccountDraft(draft);
   return draft as BackendAccountDraft & { roleCode: HotelBackendRoleCode };
 }
 
@@ -256,7 +257,6 @@ function normalizedDraft(body: Record<string, unknown>): BackendAccountDraft {
   return {
     displayName: text(body.displayName),
     loginId: text(body.loginId),
-    temporaryPassword: text(body.temporaryPassword),
     roleCode: text(body.roleCode),
     status: accountStatus(body.status),
     scopes: rawScopes.map(scope => {
@@ -269,6 +269,13 @@ function normalizedDraft(body: Record<string, unknown>): BackendAccountDraft {
       };
     }),
   };
+}
+
+function issueTemporaryPassword(
+  collection: BackendAccountCollection,
+  issuedTemporaryPassword: string,
+): BackendAccountMutation {
+  return { ...collection, issuedTemporaryPassword };
 }
 
 function approvedRole(value: string): value is HotelBackendRoleCode {

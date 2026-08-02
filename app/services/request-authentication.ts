@@ -7,6 +7,8 @@ import { readCookie, readRefreshCookie } from "../api/auth/cookies.ts";
 
 export type AuthenticatedRequest = {
   session: AuthSession;
+  authUserId: string;
+  hostname: string;
   accessToken: string;
   refreshToken: string | null;
   refreshed: boolean;
@@ -73,5 +75,12 @@ async function resolveBackendRequest(
   const session = await resolveSessionForAccessToken(identity.accessToken, identity.hostname);
   if (!isApprovedBackendSession(session)) return null;
   if (!allowPasswordChangeRequired && session.mustChangePassword) return null;
-  return { session, accessToken: identity.accessToken, refreshToken: identity.refreshToken, refreshed: identity.refreshed };
+  return {
+    session,
+    authUserId: identity.userId,
+    hostname: identity.hostname,
+    accessToken: identity.accessToken,
+    refreshToken: identity.refreshToken,
+    refreshed: identity.refreshed,
+  };
 }

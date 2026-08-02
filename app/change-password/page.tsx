@@ -4,7 +4,7 @@ import { FormEvent, useState } from "react";
 import Link from "next/link";
 import { ProtectedAppProviders } from "../providers";
 import { homeForRole } from "../services/auth-routing.ts";
-import { validateBackendPassword } from "../services/account-administration.ts";
+import { validateUserSelectedPassword } from "../services/account-administration.ts";
 import { useAuthSession } from "../state/auth-session";
 import "./change-password.css";
 
@@ -20,7 +20,7 @@ function ChangePasswordExperience() {
     event.preventDefault();
     setError("");
     try {
-      validateBackendPassword(password);
+      validateUserSelectedPassword(password);
       if (password !== confirmation) throw new Error("两次输入的密码不一致");
       setSaving(true);
       const response = await fetch("/api/auth/change-password", {
@@ -31,7 +31,7 @@ function ChangePasswordExperience() {
       });
       const payload = await response.json() as { message?: string };
       if (!response.ok) throw new Error(payload.message ?? "密码修改失败，请重试");
-      window.location.replace(homeForRole(session.role));
+      window.location.replace("/login?passwordChanged=1");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "密码修改失败，请重试");
       setSaving(false);
@@ -79,20 +79,20 @@ function ChangePasswordExperience() {
             <input
               type="password"
               autoComplete="new-password"
-              minLength={12}
+              minLength={8}
               value={password}
               onChange={event => setPassword(event.target.value)}
               required
               autoFocus
             />
-            <small>至少 12 位，并同时包含字母和数字。</small>
+            <small>至少 8 位，并同时包含大写字母、小写字母和数字。</small>
           </label>
           <label>
             <span>再次输入新密码</span>
             <input
               type="password"
               autoComplete="new-password"
-              minLength={12}
+              minLength={8}
               value={confirmation}
               onChange={event => setConfirmation(event.target.value)}
               required

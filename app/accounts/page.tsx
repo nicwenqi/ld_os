@@ -34,7 +34,6 @@ type AccountEditor = {
   isCurrentAccount: boolean;
   displayName: string;
   loginId: string;
-  temporaryPassword: string;
   roleCode: HotelBackendRoleCode;
   status: BackendAccountStatus;
   mustChangePassword: boolean;
@@ -52,15 +51,13 @@ function AccountAdministration() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [issuedTemporaryPassword, setIssuedTemporaryPassword] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [resetOpen, setResetOpen] = useState(false);
-  const [resetPassword, setResetPassword] = useState("");
-  const [resetConfirmation, setResetConfirmation] = useState("");
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
   const dirty = hasUnsavedChanges;
-  const resetDirty = resetOpen && Boolean(resetPassword || resetConfirmation);
-  const pageDirty = dirty || resetDirty;
+  const pageDirty = dirty;
   useUnsavedChangesWarning(pageDirty, "账号与部门授权有未保存更改");
 
   const reload = useCallback(async (preferredAccountId?: string) => {
@@ -127,7 +124,6 @@ function AccountAdministration() {
       isCurrentAccount: false,
       displayName: "",
       loginId: "",
-      temporaryPassword: "",
       roleCode: "department_training_admin",
       status: "active",
       mustChangePassword: true,
@@ -146,19 +142,20 @@ function AccountAdministration() {
       const draft: BackendAccountDraft = {
         displayName: editor.displayName,
         loginId: editor.loginId,
-        temporaryPassword: editor.accountId ? undefined : editor.temporaryPassword,
         roleCode: editor.roleCode,
         status: editor.status,
         scopes: editor.roleCode === "property_ld_manager" ? [] : editor.scopes,
       };
-      const next = editor.accountId
+      const result = editor.accountId
         ? await updateBackendAccount(
             editor.accountId,
             editor.expectedVersion!,
             draft,
-          )
+        )
         : await createBackendAccount(draft);
+      const { issuedTemporaryPassword, ...next } = result;
       setCollection(next);
+      setIssuedTemporaryPassword(issuedTemporaryPassword ?? null);
       const authoritative =
         next.accounts.find(item =>
           editor.accountId
@@ -172,7 +169,9 @@ function AccountAdministration() {
       setPhase("saved");
       setHasUnsavedChanges(false);
       setSavedAt(savedTime());
-      setStatusMessage("账号、角色与部门授权已保存并重新读取");
+      setStatusMessage(issuedTemporaryPassword
+        ? "账号、角色与部门授权已保存并重新读取。请立即通过受控交接发放系统生成的临时密码。"
+        : "账号、角色与部门授权已保存并重新读取");
     } catch (error) {
       setPhase(isConflict(error) ? "conflict" : "failed");
       setStatusMessage(message(error));
@@ -197,6 +196,7 @@ function AccountAdministration() {
     setHasUnsavedChanges(false);
     setSavedAt(null);
     setStatusMessage(null);
+    setIssuedTemporaryPassword(null);
   };
   const retryInitialLoad = async () => {
     setLoading(true);
@@ -215,25 +215,22 @@ function AccountAdministration() {
   const resetAccountPassword = async () => {
     if (!editor?.accountId || editor.isCurrentAccount) return;
     setResetError(null);
-    if (resetPassword !== resetConfirmation) {
-      setResetError("两次输入的初始密码不一致");
-      return;
-    }
     setResetting(true);
     try {
-      const next = await resetBackendAccountPassword(
+      const result = await resetBackendAccountPassword(
         editor.accountId,
         editor.expectedVersion!,
-        resetPassword,
       );
+      const { issuedTemporaryPassword, ...next } = result;
       const authoritative = next.accounts.find(item => item.accountId === editor.accountId);
       if (!authoritative) throw new Error("密码已更新，但账号重新读取结果不完整");
       setCollection(next);
+      setIssuedTemporaryPassword(issuedTemporaryPassword ?? null);
       setEditor(editorFrom(authoritative));
       closeResetPanel();
       setPhase("saved");
       setSavedAt(savedTime());
-      setStatusMessage("初始密码已更新；该账号下次登录必须设置新密码");
+      setStatusMessage("系统已生成新的临时密码；该账号下次登录必须设置新密码");
     } catch (error) {
       setResetError(message(error));
     } finally {
@@ -243,8 +240,6 @@ function AccountAdministration() {
 
   function closeResetPanel() {
     setResetOpen(false);
-    setResetPassword("");
-    setResetConfirmation("");
     setResetError(null);
   }
 
@@ -306,6 +301,16 @@ function AccountAdministration() {
           />
           <div><button type="button" onClick={newAccount}>新增后台账号</button></div>
         </section>
+        {issuedTemporaryPassword && (
+          <section className="account-password-reset-panel" aria-live="assertive">
+            <header>
+              <span>ONE-TIME HANDOFF CREDENTIAL</span>
+              <h3>请立即安全发放临时密码</h3>
+              <p>系统只在本次操作后显示一次。使用者首次登录后必须设置自己的新密码。</p>
+            </header>
+            <output>{issuedTemporaryPassword}</output>
+          </section>
+        )}
 
         <div className="account-admin-layout">
           <section className="account-list-panel">
@@ -332,10 +337,11 @@ function AccountAdministration() {
                   <Field label="显示名称" required><input value={editor.displayName} onChange={event => update("displayName", event.target.value)} /></Field>
                   <Field label="用户 ID" required><input autoCapitalize="none" autoCorrect="off" value={editor.loginId} onChange={event => update("loginId", event.target.value)} /></Field>
                   {!editor.accountId && (
-                    <Field label="临时密码" required>
-                      <input type="password" minLength={12} autoComplete="new-password" value={editor.temporaryPassword} onChange={event => update("temporaryPassword", event.target.value)} />
-                      <small>至少 12 位，并同时包含字母和数字。内部认证标识不会显示给使用者。</small>
-                    </Field>
+                    <div className="administration-field account-initial-status">
+                      <span>首次登录临时密码</span>
+                      <strong>由系统随机生成</strong>
+                      <small>保存后仅显示一次；临时密码为 12 位随机凭据，使用者必须在首次登录后修改。</small>
+                    </div>
                   )}
                   <Field label="应用角色" required>
                     <select disabled={editor.isCurrentAccount} value={editor.roleCode} onChange={event => {
@@ -404,25 +410,14 @@ function AccountAdministration() {
                   <section className="account-password-reset-panel">
                     <header>
                       <span>RESET INITIAL PASSWORD</span>
-                      <h3>为 {editor.displayName} 设置新的初始密码</h3>
-                      <p>保存后，使用者必须在进入工作台前设置自己的新密码。</p>
+                      <h3>为 {editor.displayName} 生成新的临时密码</h3>
+                      <p>系统会生成 12 位随机临时密码，仅在本次操作后显示一次。使用者必须在进入工作台前设置自己的新密码。</p>
                     </header>
-                    <div className="administration-form-grid">
-                      <Field label="新的初始密码" required>
-                        <input type="password" autoComplete="new-password" minLength={12} value={resetPassword} onChange={event => setResetPassword(event.target.value)} />
-                        <small>至少 12 位，并同时包含字母和数字。</small>
-                      </Field>
-                      <Field label="再次输入" required>
-                        <input type="password" autoComplete="new-password" minLength={12} value={resetConfirmation} onChange={event => setResetConfirmation(event.target.value)} />
-                      </Field>
-                    </div>
                     {resetError && <div className="account-password-reset-error" role="alert">{resetError}</div>}
                     <footer>
-                      <button type="button" disabled={resetting} onClick={() => {
-                        if (!resetDirty || window.confirm("放弃尚未保存的初始密码？")) closeResetPanel();
-                      }}>取消</button>
-                      <button type="button" className="primary" disabled={resetting || !resetPassword || !resetConfirmation} onClick={() => void resetAccountPassword()}>
-                        {resetting ? "正在重置…" : "保存新的初始密码"}
+                      <button type="button" disabled={resetting} onClick={closeResetPanel}>取消</button>
+                      <button type="button" className="primary" disabled={resetting} onClick={() => void resetAccountPassword()}>
+                        {resetting ? "正在生成…" : "生成新的临时密码"}
                       </button>
                     </footer>
                   </section>
@@ -541,7 +536,6 @@ function editorFrom(account: BackendAccountSummary): AccountEditor {
     isCurrentAccount: account.isCurrentAccount,
     displayName: account.displayName,
     loginId: account.loginId,
-    temporaryPassword: "",
     roleCode: account.roleCode,
     status: account.status,
     mustChangePassword: account.mustChangePassword,

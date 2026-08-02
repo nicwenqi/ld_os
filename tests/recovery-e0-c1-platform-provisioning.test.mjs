@@ -16,7 +16,6 @@ test("C1 preview is redacted, signed, actor-bound, and zero-write", async () => 
     hostname: "c1-pilot.example.test",
     managerLoginId: "c1-manager",
     managerDisplayName: "C1 本地学习与发展经理",
-    temporaryPassword: "LocalC1Pilot2026",
   };
   const preview = service.preparePropertyProvisioningPreview(draft, {
     actorUserId: "00000000-0000-0000-0000-000000000101",
@@ -25,7 +24,7 @@ test("C1 preview is redacted, signed, actor-bound, and zero-write", async () => 
   });
   assert.equal(preview.normalized.propertyCode, "c1-pilot");
   assert.equal(preview.normalized.hostname, "c1-pilot.example.test");
-  assert.doesNotMatch(JSON.stringify(preview), /LocalC1Pilot2026|authUserId|internalEmail/);
+  assert.doesNotMatch(JSON.stringify(preview), /authUserId|internalEmail|temporaryPassword/);
   assert.deepEqual(
     service.verifyPropertyProvisioningPreview(preview.token, draft, {
       actorUserId: "00000000-0000-0000-0000-000000000101",
@@ -55,6 +54,7 @@ test("C1 platform actor is separate from hotel authorization and Production neve
 test("C1 controlled commit compensates only a newly created Auth identity after a failed RPC", async () => {
   const source = await import("node:fs/promises").then(fs => fs.readFile("app/api/platform/properties/route.ts", "utf8"));
   assert.match(source, /auth\.admin\.createUser/);
+  assert.match(source, /generateTemporaryPassword/);
   assert.match(source, /actorClient\.rpc\("provision_initial_property_and_manager"/);
   assert.match(source, /auth\.admin\.deleteUser/);
   assert.doesNotMatch(source, /\.from\("properties"\)\.insert|\.from\("user_accounts"\)\.insert/);
