@@ -314,3 +314,56 @@ test("Recovery C maps database concurrency failures into stable business conflic
   assert.equal(mapImportRepositoryError(new Error("validation")).conflict, null);
   assert.equal(new ImportRepositoryError("x", "batch_stale").conflict, "batch_stale");
 });
+
+test("Position attribution batch preview is zero-write and confirmation rereads the authoritative workflow", async () => {
+  const repository = fakeRepository();
+  let persisted = false;
+  let confirmedVersion = 4;
+  repository.getBatch = async id => id === "batch-1" ? { ...batch, version: confirmedVersion } : null;
+  repository.listSourceLabelResolutions = async (_id, type) => type === "department"
+    ? [{ sourceValue: "Front Office", sourceRowCount: 8, decision: "pending" }]
+    : [{ sourceValue: "Associate", sourceRowCount: 8, decision: persisted ? "mapped" : "pending", targetId: persisted ? "new-position-id" : null }];
+  repository.previewPositionAttributionBatch = async (id, version, decisions) => {
+    repository.calls.push(["previewPositionAttributionBatch", id, version, decisions]);
+    assert.equal(persisted, false, "preview must not persist position attribution decisions");
+    return {
+      previewHash: "position-attribution-preview-hash",
+      expectedVersion: version,
+      expiresAt: "2026-08-02T12:00:00.000Z",
+      summary: { sourceLabels: 2, affectedRows: 14, create: 1, map: 1, exclude: 0, defer: 0 },
+      decisions: [{
+        sourceValue: "Associate",
+        affectedRows: 8,
+        action: "create",
+        status: "ready",
+        targetPositionId: null,
+        targetPositionName: "Associate",
+      }],
+    };
+  };
+  repository.confirmPositionAttributionBatch = async (id, version, previewHash) => {
+    repository.calls.push(["confirmPositionAttributionBatch", id, version, previewHash]);
+    assert.equal(previewHash, "position-attribution-preview-hash");
+    persisted = true;
+    confirmedVersion = version + 1;
+    return { version: confirmedVersion, status: "mapping_required" };
+  };
+
+  const service = createImportService(repository);
+  const preview = await service.previewPositionAttributionBatch("batch-1", 4, [{
+    sourceValue: "Associate",
+    action: "create",
+    createDistinct: true,
+  }]);
+  assert.equal(preview.preview.summary.affectedRows, 14);
+  assert.equal(persisted, false);
+
+  const confirmed = await service.confirmPositionAttributionBatch(
+    "batch-1",
+    4,
+    preview.preview.previewHash,
+  );
+  assert.equal(persisted, true);
+  assert.equal(confirmed.batch.version, 5);
+  assert.equal(confirmed.positionLabels[0].decision, "mapped");
+});

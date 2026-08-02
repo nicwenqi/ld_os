@@ -6,6 +6,7 @@ import {
   type ImportIssue,
   type ImportRepository,
   type ImportSourceLabelResolution,
+  type PositionAttributionBatchDecision,
 } from "../contracts/import-repository.ts";
 import { validateEmployeeBaselineClassification } from "../../services/pilot-employee-baseline.ts";
 
@@ -142,6 +143,35 @@ export function createMockImportRepository(): ImportRepository {
       if (!item) throw new Error("来源归属记录不存在");
       if (decision === "mapped" && !targetId) throw new Error("映射决定必须选择正式归属");
       Object.assign(item, { targetId, decision });
+      return advance();
+    },
+    async previewPositionAttributionBatch(_batchId, expectedVersion, decisions: readonly PositionAttributionBatchDecision[]) {
+      assertVersion(expectedVersion);
+      if (decisions.length === 0) throw new Error("请至少选择一个来源职位进行批量处理");
+      return {
+        previewHash: `sha256:synthetic-position-${batch.version}`,
+        expectedVersion,
+        expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
+        summary: {
+          sourceLabels: decisions.length,
+          affectedRows: decisions.reduce((total, item) => total + (labels.position.find(label => label.sourceValue === item.sourceValue)?.sourceRowCount ?? 0), 0),
+          create: decisions.filter(item => item.action === "create").length,
+          map: decisions.filter(item => item.action === "map").length,
+          exclude: decisions.filter(item => item.action === "exclude").length,
+          defer: decisions.filter(item => item.action === "defer").length,
+        },
+        decisions: decisions.map(item => ({
+          sourceValue: item.sourceValue,
+          affectedRows: labels.position.find(label => label.sourceValue === item.sourceValue)?.sourceRowCount ?? 0,
+          action: item.action,
+          status: "ready" as const,
+          targetPositionId: item.targetPositionId ?? null,
+          targetPositionName: item.action === "create" ? item.sourceValue : null,
+        })),
+      };
+    },
+    async confirmPositionAttributionBatch(_batchId, expectedVersion, _previewHash) {
+      assertVersion(expectedVersion);
       return advance();
     },
     async validateBatch() {

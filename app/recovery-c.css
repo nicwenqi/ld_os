@@ -89,12 +89,19 @@
 .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .attribution-list,.employee-issue-list{display:grid;gap:9px;margin-top:18px}
 .attribution-list article{display:grid;grid-template-columns:minmax(180px,1fr) minmax(180px,.7fr) minmax(250px,1.15fr) auto;gap:13px;align-items:end;padding:16px;border-radius:15px;background:#fffdf9}
+.attribution-list article.position-attribution-row{grid-template-columns:24px minmax(160px,1fr) minmax(165px,.7fr) minmax(220px,1.15fr) auto}
 .attribution-list article.resolved{background:rgba(83,139,131,.055)}
 .attribution-list article>div span,.attribution-list label>span,.employee-issue-list label>span{display:block;font-size:10px;color:#7d898b;margin-bottom:5px}
 .attribution-list article>div strong,.attribution-list article>div small{display:block}
 .attribution-list article>div strong{font-size:14px;color:#294651}
 .attribution-list article>div small{font-size:10px;color:#859092;margin-top:4px}
 .attribution-list article>em{align-self:center;font-style:normal;font-size:10px;color:#7a6749;white-space:nowrap}
+.attribution-batch{margin:18px 0;border:1px solid rgba(187,160,109,.28);border-radius:16px;padding:16px;background:linear-gradient(135deg,rgba(252,248,240,.96),rgba(246,240,228,.75));display:grid;gap:13px}
+.attribution-batch strong{color:#294651;font-size:14px}.attribution-batch p{margin:4px 0 0;color:#6f7b7d;font-size:12px;line-height:1.55}
+.attribution-batch-actions{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.attribution-batch-actions label{display:grid;gap:5px;min-width:190px;color:#6f7b7d;font-size:10px}.attribution-batch-actions select{height:44px;border:1px solid #ddd4c5;border-radius:10px;background:#fffdf8;color:#304b55;padding:0 12px;font-size:12px}
+.attribution-batch button{min-height:44px;border:0;border-radius:11px;padding:0 14px;background:#294c5a;color:#fff;font-size:12px;font-weight:700;cursor:pointer}.attribution-batch button.quiet{background:#eee8de;color:#4f6268}.attribution-batch button:disabled{cursor:not-allowed;opacity:.45}
+.attribution-batch-preview{display:grid;gap:7px;padding:13px 14px;border-radius:12px;background:rgba(255,253,248,.92);border:1px solid rgba(96,118,118,.13)}.attribution-batch-preview>strong{font-size:12px}.attribution-batch-preview p{font-size:11px}.attribution-choice{display:grid;gap:7px;padding-top:5px}.attribution-choice>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.attribution-choice>div>span{min-width:110px;font-size:11px;color:#294651;font-weight:700}
+.attribution-select{align-self:center;display:flex;align-items:center}.attribution-select input{width:20px;height:20px;accent-color:#294c5a}
 .attribution-guidance{display:flex;align-items:center;gap:14px;margin-top:13px;padding:13px 15px;border-radius:13px;background:#f5efe5}
 .attribution-guidance strong{font-size:12px;color:#7e6846}
 .attribution-guidance p{font-size:11px;color:#707d80;margin:0}
@@ -171,6 +178,7 @@
   .employee-update-assurance{grid-template-columns:minmax(0,1fr) repeat(3,minmax(120px,.45fr))}
   .employee-preview-counts{grid-template-columns:repeat(3,1fr)}
   .attribution-list article{grid-template-columns:minmax(180px,1fr) minmax(180px,.75fr) minmax(230px,1fr)}
+  .attribution-list article.position-attribution-row{grid-template-columns:24px minmax(160px,1fr) minmax(155px,.75fr) minmax(200px,1fr)}
   .attribution-list article>em{grid-column:1/-1}
   .employee-history-list article{grid-template-columns:minmax(220px,1fr) auto auto}.employee-history-list article>p{grid-column:1/3}
 }
@@ -212,6 +220,7 @@
   .field-mapping-head,.field-mapping-row{min-width:620px}
   .attribution-list article,.employee-issue-list article{grid-template-columns:minmax(0,1fr)}
   .attribution-list article>em,.employee-issue-list article>label:last-child{grid-column:auto}
+  .attribution-batch-actions{align-items:stretch;flex-direction:column}.attribution-batch-actions label{min-width:0}.attribution-batch-actions button{width:100%}.attribution-choice>div{align-items:stretch;flex-direction:column}.attribution-choice>div>span{min-width:0}.attribution-choice button{width:100%}
   .attribution-guidance{align-items:flex-start;flex-direction:column}
   .status-treatment-card{grid-template-columns:minmax(0,1fr)}
   .status-treatment-card>div{grid-column:auto}

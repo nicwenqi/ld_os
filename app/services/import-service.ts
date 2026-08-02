@@ -10,6 +10,8 @@ import type {
   ImportRepository,
   ImportSourceLabelResolution,
   ImportSourceLabelDecision,
+  PositionAttributionBatchDecision,
+  PositionAttributionBatchPreview,
 } from "../repositories/contracts/import-repository.ts";
 import { validateEmployeeBaselineClassification } from "./pilot-employee-baseline.ts";
 
@@ -21,6 +23,8 @@ type ImportWorkflowRepository = Pick<
   | "listSourceLabelResolutions"
   | "confirmFieldMappings"
   | "resolveSourceLabel"
+  | "previewPositionAttributionBatch"
+  | "confirmPositionAttributionBatch"
   | "resolveIssue"
   | "preparePreview"
   | "readPreparedPreview"
@@ -150,6 +154,26 @@ export function createImportService(repository: ImportWorkflowRepository) {
       decision: ImportSourceLabelDecision,
     ) {
       await repository.resolveSourceLabel(batchId, expectedVersion, type, sourceValue, targetId, decision);
+      return readWorkflow(batchId);
+    },
+    async previewPositionAttributionBatch(
+      batchId: string,
+      expectedVersion: number,
+      decisions: readonly PositionAttributionBatchDecision[],
+    ): Promise<{ preview: PositionAttributionBatchPreview; workflow: EmployeeUpdateWorkflow }> {
+      if (decisions.length === 0) throw new Error("请至少选择一个来源职位进行批量处理");
+      const workflow = await readWorkflow(batchId);
+      if (workflow.batch.version !== expectedVersion) throw new Error("员工资料更新批次已变化，请重新读取");
+      const preview = await repository.previewPositionAttributionBatch(batchId, expectedVersion, decisions);
+      return { preview, workflow };
+    },
+    async confirmPositionAttributionBatch(
+      batchId: string,
+      expectedVersion: number,
+      previewHash: string,
+    ): Promise<EmployeeUpdateWorkflow> {
+      if (!previewHash.trim()) throw new Error("批量职位归属预览已失效，请重新预览");
+      await repository.confirmPositionAttributionBatch(batchId, expectedVersion, previewHash);
       return readWorkflow(batchId);
     },
     async resolveIssue(

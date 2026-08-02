@@ -98,6 +98,26 @@ test("save, conflict, explicit confirmation, and guarded revert are wired to aut
   assert.doesNotMatch(`${page}${history}`, /toast|showToast|prototype/i);
 });
 
+test("position attribution offers preview-first batch initialization without bypassing employee confirmation", async () => {
+  const [page, attribution] = await Promise.all([
+    read("../app/import/page.tsx"),
+    read("../app/components/import/AttributionStep.tsx"),
+  ]);
+  for (const token of [
+    "批量职位归属初始化",
+    "预览创建正式职位",
+    "预览批量关联",
+    "确认批量决定",
+    "同名职位不会自动合并",
+    "明确新建独立职位",
+    "单项特殊处理",
+  ]) assert.match(attribution, new RegExp(token));
+  assert.match(page, /previewPositionAttributionBatch/);
+  assert.match(page, /confirmPositionAttributionBatch/);
+  assert.match(page, /员工主数据仍保持零写入/);
+  assert.match(attribution, /decisionMode/);
+});
+
 test("mock workflow proves no employee write occurs before explicit confirmation", async () => {
   const repository = createMockImportRepository();
   const service = createImportService(repository);

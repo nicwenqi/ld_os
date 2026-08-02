@@ -333,6 +333,38 @@ function EmployeeDataUpdateContent() {
     }
   };
 
+  const previewPositionAttributionBatch = async (decisions: Parameters<typeof importService.previewPositionAttributionBatch>[2]) => {
+    if (!workflow) throw new Error("请先读取员工资料更新批次");
+    try {
+      setPhase("saving");
+      setStatusMessage("正在生成批量职位归属预览；员工主数据仍保持零写入");
+      const result = await importService.previewPositionAttributionBatch(workflow.batch.id, workflow.batch.version, decisions);
+      setPhase("pristine");
+      setStatusMessage("批量职位归属预览已生成，请确认后再写入归属决定");
+      return result.preview;
+    } catch (reason) {
+      setPhase("failed");
+      setStatusMessage(message(reason));
+      throw reason;
+    }
+  };
+
+  const confirmPositionAttributionBatch = async (previewHash: string) => {
+    if (!workflow) throw new Error("请先读取员工资料更新批次");
+    try {
+      setPhase("saving");
+      setStatusMessage("正在确认批量职位归属并重新读取服务器状态");
+      const next = await importService.confirmPositionAttributionBatch(workflow.batch.id, workflow.batch.version, previewHash);
+      initializeWorkflow(next);
+      setPhase("saved");
+      setSavedAt(savedTime());
+      setStatusMessage("批量职位归属已确认；员工主数据尚未写入");
+    } catch (reason) {
+      handleFailure(reason, () => void confirmPositionAttributionBatch(previewHash));
+      throw reason;
+    }
+  };
+
   const saveIssueResolutions = async () => {
     if (!workflow) return;
     const invalid = Object.entries(issueDecisions).some(([issueId, decision]) => {
@@ -535,6 +567,8 @@ function EmployeeDataUpdateContent() {
             onDecision={(sourceValue, decision) => { setPositionDecisions(current => ({ ...current, [sourceValue]: decision })); markDirty("职位归属有未保存决定"); }}
             onBack={() => setActiveStep(3)}
             onSave={() => void saveAttributions("position")}
+            onBatchPreview={previewPositionAttributionBatch}
+            onBatchConfirm={confirmPositionAttributionBatch}
           />
         )}
 

@@ -8,6 +8,8 @@ import {
   type ImportRepository,
   type ImportRevertPreview,
   type ImportSourceLabelResolution,
+  type PositionAttributionBatchDecision,
+  type PositionAttributionBatchPreview,
 } from "../contracts/import-repository.ts";
 
 type Client = Pick<SupabaseClient, "from" | "storage" | "rpc">;
@@ -158,7 +160,7 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
     },
     async listSourceLabelResolutions(batchId, type) {
       const { data, error } = await client.from("import_source_label_resolutions")
-        .select("source_label,affected_row_count,decision,target_entity_id")
+        .select("source_label,affected_row_count,decision,decision_mode,target_entity_id")
         .eq("import_batch_id", batchId)
         .eq("resolution_type", type)
         .order("source_label");
@@ -167,6 +169,7 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
         sourceValue: row.source_label,
         sourceRowCount: Number(row.affected_row_count),
         decision: row.decision,
+        decisionMode: row.decision_mode,
         targetId: row.target_entity_id,
       }));
     },
@@ -178,6 +181,20 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
         p_source_label: sourceValue,
         p_target_entity_id: targetId,
         p_decision: decision,
+      });
+    },
+    previewPositionAttributionBatch(batchId, expectedVersion, decisions: readonly PositionAttributionBatchDecision[]) {
+      return rpc<PositionAttributionBatchPreview>(client, "preview_employee_import_position_attribution_batch", {
+        p_batch_id: batchId,
+        p_expected_version: expectedVersion,
+        p_decisions: decisions,
+      });
+    },
+    confirmPositionAttributionBatch(batchId, expectedVersion, previewHash) {
+      return rpc<ImportMutationResult>(client, "confirm_employee_import_position_attribution_batch", {
+        p_batch_id: batchId,
+        p_expected_version: expectedVersion,
+        p_preview_hash: previewHash,
       });
     },
     async validateBatch(batchId) {

@@ -152,8 +152,41 @@ export type ImportSourceLabelResolution = {
   sourceValue: string;
   sourceRowCount: number;
   decision: ImportSourceLabelDecision | "pending";
+  decisionMode?: "pending" | "create" | "map" | "exclude" | "defer";
   targetId?: string | null;
   targetName?: string | null;
+};
+
+export type PositionAttributionBatchDecision = {
+  sourceValue: string;
+  action: "create" | "map" | "exclude" | "defer";
+  targetPositionId?: string | null;
+  /** Required only when an active same-name position exists and the manager explicitly chooses a distinct new one. */
+  createDistinct?: boolean;
+};
+
+export type PositionAttributionBatchPreview = {
+  previewHash: string;
+  expectedVersion: number;
+  expiresAt: string;
+  summary: {
+    sourceLabels: number;
+    affectedRows: number;
+    create: number;
+    map: number;
+    exclude: number;
+    defer: number;
+  };
+  decisions: readonly {
+    sourceValue: string;
+    affectedRows: number;
+    action: PositionAttributionBatchDecision["action"];
+    status: "ready" | "same_name_requires_choice" | "blocked";
+    targetPositionId: string | null;
+    targetPositionName: string | null;
+    matchingPositions?: readonly { id: string; name: string }[];
+    reason?: string | null;
+  }[];
 };
 
 export type ImportRevertPreview = {
@@ -193,6 +226,16 @@ export interface ImportRepository {
     sourceValue: string,
     targetId: string | null,
     decision: ImportSourceLabelDecision,
+  ): Promise<ImportMutationResult>;
+  previewPositionAttributionBatch(
+    batchId: string,
+    expectedVersion: number,
+    decisions: readonly PositionAttributionBatchDecision[],
+  ): Promise<PositionAttributionBatchPreview>;
+  confirmPositionAttributionBatch(
+    batchId: string,
+    expectedVersion: number,
+    previewHash: string,
   ): Promise<ImportMutationResult>;
   validateBatch(batchId: string): Promise<ImportBatch>;
   listIssues(batchId: string): Promise<readonly ImportIssue[]>;
