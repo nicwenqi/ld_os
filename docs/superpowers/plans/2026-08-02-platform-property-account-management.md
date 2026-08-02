@@ -133,6 +133,10 @@ platform_prepare_manager_password_reset(
   p_request_id text
 )
 
+platform_record_manager_password_reset_result(
+  p_event_id uuid, p_succeeded boolean, p_error_code text
+)
+
 platform_set_property_manager_status(
   p_property_id uuid, p_account_id uuid, p_expected_version bigint,
   p_account_status text, p_request_id text
@@ -156,7 +160,7 @@ Each function must:
 - never create employees, scopes or training facts;
 - avoid returning internal Auth identifiers or email.
 
-The reset preparation RPC returns an internal Auth identity only to the server route; the route never serializes that value. The replace RPC inserts the new account before disabling the old account in the same transaction.
+The reset preparation RPC returns an internal Auth identity only to the server route; the route never serializes that value. The route always appends a success or failure event through `platform_record_manager_password_reset_result`; the result RPC returns no Auth or password data. The replace RPC inserts the new account before disabling the old account in the same transaction.
 
 - [ ] **Step 6: Restrict RPC execution and add pgTAP assertions**
 
@@ -182,7 +186,7 @@ Run: `supabase db reset --local --no-seed` then `supabase test db --local` with 
 
 **Files:**
 - Create: `app/services/platform-property-accounts.ts`
-- Create: `app/api/platform/properties/index/route.ts`
+- Modify: `app/api/platform/properties/route.ts` to add the platform-only GET projection while preserving the existing POST new-Property flow.
 - Create: `app/api/platform/properties/[propertyId]/accounts/route.ts`
 - Modify: `app/services/platform-authorization.ts` only if a shared platform actor helper is needed; preserve existing C1 behavior.
 - Test: `tests/recovery-e0-platform-property-account-management.test.mjs`
@@ -204,7 +208,7 @@ Define `PlatformPropertySummary`, `PlatformManagerAccountSummary` and `PlatformA
 
 - [ ] **Step 2: Implement Property overview GET**
 
-Call `requirePlatformProvisioner`, then `actorClient.rpc("platform_list_properties")`. Return `source: "real"` and the projection with no direct table reads. Return 401/403 without leaking Property existence for unauthenticated/non-platform actors.
+Add GET to the existing `/api/platform/properties` route. Call `requirePlatformProvisioner`, then `actorClient.rpc("platform_list_properties")`. Return `source: "real"` and the projection with no direct table reads. Return 401/403 without leaking Property existence for unauthenticated/non-platform actors.
 
 - [ ] **Step 3: Implement account list and lifecycle POST/PATCH/PUT**
 
@@ -214,7 +218,7 @@ Use the selected Property ID only as a route identifier passed to the RPC; all o
 - POST `create` using server-created internal email/Auth identity plus create RPC and compensation delete;
 - POST `replace` using a newly created Auth identity plus replace RPC and compensation delete;
 - PATCH status using expected version and status RPC;
-- PUT reset using reset preparation RPC, server Admin Auth password update, and append success/failure event RPC if required by the migration.
+- PUT reset using reset preparation RPC, server Admin Auth password update, and `platform_record_manager_password_reset_result` for a success/failure audit event.
 
 Never return `internalEmail`, `auth_user_id`, raw Supabase errors or passwords.
 
