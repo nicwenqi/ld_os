@@ -97,3 +97,34 @@ test("platform manager validation keeps User ID global and Auth email internal",
     roleCode: "department_training_admin",
   }), /平台仅管理酒店学习与发展经理/);
 });
+
+test("platform account lifecycle maps stale and unsafe RPC failures to business-safe HTTP results", async () => {
+  const service = await import("../app/services/platform-property-accounts.ts");
+  assert.deepEqual(
+    service.mapPlatformAccountError({ code: "P0003", message: "PLATFORM_MANAGER_ACCOUNT_STALE" }),
+    { status: 409, code: "ACCOUNT_STALE", message: "账号资料已由其他平台管理员更新，请重新读取后再试。" },
+  );
+  assert.deepEqual(
+    service.mapPlatformAccountError({ code: "P5006", message: "P5006: final active hotel L&D manager is protected" }),
+    { status: 409, code: "FINAL_MANAGER_PROTECTED", message: "当前 Property 至少需要一位已启用的学习与发展经理。" },
+  );
+  const fallback = service.mapPlatformAccountError({ code: "XX000", message: "relation auth.users does not exist" });
+  assert.equal(fallback.status, 500);
+  assert.doesNotMatch(fallback.message, /auth|relation|users/i);
+});
+
+test("password reset keeps Auth UUID server-only and cleanup has auditable compensation", async () => {
+  const accountRoute = await readFile(new URL("../app/api/platform/properties/[propertyId]/accounts/route.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(accountRoute, /prepared\?\.authUserId|prepared\.authUserId/);
+  assert.match(accountRoute, /resolvePlatformManagerAuthIdentity/);
+  assert.match(accountRoute, /recordPlatformManagerAuthCleanup/);
+  const files = await readdir(migrationDirectory);
+  const hardening = files.find(file => file.endsWith("_platform_property_account_management_hardening.sql"));
+  assert.ok(hardening, "a follow-up hardening migration must exist");
+  const sql = await readFile(new URL(hardening, migrationDirectory), "utf8");
+  assert.match(sql, /platform_record_manager_auth_cleanup_result/i);
+  assert.match(sql, /manager_create_auth_cleanup_failed/i);
+  assert.match(sql, /manager_replace_auth_cleanup_failed/i);
+  assert.match(sql, /'eventId',\s*event_id[\s\S]*'version'/i);
+  assert.doesNotMatch(sql, /'authUserId'/i);
+});
