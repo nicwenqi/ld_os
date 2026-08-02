@@ -3,6 +3,21 @@ import { createServerActorClient, createServerAdminClient } from "../../../lib/s
 import { requirePlatformProvisioner } from "../../../services/platform-authorization.ts";
 import { preparePropertyProvisioningPreview, verifyPropertyProvisioningPreview, type PropertyProvisioningDraft } from "../../../services/platform-property-provisioning.ts";
 
+export async function GET(request: Request) {
+  try {
+    const actor = await requirePlatformProvisioner(request);
+    const environment = parseAppEnvironment();
+    if (environment.appEnv === "local" && environment.dataMode === "mock") {
+      return response({ source: "demo", properties: [] }, actor.refreshedCookies);
+    }
+    const { data, error } = await createServerActorClient(actor.accessToken).rpc("platform_list_properties");
+    if (error) throw new Error("无法读取 Property 运维概览");
+    return response({ source: "real", properties: Array.isArray(data) ? data : [] }, actor.refreshedCookies);
+  } catch (error) {
+    return failure(403, error instanceof Error ? error.message : "平台权限验证失败");
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const actor = await requirePlatformProvisioner(request); const body = await request.json() as Record<string, unknown>; const draft = body.draft as PropertyProvisioningDraft; const secret = previewSecret();
