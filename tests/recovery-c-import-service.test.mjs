@@ -367,3 +367,22 @@ test("Position attribution batch preview is zero-write and confirmation rereads 
   assert.equal(confirmed.batch.version, 5);
   assert.equal(confirmed.positionLabels[0].decision, "mapped");
 });
+
+test("organization candidate preview and batch decision confirmation use the guarded repository boundary", async () => {
+  const repository = fakeRepository();
+  repository.previewOrganizationCandidates = async (id, version) => {
+    repository.calls.push(["previewOrganizationCandidates", id, version]);
+    return { batchId: id, batchVersion: version, employees: 1, departments: 1, positions: 1, bands: 1, trainees: 0, unresolvedEmployees: 0, trainingHistoryImported: false, ctcGtcImported: false };
+  };
+  repository.confirmOrganizationCandidates = async (id, version, decisions) => {
+    repository.calls.push(["confirmOrganizationCandidates", id, version, decisions]);
+    return { version: version + 1, status: "mapping_required" };
+  };
+  const service = createImportService(repository);
+  const preview = await service.previewOrganizationCandidates("batch-1", 4);
+  assert.equal(preview.departments, 1);
+  const confirmed = await service.confirmOrganizationCandidates("batch-1", 4, [{ candidateId: "candidate-1", decision: "create" }]);
+  assert.equal(confirmed.batch.id, "batch-1");
+  assert.equal(repository.calls.some(call => call[0] === "previewOrganizationCandidates"), true);
+  assert.equal(repository.calls.some(call => call[0] === "confirmOrganizationCandidates"), true);
+});

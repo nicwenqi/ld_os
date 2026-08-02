@@ -22,6 +22,14 @@ export type ProductionInspection = {
   employeesImported: number;
   trainingHistoryImported: boolean;
   ctcGtcImported: boolean;
+  organizationCandidates?: {
+    employees: number;
+    departments: number;
+    positions: number;
+    bands: number;
+    trainees: number;
+    unresolvedEmployees: number;
+  };
   exclusions?: {
     totalColumns?: number;
     formulaDerivedColumns?: number;
@@ -105,10 +113,13 @@ export function FileInspectionStep({
             <article><strong>{inspection.structurallyValid}</strong><span>结构有效</span></article>
             <article><strong>{inspection.blockedRows}</strong><span>阻塞行</span></article>
             <article><strong>{inspection.warningRows}</strong><span>警告行</span></article>
+            {inspection.organizationCandidates && <article><strong>{inspection.organizationCandidates.departments} / {inspection.organizationCandidates.positions}</strong><span>部门 / 岗位候选</span></article>}
+            {inspection.organizationCandidates && <article><strong>{inspection.organizationCandidates.bands} / {inspection.organizationCandidates.trainees}</strong><span>Band / Trainee</span></article>}
           </div>
           <div className="inspection-source-note">
             <strong>文件检查完成，员工更新尚未提交</strong>
             <p>{inspection.selectedSheet} · 表头第 {inspection.headerRow} 行 · {inspection.uniqueDepartmentLabels} 个部门来源值 · {inspection.uniquePositionLabels} 个职位来源值。</p>
+            {inspection.organizationCandidates && <small>已生成批量组织候选：{inspection.organizationCandidates.departments} 个部门、{inspection.organizationCandidates.positions} 个部门范围岗位、{inspection.organizationCandidates.bands} 个正式 Band、{inspection.organizationCandidates.trainees} 名 Trainee。{inspection.organizationCandidates.unresolvedEmployees > 0 ? ` ${inspection.organizationCandidates.unresolvedEmployees} 行仍需人工处理。` : "普通候选可批量确认。"}</small>}
           </div>
         </div>
       )}

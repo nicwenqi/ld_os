@@ -7,7 +7,7 @@ import { inspectEmployeeMasterAggregate } from "../app/services/import/workbook-
 import { prepareEmployeeMasterStaging } from "../app/services/import/production-workbook-staging.ts";
 
 const mimeXlsx = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-const approvedHeaders = ["Empid", "CName", "EName", "Department", "Position", "Grade", "JoinDate", "Probation"];
+const approvedHeaders = ["Empid", "CName", "EName", "Department", "Position", "Grade", "JoinDate", "Probation", "Gender"];
 
 function exclusionPatternsFromSources() {
   const parserSource = readFileSync(
@@ -74,7 +74,7 @@ function workbookFile({
 
 function syntheticWorkbookWithTrainingColumns() {
   return workbookFile({
-    headers: [...approvedHeaders, "CTC", "GTC", "Mini Orientation", "Gender"],
+    headers: [...approvedHeaders, "CTC", "GTC", "Mini Orientation"],
     rows: [[
       "0007",
       "示例员工甲",
@@ -84,10 +84,10 @@ function syntheticWorkbookWithTrainingColumns() {
       "G5",
       "2026-06-01",
       "2026-09-01",
-      "Complete",
-      "Complete",
-      "Complete",
       "X",
+      "Complete",
+      "Complete",
+      "Complete",
     ]],
   });
 }
@@ -97,7 +97,7 @@ test("Recovery C staging never persists excluded workbook values", () => {
   assert.equal(result.sourceRows[0].rawValues.CTC, undefined);
   assert.equal(result.sourceRows[0].rawValues.GTC, undefined);
   assert.equal(result.sourceRows[0].rawValues["Mini Orientation"], undefined);
-  assert.equal(result.sourceRows[0].rawValues.Gender, undefined);
+  assert.equal(result.sourceRows[0].rawValues.Gender, "X");
   assert.equal(result.fieldMappings.some(item => item.sourceColumnName === "CTC"), false);
   assert.equal(result.safeSummary.trainingHistoryImported, false);
   assert.equal(result.safeSummary.ctcGtcImported, false);
@@ -107,7 +107,7 @@ test("Recovery C staging never persists excluded workbook values", () => {
   );
   assert.deepEqual(
     result.safeSummary.excludedColumns.map(item => item.sourceColumnName),
-    ["CTC", "GTC", "Mini Orientation", "Gender"],
+    ["CTC", "GTC", "Mini Orientation"],
   );
   assert.equal(result.safeSummary.excludedColumns.every(item => item.reason.length > 0), true);
 });
@@ -115,8 +115,6 @@ test("Recovery C staging never persists excluded workbook values", () => {
 test("database employee exclusions cover every parser category and retained evidence category", () => {
   const patterns = exclusionPatternsFromSources();
   const parserRepresentatives = [
-    "Gender",
-    "性别",
     "CTC",
     "GTC",
     "Course",

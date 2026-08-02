@@ -189,6 +189,25 @@ export type PositionAttributionBatchPreview = {
   }[];
 };
 
+export type OrganizationCandidateDecision = {
+  candidateId: string;
+  decision: "create" | "map" | "exclude" | "defer";
+  targetEntityId?: string | null;
+};
+
+export type OrganizationCandidateSummary = {
+  batchId: string;
+  batchVersion: number;
+  employees: number;
+  departments: number;
+  positions: number;
+  bands: number;
+  trainees: number;
+  unresolvedEmployees: number;
+  trainingHistoryImported: false;
+  ctcGtcImported: false;
+};
+
 export type ImportRevertPreview = {
   safe: boolean;
   conflicts: number;
@@ -237,6 +256,8 @@ export interface ImportRepository {
     expectedVersion: number,
     previewHash: string,
   ): Promise<ImportMutationResult>;
+  previewOrganizationCandidates(batchId: string, expectedVersion: number): Promise<OrganizationCandidateSummary>;
+  confirmOrganizationCandidates(batchId: string, expectedVersion: number, decisions: readonly OrganizationCandidateDecision[]): Promise<ImportMutationResult>;
   validateBatch(batchId: string): Promise<ImportBatch>;
   listIssues(batchId: string): Promise<readonly ImportIssue[]>;
   resolveIssue(

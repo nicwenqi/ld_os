@@ -20,7 +20,7 @@ test("XLSX inspection detects sheets, blank leading rows, formulas, merges and h
   assert.ok(result.sheets[0].formulaColumns.includes("CTC Completion"));
   assert.equal(result.sheets[0].suggestedMappings.find(x=>x.sourceColumn==="Employee Number")?.targetField,"employee_number");
   assert.equal(result.sheets[0].suggestedMappings.find(x=>x.sourceColumn==="CTC Completion")?.excluded,true);
-  assert.equal(result.sheets[0].suggestedMappings.find(x=>x.sourceColumn==="Gender")?.excluded,true);
+  assert.equal(result.sheets[0].suggestedMappings.find(x=>x.sourceColumn==="Gender")?.targetField,"gender");
 });
 test("XLS and CSV are inspected while employee numbers remain strings",()=>{
   const xls=inspectWorkbook({fileName:"synthetic.xls",mimeType:"application/vnd.ms-excel",bytes:syntheticWorkbook("biff8")}); assert.equal(xls.extension,"xls");

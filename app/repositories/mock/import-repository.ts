@@ -7,6 +7,8 @@ import {
   type ImportRepository,
   type ImportSourceLabelResolution,
   type PositionAttributionBatchDecision,
+  type OrganizationCandidateDecision,
+  type OrganizationCandidateSummary,
 } from "../contracts/import-repository.ts";
 import { validateEmployeeBaselineClassification } from "../../services/pilot-employee-baseline.ts";
 
@@ -172,6 +174,15 @@ export function createMockImportRepository(): ImportRepository {
     },
     async confirmPositionAttributionBatch(_batchId, expectedVersion, _previewHash) {
       assertVersion(expectedVersion);
+      return advance();
+    },
+    async previewOrganizationCandidates(_batchId, expectedVersion): Promise<OrganizationCandidateSummary> {
+      assertVersion(expectedVersion);
+      return { batchId: batch.id, batchVersion: batch.version, employees: 122, departments: 2, positions: 2, bands: 3, trainees: 4, unresolvedEmployees: 2, trainingHistoryImported: false, ctcGtcImported: false };
+    },
+    async confirmOrganizationCandidates(_batchId, expectedVersion, decisions: readonly OrganizationCandidateDecision[]) {
+      assertVersion(expectedVersion);
+      if (decisions.length === 0) throw new Error("请至少确认一个组织候选");
       return advance();
     },
     async validateBatch() {

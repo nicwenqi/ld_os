@@ -83,6 +83,14 @@ const REVIEW_INSPECTION: ProductionInspection = {
   employeesImported: 0,
   trainingHistoryImported: false,
   ctcGtcImported: false,
+  organizationCandidates: {
+    employees: 118,
+    departments: 2,
+    positions: 2,
+    bands: 2,
+    trainees: 0,
+    unresolvedEmployees: 2,
+  },
   exclusions: {
     totalColumns: 4,
     formulaDerivedColumns: 2,

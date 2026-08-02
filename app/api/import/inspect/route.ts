@@ -153,6 +153,15 @@ export function createImportInspectionHandler(
       if (stagingError) throw stagingError;
       databaseStaged = true;
 
+      const candidateVersion = typeof staged === "object" && staged !== null && "version" in staged
+        ? Number(staged.version)
+        : 1;
+      const { error: candidateError } = await actorClient.rpc(
+        "preview_employee_import_organization_candidates",
+        { p_batch_id: batchId, p_expected_version: candidateVersion },
+      );
+      if (candidateError) throw candidateError;
+
       const headers = new Headers({ "Cache-Control": "no-store, private" });
       for (const value of actor.refreshedCookies) {
         headers.append("Set-Cookie", value);
@@ -276,6 +285,7 @@ function browserSafeSummary(
     employeesImported,
     trainingHistoryImported,
     ctcGtcImported,
+    organizationCandidates,
   } = summary;
   return {
     sanitizedFilename,
@@ -297,6 +307,7 @@ function browserSafeSummary(
     employeesImported,
     trainingHistoryImported,
     ctcGtcImported,
+    organizationCandidates,
   };
 }
 

@@ -12,6 +12,8 @@ import type {
   ImportSourceLabelDecision,
   PositionAttributionBatchDecision,
   PositionAttributionBatchPreview,
+  OrganizationCandidateDecision,
+  OrganizationCandidateSummary,
 } from "../repositories/contracts/import-repository.ts";
 import { validateEmployeeBaselineClassification } from "./pilot-employee-baseline.ts";
 
@@ -25,6 +27,8 @@ type ImportWorkflowRepository = Pick<
   | "resolveSourceLabel"
   | "previewPositionAttributionBatch"
   | "confirmPositionAttributionBatch"
+  | "previewOrganizationCandidates"
+  | "confirmOrganizationCandidates"
   | "resolveIssue"
   | "preparePreview"
   | "readPreparedPreview"
@@ -174,6 +178,16 @@ export function createImportService(repository: ImportWorkflowRepository) {
     ): Promise<EmployeeUpdateWorkflow> {
       if (!previewHash.trim()) throw new Error("批量职位归属预览已失效，请重新预览");
       await repository.confirmPositionAttributionBatch(batchId, expectedVersion, previewHash);
+      return readWorkflow(batchId);
+    },
+    async previewOrganizationCandidates(batchId: string, expectedVersion: number): Promise<OrganizationCandidateSummary> {
+      const workflow = await readWorkflow(batchId);
+      if (workflow.batch.version !== expectedVersion) throw new Error("员工资料更新批次已变化，请重新读取");
+      return repository.previewOrganizationCandidates(batchId, expectedVersion);
+    },
+    async confirmOrganizationCandidates(batchId: string, expectedVersion: number, decisions: readonly OrganizationCandidateDecision[]) {
+      if (decisions.length === 0) throw new Error("请至少确认一个组织候选");
+      await repository.confirmOrganizationCandidates(batchId, expectedVersion, decisions);
       return readWorkflow(batchId);
     },
     async resolveIssue(

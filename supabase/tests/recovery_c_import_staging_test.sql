@@ -540,8 +540,6 @@ create temporary table excluded_employee_key_cases (
 
 insert into excluded_employee_key_cases(test_case, forbidden_key)
 values
-  ('gender-en', 'Gender'),
-  ('gender-zh', '性别'),
   ('ctc', 'CTC'),
   ('gtc', 'GTC'),
   ('course-en', 'Course'),

@@ -10,6 +10,8 @@ import {
   type ImportSourceLabelResolution,
   type PositionAttributionBatchDecision,
   type PositionAttributionBatchPreview,
+  type OrganizationCandidateDecision,
+  type OrganizationCandidateSummary,
 } from "../contracts/import-repository.ts";
 
 type Client = Pick<SupabaseClient, "from" | "storage" | "rpc">;
@@ -195,6 +197,19 @@ export function createSupabaseImportRepository(client: Client): ImportRepository
         p_batch_id: batchId,
         p_expected_version: expectedVersion,
         p_preview_hash: previewHash,
+      });
+    },
+    previewOrganizationCandidates(batchId, expectedVersion) {
+      return rpc<OrganizationCandidateSummary>(client, "preview_employee_import_organization_candidates", {
+        p_batch_id: batchId,
+        p_expected_version: expectedVersion,
+      });
+    },
+    confirmOrganizationCandidates(batchId, expectedVersion, decisions: readonly OrganizationCandidateDecision[]) {
+      return rpc<ImportMutationResult>(client, "confirm_employee_import_organization_candidates", {
+        p_batch_id: batchId,
+        p_expected_version: expectedVersion,
+        p_decisions: decisions,
       });
     },
     async validateBatch(batchId) {

@@ -9,6 +9,7 @@ import {
   type WorkbookInspection,
 } from "./workbook-parser.ts";
 import { isMissingSourceValue } from "./employee-staging-preview.ts";
+import { buildOrganizationCandidatePreview, type OrganizationCandidatePreview, type OrganizationCandidateRow } from "./organization-candidates.ts";
 
 const requiredTargets = new Set(["employee_number", "name_zh", "department_source_label", "position_source_label"]);
 
@@ -21,6 +22,7 @@ export type PreparedSourceRow = {
   processingStatus: "staged" | "warning" | "error";
   proposedAction: "unresolved";
   validationSummary: { blockingIssues: readonly string[]; warningIssues: readonly string[] };
+  organizationCandidate?: OrganizationCandidateRow;
 };
 
 export type PreparedFieldMapping = {
@@ -67,7 +69,9 @@ export type PreparedEmployeeMasterStaging = {
     employeesImported: 0;
     trainingHistoryImported: false;
     ctcGtcImported: false;
+    organizationCandidates: Pick<OrganizationCandidatePreview, "summary">;
   };
+  organizationCandidates: OrganizationCandidatePreview;
 };
 
 export function prepareEmployeeMasterStaging(input: WorkbookFile): PreparedEmployeeMasterStaging {
@@ -135,6 +139,22 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile): PreparedEmplo
     positions: aggregateSourceLabels(sourceRows, "position_source_label", aggregate.selectedSheet),
   };
 
+  const organizationRows: OrganizationCandidateRow[] = sourceRows.map(row => ({
+    rowId: row.id,
+    rowNumber: row.sourceRowNumber,
+    employeeNumber: String(row.normalizedValues.employee_number ?? "").trim() || null,
+    name: String(row.normalizedValues.name_zh ?? row.normalizedValues.name_en ?? "").trim() || null,
+    sourceDepartment: String(row.rawValues[headers.find(header => recognized.get(header) === "department_source_label") ?? ""] ?? row.normalizedValues.department_source_label ?? "").trim() || null,
+    normalizedDepartment: String(row.normalizedValues.department_source_label ?? "").normalize("NFKC").trim().toLocaleLowerCase() || null,
+    sourcePosition: String(row.rawValues[headers.find(header => recognized.get(header) === "position_source_label") ?? ""] ?? row.normalizedValues.position_source_label ?? "").trim() || null,
+    normalizedPosition: String(row.normalizedValues.position_source_label ?? "").normalize("NFKC").trim().toLocaleLowerCase() || null,
+    sourceBand: String(row.rawValues[headers.find(header => recognized.get(header) === "grade_or_band") ?? ""] ?? row.normalizedValues.grade_or_band ?? "").trim() || null,
+    normalizedBand: String(row.normalizedValues.grade_or_band ?? "").normalize("NFKC").trim().toLocaleLowerCase() || null,
+    sourceEmploymentCategory: String(row.normalizedValues.grade_or_band ?? "").trim().toLocaleLowerCase() === "t" ? "Trainee" : null,
+    gender: String(row.normalizedValues.gender ?? "").trim() || null,
+  }));
+  const organizationCandidates = buildOrganizationCandidatePreview(organizationRows);
+
   return {
     inspection,
     selectedSheet: selectedInspection,
@@ -170,7 +190,9 @@ export function prepareEmployeeMasterStaging(input: WorkbookFile): PreparedEmplo
       employeesImported: 0,
       trainingHistoryImported: false,
       ctcGtcImported: false,
+      organizationCandidates: { summary: organizationCandidates.summary },
     },
+    organizationCandidates,
   };
 }
 

@@ -269,15 +269,17 @@ test("authenticated manager uploads privately, stages atomically, and receives o
   assert.equal(actorCalls.uploads.length, 1);
   assert.equal(actorCalls.uploads[0].bucket, "property-import-files");
   assert.equal(actorCalls.uploads[0].options.upsert, false);
-  assert.equal(actorCalls.rpcs.length, 1);
+  assert.equal(actorCalls.rpcs.length, 2);
   assert.equal(actorCalls.rpcs[0].name, "stage_employee_import");
   assert.equal(actorCalls.rpcs[0].params.p_property_id, "00000000-0000-4000-8000-000000000003");
   assert.equal(actorCalls.rpcs[0].params.p_staging.batch.fileChecksum, fullChecksum);
   assert.equal(actorCalls.rpcs[0].params.p_staging.rows[0].normalizedValues.employee_number, "0007");
   assert.equal(actorCalls.rpcs[0].params.p_staging.sourceLabels.length, 2);
+  assert.equal(actorCalls.rpcs[1].name, "preview_employee_import_organization_candidates");
   assert.deepEqual(actorCalls.events, [
     `upload:${actorCalls.uploads[0].path}`,
     "rpc:stage_employee_import",
+    "rpc:preview_employee_import_organization_candidates",
   ]);
   assert.deepEqual(actorCalls.directTables, []);
   assert.equal(body.checksumPrefix, fullChecksum.slice(0, 12));
