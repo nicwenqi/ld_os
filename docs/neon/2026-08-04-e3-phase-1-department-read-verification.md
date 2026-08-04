@@ -17,12 +17,14 @@ runtime behavior matrix has passed.
   it was never printed or exposed. A real pooled `hotel_ld_application`
   connection was made only to the approved child for a read-only `pg_catalog`
   probe that emitted booleans and counts. No business table or payload was
-  read, and no migration-owner/bootstrap connection, migration, runtime DDL,
-  or `SET ROLE` was attempted.
+  read, and no direct `hotel_ld_migration_owner` login, `neondb_owner`
+  bootstrap connection, migration, runtime DDL, or `SET ROLE` was attempted.
 - `.env.local` contains only the runtime `DATABASE_URL`; it provides no
-  independent child migration/bootstrap URL. The guarded runtime value was
-  never printed or exposed. The runtime credential and an owner credential are
-  not substitutes for the required child-only migration/bootstrap credential.
+  independent child `neondb_owner` bootstrap connection for the approved
+  endpoint and database. The guarded runtime value was never printed or
+  exposed. The runtime credential cannot apply E3, and a direct
+  `hotel_ld_migration_owner` login also fails the exact bootstrap-identity
+  preflight.
 
 ## Reviewed source identity
 
@@ -79,7 +81,7 @@ any Neon Department write.
 | Application regressions | PASS | Fresh `npm test` exited 0: 201 tests passed, 0 failed; its build and rendered HTML test also passed (1/1). |
 | Separate production build | PASS | Fresh `npm run build` exited 0. The route table included `/api/organization/departments`, `/api/organization/departments/:id`, `/api/organization/departments/:id/ancestors`, and `/api/organization/departments/:id/descendants`. |
 | Browser asset boundary | PASS | `rg` of `dist/client` for `DATABASE_URL`, `NEON_ENDPOINT_ID`, `pg-pool`, `app.actor_`, `resolve_neon_organization_property`, and `read_neon_organization_department_tree` returned exit 1 with no output (zero matches). |
-| Child migration PostgreSQL parse and apply | BLOCKED | No child-only migration/bootstrap URL or credential is available. |
+| Child migration PostgreSQL parse and apply | BLOCKED | No child-only `neondb_owner` bootstrap connection for the approved endpoint/database is available. |
 | E3 catalog, grants, ownership, ACL, RLS, entry-point owner/`SECURITY DEFINER`/`search_path`, legacy-trigger, and E2-inventory assertions | BLOCKED | E3 is absent (`phase1_target_function_count=0`); no post-apply catalog matrix exists. |
 | E3 authorization and read behavior | BLOCKED | Missing/wrong context, authorization, tree scope, descendant flag, exclusion, rollback/commit/reuse, and concurrent-actor behavior remain unverified. |
 | Production safety | PASS | The deny-listed production branch and endpoint were neither connected to nor modified. |
@@ -95,9 +97,15 @@ Phase 1 Department read: **COMPLETE only if migration and runtime matrix passed.
 Current status is **IMPLEMENTED / DATABASE VALIDATION BLOCKED**. Phase 2 must
 not start from this record.
 
-The only unblock is a separately supplied child-only migration/bootstrap URL or
-credential for the approved child target. It must not be replaced with the
-runtime application credential, a migration-owner substitution, or a
-production credential. After a safe sanitized identity preflight, apply the
-reviewed migration and rerun the complete catalog and behavior matrix without
-printing connection material or business payloads.
+The sole unblock is a child-only `neondb_owner` bootstrap connection for the
+approved endpoint `ep-sparkling-shape-az9gxtuh` and database `neondb`. If a
+local secret key is needed, name it `NEON_BOOTSTRAP_DATABASE_URL`; it must not
+replace the runtime `DATABASE_URL`. The migration's exact preflight requires
+both `current_user` and `session_user` to be `neondb_owner`; it then verifies
+the required `SET ROLE` capability and transitions internally to the
+constrained `hotel_ld_migration_owner` as designed. The runtime
+`hotel_ld_application` login cannot apply E3, and a direct
+`hotel_ld_migration_owner` login fails that bootstrap-identity preflight.
+Production and generic owner credentials are forbidden. After a safe sanitized
+identity preflight, apply the reviewed migration and rerun the complete catalog
+and behavior matrix without printing connection material or business payloads.

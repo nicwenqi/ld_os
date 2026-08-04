@@ -39,8 +39,14 @@ described as complete. Registry activation is **NOT ACTIVATED** and the
 Supabase Organization fallback remains **ACTIVE**. See
 [`docs/neon/2026-08-04-e3-phase-1-department-read-verification.md`](../docs/neon/2026-08-04-e3-phase-1-department-read-verification.md)
 for the exact evidence, restrictions, and child-only bootstrap-credential
-unblock. Phase 2 must not start; its first hardening gate is the approved
-legacy closure-trigger exception before any Neon Department write.
+unblock. E3 requires a `neondb_owner` bootstrap connection only for the
+approved child endpoint/database; the migration then transitions internally to
+the constrained `hotel_ld_migration_owner`. `hotel_ld_application`, a direct
+`hotel_ld_migration_owner` login, Production credentials, and generic owner
+credentials cannot be used. If a local secret key is needed, use
+`NEON_BOOTSTRAP_DATABASE_URL`, never as a replacement for runtime
+`DATABASE_URL`. Phase 2 must not start; its first hardening gate is the
+approved legacy closure-trigger exception before any Neon Department write.
 
 ## Role boundary
 
