@@ -75,7 +75,7 @@ test("E3 Phase 1 exposes only constrained Department read entrypoints", async ()
     "to hotel_ld_application",
   ]) assert.match(sql.toLowerCase(), new RegExp(token.toLowerCase().replace(/[()]/g, "\\$&")));
   assert.match(sql, /revoke all on function[\s\S]+from public,[\s\S]+hotel_ld_people_read,[\s\S]+hotel_ld_application/i);
-  assert.doesNotMatch(sql, /grant\s+(?:select|insert|update|delete)[\s\S]+to\s+hotel_ld_application/i);
+  assert.doesNotMatch(sql, /grant\s+(?:select|insert|update|delete)[^;]*\bto\s+hotel_ld_application\s*;/i);
   assert.doesNotMatch(sql, /create\s+role|alter\s+role|grant\s+hotel_ld_organization/i);
   assert.doesNotMatch(sql, /create_neon_department|update_neon_department|reparent_neon_department/i);
   assert.doesNotMatch(sql, /create\s+(?:or replace\s+)?function\s+public\.[^(]*(?:alias|operational_unit)/i);
@@ -154,7 +154,16 @@ The preflight must fail closed unless all of the following are true:
 - the Phase 1 target objects do not already exist;
 - E1 actor functions have exact owner, invoker/stable/search-path configuration;
 - E2 Department SELECT policies and exact People entry points still exist;
-- no trigger attached to `departments` or `department_closure` is a `SECURITY DEFINER` function owned by a BYPASSRLS role.
+- the only trigger attached to `departments` or `department_closure` whose
+  function is both `SECURITY DEFINER` and owned by a BYPASSRLS role is the
+  exact legacy edge `departments_insert_closure` →
+  `app_private.insert_department_closure()` owned by `neondb_owner`, with
+  fixed `search_path=''`; any additional or changed edge fails preflight;
+- that legacy edge is read-path-inert in Phase 1: application and People roles
+  have zero Department DML, both public Phase 1 functions are SELECT-only, and
+  neither function depends on or calls the trigger function. Phase 2 must
+  convert it to the approved constrained invoker path before adding any Neon
+  Department mutation.
 
 Create these private Phase 1 objects under `hotel_ld_migration_owner`:
 
@@ -528,6 +537,9 @@ Prove only booleans/counts:
 - application still has exactly one membership with exact options;
 - application and People group own no object and have zero raw table/column
   privilege on the five Organization tables;
+- the exact pinned legacy closure trigger is still the only BYPASSRLS definer
+  trigger on the Department read tables, remains unreachable from both Phase 1
+  entry points, and is recorded as Phase 2's first hardening gate;
 - application has EXECUTE on exactly the two Phase 1 entry points;
 - PUBLIC/authenticated/People/readonly/bootstrap have no explicit execute
   grant;

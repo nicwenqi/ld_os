@@ -4,7 +4,7 @@
 
 **Phase:** E3 Organization migration
 
-**Status:** Architecture approved; document review pending
+**Status:** Approved
 
 ## Goal
 
@@ -149,8 +149,13 @@ validates the final child schema for:
 - `operational_unit_aliases`;
 - expected composite keys, checks, indexes, hierarchy triggers, immutable
   scope/source triggers, owners, and `ENABLE/FORCE ROW LEVEL SECURITY`;
-- absence of a target-table trigger function that is both
-  `SECURITY DEFINER` and owned by a role capable of bypassing RLS;
+- the exact legacy `departments_insert_closure` trigger remains the only
+  target-table trigger whose function is both `SECURITY DEFINER` and owned by
+  a role capable of bypassing RLS; Phase 1 pins this known, read-path-inert
+  exception instead of changing write infrastructure;
+- no E3 Phase 1 entry point can invoke that trigger because application and
+  People roles retain zero Department DML and the public read call graph is
+  SELECT-only;
 - exact E1/E2 runtime role and Actor Context baseline.
 
 The migration adds Organization-private helpers for:
@@ -343,6 +348,10 @@ writes the same Organization mutation to both databases.
 
 ### Phase 2 — Department write
 
+- before exposing any Neon Department mutation, change
+  `app_private.insert_department_closure()` to a constrained
+  `SECURITY INVOKER` path and prove both E3 RLS enforcement and the still-active
+  Supabase fallback remain correct;
 - create and version-checked detail/active update entry points;
 - exact write grants and RLS policies;
 - internal actor user-id audit fields;
@@ -404,6 +413,8 @@ The real `hotel_ld_application` credential must prove:
 - every E3 function has exact owner, `SECURITY DEFINER`, fixed search path, and
   ACL;
 - legacy owner/BYPASSRLS definer RPCs are unreachable from the E3 call graph;
+- the pinned legacy closure trigger remains unreachable from Phase 1 reads and
+  is the first mandatory Phase 2 hardening gate;
 - create/update/move/unit operations preserve versions and all current
   business blockers;
 - closure equals the recursive adjacency result after create and move;
