@@ -34,7 +34,8 @@ runtime behavior matrix has passed.
 | SHA-256 | `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d` |
 | Task 1 source | committed as `f1252a17...`; independently static-reviewed clean |
 | Task 2 boundary | commits `f214e07` and `2c2bbb5`; scratch checks 4/4 and TypeScript passed; review approved |
-| Task 3 routes | commit `0e625d4`; scratch checks 2/2 and TypeScript passed; review approved |
+| Task 3 API boundary | commits `0e625d4` and `97b091f`; final scratch checks 3/3 and TypeScript passed; task review and scoped final re-review approved |
+| Whole-slice source review | `IMPLEMENTATION APPROVE`; no Critical or Important findings; runtime-drift HTTP taxonomy fix resolved with no new findings |
 
 The migration source is reviewed and transaction-wrapped, but no E3
 PostgreSQL parse, apply, post-apply catalog ACL/RLS assertion, entry-point
@@ -77,8 +78,8 @@ any Neon Department write.
 
 | Area | Result | Evidence or limitation |
 | --- | --- | --- |
-| E3 code and static review | PASS | Task 1 source independently reviewed clean; Tasks 2–3 reviews approved. |
-| Application regressions | PASS | Fresh `npm test` exited 0: 201 tests passed, 0 failed; its build and rendered HTML test also passed (1/1). |
+| E3 code and static review | PASS | Task 1 source independently reviewed clean; Tasks 2–3 reviews approved; final whole-slice review and scoped re-review returned `IMPLEMENTATION APPROVE`. |
+| Application regressions | PASS | Fresh post-fix `npm test` exited 0: 201 tests passed, 0 failed; its build and rendered HTML test also passed (1/1). |
 | Separate production build | PASS | Fresh `npm run build` exited 0. The route table included `/api/organization/departments`, `/api/organization/departments/:id`, `/api/organization/departments/:id/ancestors`, and `/api/organization/departments/:id/descendants`. |
 | Browser asset boundary | PASS | `rg` of `dist/client` for `DATABASE_URL`, `NEON_ENDPOINT_ID`, `pg-pool`, `app.actor_`, `resolve_neon_organization_property`, and `read_neon_organization_department_tree` returned exit 1 with no output (zero matches). |
 | Child migration PostgreSQL parse and apply | BLOCKED | No child-only `neondb_owner` bootstrap connection for the approved endpoint/database is available. |
