@@ -100,11 +100,12 @@ through a server repository inside the actor transaction. Browser code uses
 same-origin People HTTP endpoints and never receives a database connection
 string.
 
-Child-only runtime activation remains an external secret-management step. A
-real `hotel_ld_application` credential must be provisioned and independently
-verified before live API behavior tests. The owner and migration roles are not
-valid substitutes. Until that step is complete, the catalog/RLS/contract
-evidence is valid, but runtime-login behavior must not be described as proven.
+E2 status is Architecture: **COMPLETE**; Runtime/RLS: **COMPLETE**; Production
+identity acceptance: **DEFERRED**. The child-only pooled
+`hotel_ld_application` credential, runtime role, RLS boundary, and
+actor-context isolation have been verified. Production acceptance awaits the
+future production account set and must not use owner or migration-role
+substitution.
 
 The next business slice may reuse this pattern for Organization, Position, or
 later Import work. Employee writes, import commit, training facts, and broad

@@ -13,12 +13,16 @@ runtime behavior matrix has passed.
   `neondb`.
 - Production deny-list: branch `br-twilight-leaf-azmowo1k`, endpoint
   `ep-wild-wave-azjmgdif`. Production was not connected to or modified.
-- No business payload was read for this closeout. No database connection,
-  migration, runtime DDL, or `SET ROLE` was attempted.
+- The runtime URL was parsed locally only inside a fail-closed sanitized guard;
+  it was never printed or exposed. A real pooled `hotel_ld_application`
+  connection was made only to the approved child for a read-only `pg_catalog`
+  probe that emitted booleans and counts. No business table or payload was
+  read, and no migration-owner/bootstrap connection, migration, runtime DDL,
+  or `SET ROLE` was attempted.
 - `.env.local` contains only the runtime `DATABASE_URL`; it provides no
-  independent child migration/bootstrap URL. Its value was not read or
-  printed. The runtime credential and an owner credential are not substitutes
-  for the required child-only migration/bootstrap credential.
+  independent child migration/bootstrap URL. The guarded runtime value was
+  never printed or exposed. The runtime credential and an owner credential are
+  not substitutes for the required child-only migration/bootstrap credential.
 
 ## Reviewed source identity
 
@@ -30,13 +34,15 @@ runtime behavior matrix has passed.
 | Task 2 boundary | commits `f214e07` and `2c2bbb5`; scratch checks 4/4 and TypeScript passed; review approved |
 | Task 3 routes | commit `0e625d4`; scratch checks 2/2 and TypeScript passed; review approved |
 
-The migration source is reviewed and transaction-wrapped, but no PostgreSQL
-parse, apply, catalog ACL/RLS assertion, entry-point behavior, or transaction
-isolation matrix has been run against the child database in this closeout.
+The migration source is reviewed and transaction-wrapped, but no E3
+PostgreSQL parse, apply, post-apply catalog ACL/RLS assertion, entry-point
+behavior, or transaction-isolation matrix has been run against the child
+database in this closeout.
 
 ## Sanitized runtime and prior read-only catalog evidence
 
-The local sanitized runtime check passed with only these facts:
+The guarded local runtime check passed with only these facts before opening the
+child application connection:
 
 ```text
 endpoint=ep-sparkling-shape-az9gxtuh
@@ -46,8 +52,9 @@ pooled=true
 production-deny-match=false
 ```
 
-A previously obtained child `hotel_ld_application` `pg_catalog` probe was
-read-only and did not read business data. Its limited results were:
+The closeout then used the real child `hotel_ld_application` pooled connection
+for a read-only `pg_catalog` probe. It did not read business tables or data and
+returned only these limited results:
 
 | Probe | Result | Meaning |
 | --- | --- | --- |
