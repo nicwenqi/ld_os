@@ -151,7 +151,7 @@ function validateHierarchy(
   }
 
   const parent = nodesById.get(node.parentId);
-  if (!parent) return;
+  if (!parent) invalid("missing parent");
   if (
     parent.depth !== node.depth - 1 ||
     parent.pathIds.length !== node.pathIds.length - 1 ||
@@ -169,10 +169,11 @@ function sortTree(
   const roots: DepartmentNode[] = [];
 
   for (const node of nodes) {
-    if (node.parentId === null || !nodesById.has(node.parentId)) {
+    if (node.parentId === null) {
       roots.push(node);
       continue;
     }
+    if (!nodesById.has(node.parentId)) invalid("missing parent");
     const children = childrenByParent.get(node.parentId) ?? [];
     children.push(node);
     childrenByParent.set(node.parentId, children);
