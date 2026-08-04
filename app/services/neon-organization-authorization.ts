@@ -102,7 +102,7 @@ function mapError(error: unknown): OrganizationApiError {
   const message = error instanceof Error ? error.message : "";
   if (
     code === "42501" &&
-    /^NEON_ORGANIZATION_(?:RUNTIME_FORBIDDEN|PROPERTY_CONTEXT_CHANGED|READER_FORBIDDEN)$/.test(
+    /^NEON_ORGANIZATION_(?:PROPERTY_CONTEXT_CHANGED|READER_FORBIDDEN)$/.test(
       message,
     )
   ) {
