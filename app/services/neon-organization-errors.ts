@@ -23,9 +23,10 @@ export function mapOrganizationDatabaseError(
   }
   if (
     code === "P2000" ||
-    message === "NEON_ORGANIZATION_DEPARTMENT_NOT_FOUND"
+    message === "NEON_ORGANIZATION_DEPARTMENT_NOT_FOUND" ||
+    message === "NEON_ORGANIZATION_ALIAS_NOT_FOUND"
   ) {
-    return { status: 404, message: "部门不存在" };
+    return { status: 404, message: "所请求的组织架构记录不存在" };
   }
   if (
     code === "P2002" ||
@@ -60,7 +61,7 @@ export function mapOrganizationDatabaseError(
     code === "23514" ||
     code === "23502"
   ) {
-    return { status: 422, message: "部门资料不符合业务规则" };
+    return { status: 422, message: "组织架构资料不符合业务规则" };
   }
   return { status: 503, message: "组织架构服务暂时不可用" };
 }
