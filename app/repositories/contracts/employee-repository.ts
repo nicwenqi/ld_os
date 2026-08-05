@@ -1,3 +1,5 @@
+import type { AuthorizedDepartmentScope } from "./auth-repository.ts";
+
 export type EmployeeRecord = {
   id: string;
   tenantId: string;
@@ -40,6 +42,8 @@ export type EmployeeDirectoryPage = {
   rows: readonly EmployeeRecord[];
   total: number;
   refreshedAt: string;
+  /** Present only for the Neon department directory response. */
+  authorizedDepartmentScopes?: readonly AuthorizedDepartmentScope[];
 };
 
 export interface EmployeeRepository {
