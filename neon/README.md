@@ -2,8 +2,9 @@
 
 This directory contains the reviewed Neon migration units for Hotel L&D OS.
 E1 Authorization Foundation and E2 People read-only were applied on
-2026-08-04, and E3 Organization Department read Phase 1 was applied on
-2026-08-05. Every unit was applied only to the isolated development child:
+2026-08-04. E3 Organization Department read Phase 1 and Department write
+Phase 2A were applied on 2026-08-05. Every unit was applied only to the
+isolated development child:
 
 - project: `flat-brook-43278549`
 - branch: `br-aged-river-az1gke14`
@@ -23,11 +24,22 @@ directory may be run against either identifier.
 | `202608040002_e1_auth_uid_compatibility.sql` | Guarded `auth.uid()` bridge with dependency-drift assertions | `e3d22e956e0b718c6917139a03db132d8ed0e552b00ed25955bf8d4e8766797f` |
 | `202608040003_e2_people_readonly.sql` | Live property/role/department authorization, forced-RLS policies, and narrow People read entry points | `bc23eb919c30d2eae98faa7c1f0b05ad6501442890238de4253c3297de1a84f7` |
 | `202608040004_e3_organization_department_read.sql` | Narrow Organization Department read entry points; no write path | `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d` |
+| `202608050005_e3_organization_department_write.sql` | Manager-only Department create and version-checked detail/active-state updates | `da6d3d23d79ff4969bb4cbbec1048a9e54baf71060ccf7ccb8b505112db0ab34` |
+| `202608050006_e3_organization_department_write_nullif_fix.sql` | Stored-routine syntax correction preserving the reviewed owner/security/ACL boundary | `226895c54dcf4b9de3999b78b98800571643e200e6eb1175a57c307191071d46` |
 
 Each unit is independently preflighted and transaction-wrapped. A failed
-preflight aborts the whole unit. Checksums identify the exact revisions that
-were reviewed and applied; changing a file requires a new review and a new
-execution decision.
+preflight aborts the whole unit. Checksums identify the tracked, reviewed
+revisions. The applied-child lineage below records the one `005` revision that
+was corrected by a separate migration; any other file change requires a new
+review and execution decision.
+
+The child first received revision
+`f5d1a6aeb666be9784a275049775d2d60fb5c6df95471ff239d9cbd8488d0380`
+of `005`. Its first true runtime execution exposed an incorrectly qualified
+`NULLIF` syntax construct. The tracked `005` file is the corrected canonical
+source for clean environments, and separately applied `006` repaired only the
+two affected child routines. Applying `006` after the canonical `005` is a
+validated no-op.
 
 ## E3 Organization Phase 1 status
 
@@ -45,9 +57,33 @@ remains **ACTIVE**. See
 [`docs/neon/2026-08-04-e3-phase-1-department-read-verification.md`](../docs/neon/2026-08-04-e3-phase-1-department-read-verification.md)
 for the exact evidence and remaining acceptance matrix. The completed migration
 used `NEON_BOOTSTRAP_DATABASE_URL` only as a guarded child bootstrap input; it
-was never substituted for runtime `DATABASE_URL` and was not used after the
-migration committed. Phase 2's first hardening gate remains the approved legacy
-closure-trigger exception before any Neon Department write.
+was never substituted for runtime `DATABASE_URL` and was not used as a runtime
+credential after the migration committed. Phase 2A subsequently resolved the
+approved legacy closure-trigger exception before enabling Department writes.
+
+## E3 Organization Phase 2A status
+
+Department create, version-checked detail update, and active-state update are
+implemented through two manager-only `SECURITY DEFINER` entry points. Their
+constrained owner is `hotel_ld_migration_owner`; both fix `search_path=''`,
+revoke PUBLIC execution, and expose only exact execution to
+`hotel_ld_application`. Existing create-time path/closure trigger helpers are
+now constrained invokers. Application raw table privileges remain `0`, and no
+closure UPDATE/DELETE authority exists.
+
+The real pooled application credential passed the child behavior matrix for
+manager create/update, hierarchy representation, department-admin denial,
+cross-property denial, stale-version conflict, active-scope blocking, audit,
+rollback, transaction/pool context cleanup, concurrent isolation, and direct
+table denial. Synthetic fixtures were cleaned after verification.
+
+The server repository and POST/PATCH routes are implemented but remain dark:
+the Organization browser registry still selects the Supabase repository. The
+fallback therefore remains **ACTIVE**, and there is no dual write. Production
+identity acceptance and any registry switch remain **DEFERRED** to a separate
+activation gate. See
+[`docs/neon/2026-08-05-e3-phase-2a-department-write-verification.md`](../docs/neon/2026-08-05-e3-phase-2a-department-write-verification.md)
+for migration lineage and exact evidence.
 
 ## Role boundary
 
@@ -114,8 +150,8 @@ actor-context isolation have been verified. Production acceptance awaits the
 future production account set and must not use owner or migration-role
 substitution.
 
-E3 Phase 2 may reuse this pattern only after its separately approved review
-gate. Position, Employee writes, import commit, training facts, and broad
+Future E3 phases may reuse this pattern only through separately approved review
+gates. Position, Employee writes, import commit, training facts, and broad
 repository replacement remain out of scope.
 
 See

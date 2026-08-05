@@ -356,11 +356,11 @@ begin
     new.path_ids := v_parent_path_ids || new.id;
   end if;
 
-  new.code := pg_catalog.nullif(
+  new.code := nullif(
     pg_catalog.lower(pg_catalog.btrim(new.code)), ''
   );
   new.name_zh := pg_catalog.btrim(new.name_zh);
-  new.name_en := pg_catalog.nullif(pg_catalog.btrim(new.name_en), '');
+  new.name_en := nullif(pg_catalog.btrim(new.name_en), '');
   return new;
 end
 $function$;
@@ -882,7 +882,7 @@ begin
   v_changed_fields := pg_catalog.array_remove(array[
     case when pg_catalog.btrim(p_name_zh) is distinct from
       v_current_name_zh then 'name_zh' end,
-    case when pg_catalog.nullif(pg_catalog.btrim(p_name_en), '')
+    case when nullif(pg_catalog.btrim(p_name_en), '')
       is distinct from v_current_name_en then 'name_en' end,
     case when p_sort_order is distinct from
       v_current_sort_order then 'sort_order' end,
@@ -895,7 +895,7 @@ begin
 
   update public.departments
   set name_zh = pg_catalog.btrim(p_name_zh),
-      name_en = pg_catalog.nullif(pg_catalog.btrim(p_name_en), ''),
+      name_en = nullif(pg_catalog.btrim(p_name_en), ''),
       sort_order = p_sort_order,
       is_active = p_is_active,
       updated_by = app_private.current_actor_auth_user_id(),
