@@ -72,7 +72,7 @@ async function readTree(
 
 function orderedTree(value: unknown): DepartmentNode[] {
   const payload = object(value, "payload") as NeonDepartmentPayload;
-  const nodes = array(payload.rows, "rows").map(mapNode);
+  const nodes = array(payload.rows, "rows").map(mapNeonDepartmentNode);
   const nodesById = new Map<string, DepartmentNode>();
 
   for (const node of nodes) {
@@ -96,7 +96,7 @@ function orderedTree(value: unknown): DepartmentNode[] {
   return sortTree(nodes, nodesById);
 }
 
-function mapNode(value: unknown): DepartmentNode {
+export function mapNeonDepartmentNode(value: unknown): DepartmentNode {
   const row = object(value, "department row");
   const id = uuid(row.id, "id");
   const pathIds = array(row.path_ids, "path_ids").map((pathId, index) =>
