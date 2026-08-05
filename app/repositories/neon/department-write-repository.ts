@@ -5,7 +5,10 @@ import type {
   DepartmentRepository,
   UpdateDepartmentInput,
 } from "../contracts/department-repository.ts";
-import type { DepartmentNode } from "../contracts/organization-models.ts";
+import type {
+  DepartmentMovePreview,
+  DepartmentNode,
+} from "../contracts/organization-models.ts";
 import {
   createNeonDepartmentReadRepository,
   mapNeonDepartmentNode,
@@ -15,7 +18,7 @@ type PayloadRow = { payload: unknown };
 
 export type NeonDepartmentWriteRepository = Pick<
   DepartmentRepository,
-  "createNode" | "updateNode" | "setActive"
+  "createNode" | "updateNode" | "setActive" | "previewMove" | "moveNode"
 >;
 
 export function createNeonDepartmentWriteRepository(
@@ -84,6 +87,39 @@ export function createNeonDepartmentWriteRepository(
         isActive: active,
       });
     },
+
+    async previewMove(id, newParentId) {
+      const result = await database.query<PayloadRow>(
+        `
+          select public.preview_neon_organization_department_move(
+            $1::text,
+            $2::uuid,
+            $3::uuid
+          ) as payload
+        `,
+        [trustedHostname, id, newParentId],
+      );
+      return movePreview(result.rows[0]?.payload);
+    },
+
+    async moveNode(id, newParentId, expectedVersion) {
+      const result = await database.query<PayloadRow>(
+        `
+          select public.move_neon_organization_department(
+            $1::text,
+            $2::uuid,
+            $3::uuid,
+            $4::bigint
+          ) as payload
+        `,
+        [trustedHostname, id, newParentId, expectedVersion],
+      );
+      const node = mutationNode(result.rows[0]?.payload);
+      if (node.id !== id || node.parentId !== newParentId) {
+        invalid("move scope mismatch");
+      }
+      return node;
+    },
   };
 }
 
@@ -122,6 +158,43 @@ async function updateNode(
 function mutationNode(payload: unknown) {
   if (payload === undefined) invalid("missing mutation payload");
   return mapNeonDepartmentNode(payload);
+}
+
+function movePreview(payload: unknown): DepartmentMovePreview {
+  const value = object(payload, "move preview");
+  return {
+    currentPath: text(value.current_path, "current_path"),
+    proposedPath: text(value.proposed_path, "proposed_path"),
+    childDepartmentsAffected: nonNegativeInteger(
+      value.child_departments_affected,
+      "child_departments_affected",
+    ),
+    syntheticEmployeeImpact: nonNegativeInteger(
+      value.synthetic_employee_impact,
+      "synthetic_employee_impact",
+    ),
+    aliasesAffected: nonNegativeInteger(value.aliases_affected, "aliases_affected"),
+    operationalUnitsAffected: nonNegativeInteger(
+      value.operational_units_affected,
+      "operational_units_affected",
+    ),
+  };
+}
+
+function object(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) invalid(label);
+  return value as Record<string, unknown>;
+}
+
+function text(value: unknown, label: string): string {
+  if (typeof value !== "string") invalid(label);
+  return value;
+}
+
+function nonNegativeInteger(value: unknown, label: string): number {
+  const number = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(number) || number < 0) invalid(label);
+  return number;
 }
 
 function invalid(detail: string): never {
