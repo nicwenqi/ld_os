@@ -1,8 +1,9 @@
 # Neon migrations
 
 This directory contains the reviewed Neon migration units for Hotel L&D OS.
-E1 Authorization Foundation and E2 People read-only were applied only to the
-isolated development child branch on 2026-08-04:
+E1 Authorization Foundation and E2 People read-only were applied on
+2026-08-04, and E3 Organization Department read Phase 1 was applied on
+2026-08-05. Every unit was applied only to the isolated development child:
 
 - project: `flat-brook-43278549`
 - branch: `br-aged-river-az1gke14`
@@ -21,32 +22,32 @@ directory may be run against either identifier.
 | `202608040001_e1_actor_context.sql` | Private transaction-local actor readers and assertion | `27e75682e629f0b86e06e127bc295b6bb5d130074b8a9657b2b5246cc188a3d1` |
 | `202608040002_e1_auth_uid_compatibility.sql` | Guarded `auth.uid()` bridge with dependency-drift assertions | `e3d22e956e0b718c6917139a03db132d8ed0e552b00ed25955bf8d4e8766797f` |
 | `202608040003_e2_people_readonly.sql` | Live property/role/department authorization, forced-RLS policies, and narrow People read entry points | `bc23eb919c30d2eae98faa7c1f0b05ad6501442890238de4253c3297de1a84f7` |
+| `202608040004_e3_organization_department_read.sql` | Narrow Organization Department read entry points; no write path | `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d` |
 
 Each unit is independently preflighted and transaction-wrapped. A failed
 preflight aborts the whole unit. Checksums identify the exact revisions that
 were reviewed and applied; changing a file requires a new review and a new
 execution decision.
 
-## Not applied / pending units
+## E3 Organization Phase 1 status
 
-| Unit | Purpose | SHA-256 | Status |
-| --- | --- | --- | --- |
-| `202608040004_e3_organization_department_read.sql` | Narrow Organization Department read entry points; no write path | `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d` | **IMPLEMENTED / DATABASE VALIDATION BLOCKED** — source reviewed, but not applied to the child database |
+The E3 migration committed atomically on the approved child. Post-commit
+application-role validation proved the exact two entry points, zero raw
+Organization grants, 5/5 forced-RLS tables, unchanged E2 inventory, zero
+runtime ownership, and transaction-context isolation across commit, rollback,
+pool reuse, and concurrency.
 
-E3 is deliberately absent from the Applied units table. The current child
-application catalog probe found zero E3 target functions, so Phase 1 cannot be
-described as complete. Registry activation is **NOT ACTIVATED** and the
-Supabase Organization fallback remains **ACTIVE**. See
+Positive manager and department-scoped identity acceptance remains
+**DEFERRED** because the child account system does not currently contain an
+active identity matching the repository's synthetic fixture IDs. Registry
+activation remains **NOT ACTIVATED** and the Supabase Organization fallback
+remains **ACTIVE**. See
 [`docs/neon/2026-08-04-e3-phase-1-department-read-verification.md`](../docs/neon/2026-08-04-e3-phase-1-department-read-verification.md)
-for the exact evidence, restrictions, and child-only bootstrap-credential
-unblock. E3 requires a `neondb_owner` bootstrap connection only for the
-approved child endpoint/database; the migration then transitions internally to
-the constrained `hotel_ld_migration_owner`. `hotel_ld_application`, a direct
-`hotel_ld_migration_owner` login, Production credentials, and generic owner
-credentials cannot be used. If a local secret key is needed, use
-`NEON_BOOTSTRAP_DATABASE_URL`, never as a replacement for runtime
-`DATABASE_URL`. Phase 2 must not start; its first hardening gate is the
-approved legacy closure-trigger exception before any Neon Department write.
+for the exact evidence and remaining acceptance matrix. The completed migration
+used `NEON_BOOTSTRAP_DATABASE_URL` only as a guarded child bootstrap input; it
+was never substituted for runtime `DATABASE_URL` and was not used after the
+migration committed. Phase 2's first hardening gate remains the approved legacy
+closure-trigger exception before any Neon Department write.
 
 ## Role boundary
 
@@ -113,8 +114,8 @@ actor-context isolation have been verified. Production acceptance awaits the
 future production account set and must not use owner or migration-role
 substitution.
 
-The next business slice may reuse this pattern for Organization, Position, or
-later Import work. Employee writes, import commit, training facts, and broad
+E3 Phase 2 may reuse this pattern only after its separately approved review
+gate. Position, Employee writes, import commit, training facts, and broad
 repository replacement remain out of scope.
 
 See

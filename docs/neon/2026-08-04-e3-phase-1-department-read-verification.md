@@ -1,10 +1,21 @@
 # E3 Phase 1 Department read verification
 
-**Status: IMPLEMENTED / DATABASE VALIDATION BLOCKED**
+**Applied and verified:** 2026-08-05
 
-This is a closeout record for the reviewed E3 Phase 1 source and application
-boundary. It is not evidence that E3 has been applied to Neon or that the
-runtime behavior matrix has passed.
+**Status:**
+
+- Migration/RLS foundation: **COMPLETE**
+- Runtime boundary and Actor Context isolation: **COMPLETE**
+- Positive manager/department identity acceptance: **DEFERRED**
+- Registry activation: **NOT ACTIVATED**
+- Supabase Organization fallback: **ACTIVE**
+
+Positive identity acceptance is deferred for the same reason recorded for E2:
+the child does not currently contain an active manager or department-scoped
+account matching the repository's synthetic fixture identities. The account
+system will be reinitialized before production deployment. Owner credentials,
+`SET ROLE`, or fabricated runtime grants were not used to manufacture a
+positive result.
 
 ## Scope and safety boundary
 
@@ -12,101 +23,140 @@ runtime behavior matrix has passed.
   `br-aged-river-az1gke14`, endpoint `ep-sparkling-shape-az9gxtuh`, database
   `neondb`.
 - Production deny-list: branch `br-twilight-leaf-azmowo1k`, endpoint
-  `ep-wild-wave-azjmgdif`. Production was not connected to or modified.
-- The runtime URL was parsed locally only inside a fail-closed sanitized guard;
-  it was never printed or exposed. A real pooled `hotel_ld_application`
-  connection was made only to the approved child for a read-only `pg_catalog`
-  probe that emitted booleans and counts. No business table or payload was
-  read, and no direct `hotel_ld_migration_owner` login, `neondb_owner`
-  bootstrap connection, migration, runtime DDL, or `SET ROLE` was attempted.
-- `.env.local` contains only the runtime `DATABASE_URL`; it provides no
-  independent child `neondb_owner` bootstrap connection for the approved
-  endpoint and database. The guarded runtime value was never printed or
-  exposed. The runtime credential cannot apply E3, and a direct
-  `hotel_ld_migration_owner` login also fails the exact bootstrap-identity
-  preflight.
+  `ep-wild-wave-azjmgdif`.
+- Before migration, both URLs passed local fail-closed guards without printing
+  connection material. `NEON_BOOTSTRAP_DATABASE_URL` was direct and used
+  `neondb_owner`; `DATABASE_URL` was pooled and used
+  `hotel_ld_application`. Both mapped to the approved child and neither
+  matched Production.
+- The bootstrap database preflight independently returned the exact database,
+  `current_user=session_user=neondb_owner`, permission to `SET` the constrained
+  migration owner, zero pre-existing E3 entry points, and the exact Neon branch
+  setting.
+- The bootstrap credential was used only for the reviewed migration
+  transaction. After `COMMIT`, every validation connection read only
+  `DATABASE_URL`; bootstrap was not reused as runtime or written into runtime
+  configuration.
+- Production was not connected to or modified. No connection string, password,
+  user identifier, department name, or row payload was printed.
 
-## Reviewed source identity
+## Applied migration
 
-| Item | Evidence |
+| File | Applied SHA-256 | Outcome |
+| --- | --- | --- |
+| `neon/migrations/202608040004_e3_organization_department_read.sql` | `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d` | Transaction committed atomically |
+
+The migration's own preflight and postflight completed inside the same
+transaction. It created the Phase 1 append-only read-audit boundary, ten
+private Organization authorization helpers, and these two public entry points:
+
+- `public.resolve_neon_organization_property(text)`
+- `public.read_neon_organization_department_tree(text)`
+
+Both public functions are owned by `hotel_ld_migration_owner`, are
+`SECURITY DEFINER`, use `search_path=''`, revoke PUBLIC and unrelated-role
+execution, and grant execution directly only to `hotel_ld_application`.
+
+## Application-role catalog evidence
+
+The post-commit catalog probe used the real pooled
+`hotel_ld_application` credential and emitted only booleans and counts:
+
+| Assertion | Result |
 | --- | --- |
-| Migration | `neon/migrations/202608040004_e3_organization_department_read.sql` |
-| SHA-256 | `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d` |
-| Task 1 source | committed as `f1252a17...`; independently static-reviewed clean |
-| Task 2 boundary | commits `f214e07` and `2c2bbb5`; scratch checks 4/4 and TypeScript passed; review approved |
-| Task 3 API boundary | commits `0e625d4` and `97b091f`; final scratch checks 3/3 and TypeScript passed; task review and scoped final re-review approved |
-| Whole-slice source review | `IMPLEMENTATION APPROVE`; no Critical or Important findings; runtime-drift HTTP taxonomy fix resolved with no new findings |
+| `current_user=session_user=hotel_ld_application` | PASS |
+| Application remains `NOBYPASSRLS` and non-superuser | PASS |
+| Exact single `hotel_ld_people_read` membership with no SET/admin option | PASS (`1`) |
+| Exact entry-point owner/security/search-path catalog | PASS (`2/2`) |
+| Application entry-point execute grants | PASS (`2/2`) |
+| Unexpected entry-point ACLs | PASS (`0`) |
+| Raw Organization table/column grants for application and People group | PASS (`0`) |
+| Organization tables with ENABLE/FORCE RLS | PASS (`5/5`) |
+| Pinned read-inert legacy BYPASSRLS definer trigger | PASS (`1`) |
+| Unchanged E2 People policies | PASS (`17`) |
+| Unchanged E2 People public functions | PASS (`5`) |
+| Objects owned by runtime/permission/readonly roles | PASS (`0`) |
 
-The migration source is reviewed and transaction-wrapped, but no E3
-PostgreSQL parse, apply, post-apply catalog ACL/RLS assertion, entry-point
-behavior, or transaction-isolation matrix has been run against the child
-database in this closeout.
+The approved legacy exception remains only
+`departments_insert_closure` → `app_private.insert_department_closure()`.
+It is not reachable from the Phase 1 read entry points. Converting that edge to
+the constrained write design remains Phase 2's first hardening gate before any
+Neon Department mutation.
 
-## Sanitized runtime and prior read-only catalog evidence
+## Runtime behavior matrix
 
-The guarded local runtime check passed with only these facts before opening the
-child application connection:
+All probes used the real pooled application login. Actor values were installed
+only with transaction-local `set_config(..., true)`. Public payloads were
+validated in memory and never printed.
 
-```text
-endpoint=ep-sparkling-shape-az9gxtuh
-database=neondb
-role=hotel_ld_application
-pooled=true
-production-deny-match=false
-```
+| Behavior | Result |
+| --- | --- |
+| Configured trusted hostname resolves exactly once | PASS |
+| Unknown hostname resolves no property | PASS |
+| Direct Department table read | DENIED (`42501`) |
+| Direct Department insert/update/delete | DENIED (`42501`) |
+| Direct private-helper execution | DENIED (`42501`) |
+| Missing Actor Context | DENIED (`42501`) |
+| Wrong hostname for current context | DENIED (`42501`) |
+| Wrong property for trusted hostname | DENIED (`42501`) |
+| Unknown/unauthorized actor | DENIED (`42501`) |
+| Context absent after COMMIT | PASS |
+| Context absent after ROLLBACK | PASS |
+| Reused pooled connection starts uncontaminated | PASS |
+| Two concurrent actors retain separate context | PASS |
+| Manager tree success against a live development identity | DEFERRED — no matching active account |
+| Department exact/descendant scope and unrelated exclusion | DEFERRED — no matching active scoped account |
 
-The closeout then used the real child `hotel_ld_application` pooled connection
-for a read-only `pg_catalog` probe. It did not read business tables or data and
-returned only these limited results:
+The deferred positive cases are identity-fixture acceptance, not permission
+bypasses. They must be repeated after the account system is initialized and
+before registry activation or production deployment.
 
-| Probe | Result | Meaning |
-| --- | --- | --- |
-| Database identity | `database_ok=true` | The probe used `neondb`. |
-| Runtime identity | `runtime_identity_ok=true` | The application identity check passed. |
-| Runtime constraint | `runtime_role_constrained=true` | The checked runtime role remained constrained. |
-| E3 target functions | `phase1_target_function_count=0` | E3 entry points are absent: the migration has **not** been applied. |
-| Organization forced RLS | `organization_force_rls_count=5` | The E2 tables `departments`, `department_closure`, `department_aliases`, `operational_units`, and `operational_unit_aliases` retain forced RLS. This does not validate E3. |
+## Application and browser boundary
 
-The approved legacy exception remains the exact
-`departments_insert_closure` → `app_private.insert_department_closure()`
-`SECURITY DEFINER` / BYPASSRLS trigger edge. It is a Phase 1 read-path-inert
-exception, not an approval for Department writes. Its conversion to the
-approved constrained invoker path is Phase 2's first hardening gate, before
-any Neon Department write.
+The server path remains:
 
-## Verification matrix
+1. Supabase Auth verifies the user server-side.
+2. The server resolves the trusted hostname.
+3. `withNeonResolvedActorContext()` opens one application-role transaction.
+4. Actor identity, property, and request ID are installed transaction-locally.
+5. The server-only Organization repository calls the two constrained entry
+   points.
+6. Forced RLS derives live property, role, and department scope.
+7. COMMIT/ROLLBACK clears context before pool reuse.
+8. Browsers use same-origin HTTP APIs and never receive Neon credentials.
 
-| Area | Result | Evidence or limitation |
-| --- | --- | --- |
-| E3 code and static review | PASS | Task 1 source independently reviewed clean; Tasks 2–3 reviews approved; final whole-slice review and scoped re-review returned `IMPLEMENTATION APPROVE`. |
-| Application regressions | PASS | Fresh post-fix `npm test` exited 0: 201 tests passed, 0 failed; its build and rendered HTML test also passed (1/1). |
-| Separate production build | PASS | Fresh `npm run build` exited 0. The route table included `/api/organization/departments`, `/api/organization/departments/:id`, `/api/organization/departments/:id/ancestors`, and `/api/organization/departments/:id/descendants`. |
-| Browser asset boundary | PASS | `rg` of `dist/client` for `DATABASE_URL`, `NEON_ENDPOINT_ID`, `pg-pool`, `app.actor_`, `resolve_neon_organization_property`, and `read_neon_organization_department_tree` returned exit 1 with no output (zero matches). |
-| Child migration PostgreSQL parse and apply | BLOCKED | No child-only `neondb_owner` bootstrap connection for the approved endpoint/database is available. |
-| E3 catalog, grants, ownership, ACL, RLS, entry-point owner/`SECURITY DEFINER`/`search_path`, legacy-trigger, and E2-inventory assertions | BLOCKED | E3 is absent (`phase1_target_function_count=0`); no post-apply catalog matrix exists. |
-| E3 authorization and read behavior | BLOCKED | Missing/wrong context, authorization, tree scope, descendant flag, exclusion, rollback/commit/reuse, and concurrent-actor behavior remain unverified. |
-| Production safety | PASS | The deny-listed production branch and endpoint were neither connected to nor modified. |
-| Business data handling | PASS | This closeout read no business payload. |
+No Organization registry switch was made. The existing Supabase Organization
+repository remains the active fallback until the approved activation gate is
+completed. Position, Import, Employee write, Supabase Auth, Supabase Storage,
+and the Import inspect actor-client RPC contract remain unchanged.
 
-## Activation and next gate
+## Regression and bundle evidence
 
-Registry activation: **NOT ACTIVATED**.
+- The E3 static migration contract passed `1/1`, and the applied file's fresh
+  SHA-256 remained
+  `a7cc39522062fb313d34417ea1754e50639454bffc9693744412014e87f3da5d`.
+- `npm test` passed `201/201`, with `0` failures; its nested production build
+  and rendered HTML test also passed.
+- A separate `npm run build` passed and emitted all four Department read API
+  routes.
+- The final `dist/client` scan found zero instances of runtime/bootstrap
+  database variables, Neon endpoint markers, PostgreSQL pool markers, Actor
+  Context settings, or E3 SQL entry-point names.
+- `app/api/import/inspect/route.ts` still calls
+  `actorClient.rpc("stage_employee_import")`; the Import authorization and mock
+  contract were not changed.
 
-Supabase Organization fallback: **ACTIVE**.
+## Remaining acceptance gate
 
-Phase 1 Department read: **COMPLETE only if migration and runtime matrix passed.**
-Current status is **IMPLEMENTED / DATABASE VALIDATION BLOCKED**. Phase 2 must
-not start from this record.
+Before activation, provision or initialize development identities through the
+normal Supabase Auth/account workflow and rerun:
 
-The sole unblock is a child-only `neondb_owner` bootstrap connection for the
-approved endpoint `ep-sparkling-shape-az9gxtuh` and database `neondb`. If a
-local secret key is needed, name it `NEON_BOOTSTRAP_DATABASE_URL`; it must not
-replace the runtime `DATABASE_URL`. The migration's exact preflight requires
-both `current_user` and `session_user` to be `neondb_owner`; it then verifies
-the required `SET ROLE` capability and transitions internally to the
-constrained `hotel_ld_migration_owner` as designed. The runtime
-`hotel_ld_application` login cannot apply E3, and a direct
-`hotel_ld_migration_owner` login fails that bootstrap-identity preflight.
-Production and generic owner credentials are forbidden. After a safe sanitized
-identity preflight, apply the reviewed migration and rerun the complete catalog
-and behavior matrix without printing connection material or business payloads.
+- manager property-scoped Department tree success;
+- department exact scope;
+- `include_descendants=true` descendant inclusion;
+- `include_descendants=false` descendant exclusion;
+- unrelated Department exclusion;
+- authenticated HTTP success and refresh behavior.
+
+Do not use `neondb_owner`, `hotel_ld_migration_owner`, raw grants, `SET ROLE`,
+or browser-supplied authorization facts for that acceptance test.
