@@ -31,6 +31,8 @@ const UPDATE_KEYS = new Set([
   "sortOrder",
   "isActive",
 ]);
+const MOVE_PREVIEW_KEYS = new Set(["newParentId"]);
+const MOVE_KEYS = new Set(["newParentId", "expectedVersion"]);
 
 export class DepartmentInputError extends Error {
   constructor(message: string) {
@@ -86,6 +88,36 @@ export function parseUpdateDepartmentInput(
     nameEn: optionalName(body.nameEn, "部门英文名称"),
     sortOrder: integer(body.sortOrder, -1_000_000, 1_000_000, "部门排序值"),
     isActive: body.isActive,
+  };
+}
+
+export function parseMovePreviewDepartmentInput(
+  id: string,
+  value: unknown,
+): { id: string; newParentId: string | null } {
+  const body = record(value, "部门移动预览请求格式无效");
+  assertKeys(body, MOVE_PREVIEW_KEYS, "部门移动预览请求包含不支持的字段");
+  return {
+    id: uuid(id, "部门记录标识无效"),
+    newParentId: nullableUuid(body.newParentId, "目标上级部门标识无效"),
+  };
+}
+
+export function parseMoveDepartmentInput(
+  id: string,
+  value: unknown,
+): { id: string; newParentId: string | null; expectedVersion: number } {
+  const body = record(value, "部门移动请求格式无效");
+  assertKeys(body, MOVE_KEYS, "部门移动请求包含不支持的字段");
+  return {
+    id: uuid(id, "部门记录标识无效"),
+    newParentId: nullableUuid(body.newParentId, "目标上级部门标识无效"),
+    expectedVersion: integer(
+      body.expectedVersion,
+      1,
+      Number.MAX_SAFE_INTEGER,
+      "部门版本",
+    ),
   };
 }
 

@@ -48,6 +48,14 @@ export function mapOrganizationDatabaseError(
     return { status: 422, message: "请先停用或调整该部门的有效运营单元" };
   }
   if (
+    code === "P5405" ||
+    code === "P5406" ||
+    code === "P5407" ||
+    code === "P5408"
+  ) {
+    return { status: 422, message: "部门层级移动不符合业务规则" };
+  }
+  if (
     code === "P2006" ||
     code === "23514" ||
     code === "23502"
