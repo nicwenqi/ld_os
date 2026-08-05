@@ -1,5 +1,5 @@
 export type AppEnvironmentName = "local" | "preview" | "production";
-export type AppDataMode = "mock" | "hybrid" | "supabase";
+export type AppDataMode = "mock" | "hybrid" | "supabase" | "neon";
 
 export type AppEnvironment = {
   appEnv: AppEnvironmentName;
@@ -14,7 +14,7 @@ export type AppEnvironment = {
 type EnvironmentInput = Record<string, string | undefined>;
 
 const appEnvironments = new Set<AppEnvironmentName>(["local", "preview", "production"]);
-const dataModes = new Set<AppDataMode>(["mock", "hybrid", "supabase"]);
+const dataModes = new Set<AppDataMode>(["mock", "hybrid", "supabase", "neon"]);
 
 export function assertProductionDataBoundary(
   appEnv: AppEnvironmentName,
@@ -36,7 +36,7 @@ export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironment
   const appEnv = (input.APP_ENV || inferredEnvironment(input.VERCEL_ENV)) as AppEnvironmentName;
   const dataMode = (input.APP_DATA_MODE || "mock") as AppDataMode;
   if (!appEnvironments.has(appEnv)) throw new Error("APP_ENV must be local, preview, or production");
-  if (!dataModes.has(dataMode)) throw new Error("APP_DATA_MODE must be mock, hybrid, or supabase");
+  if (!dataModes.has(dataMode)) throw new Error("APP_DATA_MODE must be mock, hybrid, supabase, or neon");
   if (input.VERCEL_ENV === "production" && appEnv !== "production") {
     throw new Error("Vercel Production must run with APP_ENV=production");
   }
