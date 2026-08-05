@@ -24,7 +24,8 @@ export function mapOrganizationDatabaseError(
   if (
     code === "P2000" ||
     message === "NEON_ORGANIZATION_DEPARTMENT_NOT_FOUND" ||
-    message === "NEON_ORGANIZATION_ALIAS_NOT_FOUND"
+    message === "NEON_ORGANIZATION_ALIAS_NOT_FOUND" ||
+    message === "NEON_ORGANIZATION_OPERATIONAL_UNIT_NOT_FOUND"
   ) {
     return { status: 404, message: "所请求的组织架构记录不存在" };
   }

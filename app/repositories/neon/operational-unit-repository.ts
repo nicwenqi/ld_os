@@ -1,0 +1,18 @@
+import "server-only";
+import type { NeonQueryable } from "../../lib/neon/actor-context.ts";
+import type { CreateOperationalUnitInput, DepartmentRepository, SaveOperationalUnitInput } from "../contracts/department-repository.ts";
+import type { OperationalUnit, OperationalUnitType } from "../contracts/organization-models.ts";
+
+type Row = { payload: unknown };
+const TYPES = new Set<OperationalUnitType>(["venue","outlet","kitchen","restaurant","recreation","other"]);
+export type NeonOperationalUnitRepository = Pick<DepartmentRepository,"listOperationalUnits"|"createOperationalUnit"|"saveOperationalUnit">;
+
+export function createNeonOperationalUnitRepository(database: NeonQueryable, hostname: string): NeonOperationalUnitRepository {
+  return {
+    async listOperationalUnits(_propertyId) { const result=await database.query<Row>("select public.read_neon_organization_operational_units($1::text) as payload",[hostname]); const payload=object(result.rows[0]?.payload); if(!Array.isArray(payload.rows)) invalid("rows"); return payload.rows.map(unit); },
+    async createOperationalUnit(input) { const result=await database.query<Row>(`select public.create_neon_organization_operational_unit($1::text,$2::uuid,$3::uuid,$4::uuid,$5::uuid,$6::text,$7::text,$8::text,$9::text,$10::integer,$11::boolean) as payload`,[hostname,input.tenantId,input.propertyId,input.departmentId,input.parentOperationalUnitId,input.unitType,input.code,input.nameZh,input.nameEn,input.sortOrder,true]); const value=unit(result.rows[0]?.payload); if(value.tenantId!==input.tenantId||value.propertyId!==input.propertyId) invalid("create scope"); return value; },
+    async saveOperationalUnit(input) { if(!input.id||input.expectedVersion===undefined) throw new Error("NEON_ORGANIZATION_OPERATIONAL_UNIT_VERSION_REQUIRED"); const result=await database.query<Row>(`select public.update_neon_organization_operational_unit($1::text,$2::uuid,$3::bigint,$4::uuid,$5::uuid,$6::text,$7::text,$8::text,$9::text,$10::integer,$11::boolean) as payload`,[hostname,input.id,input.expectedVersion,input.departmentId,input.parentOperationalUnitId,input.unitType,input.code,input.nameZh,input.nameEn,input.sortOrder,input.isActive]); const value=unit(result.rows[0]?.payload); if(value.id!==input.id) invalid("update id"); return value; },
+  };
+}
+function unit(value: unknown): OperationalUnit { const row=object(value); const unitType=text(row.unit_type,"unit_type") as OperationalUnitType; if(!TYPES.has(unitType)) invalid("unit_type"); return { id:text(row.id,"id"),tenantId:text(row.tenant_id,"tenant_id"),propertyId:text(row.property_id,"property_id"),departmentId:text(row.department_id,"department_id"),parentOperationalUnitId:nullable(row.parent_operational_unit_id),unitType,code:nullable(row.code),nameZh:text(row.name_zh,"name_zh"),nameEn:nullable(row.name_en),sortOrder:int(row.sort_order,"sort_order"),isActive:bool(row.is_active,"is_active"),version:int(row.version,"version") }; }
+function object(value: unknown): Record<string,unknown>{if(!value||typeof value!=="object"||Array.isArray(value))invalid("payload");return value as Record<string,unknown>;} function text(value:unknown,label:string){if(typeof value!=="string")invalid(label);return value;} function nullable(value:unknown){return value===null?null:typeof value==="string"?value:invalid("nullable");} function int(value:unknown,label:string){const n=typeof value==="number"?value:Number(value);if(!Number.isSafeInteger(n)||n<0)invalid(label);return n;} function bool(value:unknown,label:string){if(typeof value!=="boolean")invalid(label);return value;} function invalid(detail:string):never{throw new Error(`NEON_ORGANIZATION_OPERATIONAL_UNIT_PAYLOAD_INVALID:${detail}`);}
