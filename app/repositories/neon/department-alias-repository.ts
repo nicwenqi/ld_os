@@ -28,8 +28,59 @@ export function createNeonDepartmentAliasRepository(
     },
 
     async approveMapping(input) {
-      const action = supportedAction(input);
-      const targetDepartmentId = targetFor(action, input.targetDepartmentId);
+      if (isCreatedDepartment(input)) {
+        const draft = input.createDepartment;
+        validateCreatedParent(input.resolutionType, draft.parentId);
+        const result = await database.query<PayloadRow>(
+          `
+            select public.create_neon_organization_department_from_alias(
+              $1::text, $2::uuid, $3::text, $4::uuid, $5::text,
+              $6::text, $7::text, $8::text, $9::integer
+            ) as payload
+          `,
+          [
+            trustedHostname,
+            input.aliasId,
+            input.resolutionType,
+            draft.parentId,
+            draft.nodeType,
+            draft.code,
+            draft.nameZh,
+            draft.nameEn,
+            draft.sortOrder,
+          ],
+        );
+        return alias(result.rows[0]?.payload);
+      }
+
+      if (input.action === "merge") {
+        const targetDepartmentId = exactTarget(input.targetDepartmentId, input.operationalUnitId, input.createDepartment);
+        if (input.resolutionType !== undefined && input.resolutionType !== "merged") {
+          invalidTarget();
+        }
+        const result = await database.query<PayloadRow>(
+          `select public.merge_neon_organization_department_alias(
+            $1::text, $2::uuid, $3::uuid
+          ) as payload`,
+          [trustedHostname, input.aliasId, targetDepartmentId],
+        );
+        return alias(result.rows[0]?.payload);
+      }
+
+      if (input.action === "operational_unit") {
+        const operationalUnitId = exactTarget(input.operationalUnitId, input.targetDepartmentId, input.createDepartment);
+        if (input.resolutionType !== undefined) invalidTarget();
+        const result = await database.query<PayloadRow>(
+          `select public.resolve_neon_organization_department_alias_to_operational_unit(
+            $1::text, $2::uuid, $3::uuid
+          ) as payload`,
+          [trustedHostname, input.aliasId, operationalUnitId],
+        );
+        return alias(result.rows[0]?.payload);
+      }
+
+      const action = phase4aAction(input);
+      const targetDepartmentId = phase4aTarget(action, input);
       const result = await database.query<PayloadRow>(
         `
           select public.resolve_neon_organization_department_alias(
@@ -43,16 +94,70 @@ export function createNeonDepartmentAliasRepository(
   };
 }
 
-function supportedAction(input: ApproveDepartmentMappingInput) {
+function isCreatedDepartment(
+  input: ApproveDepartmentMappingInput,
+): input is ApproveDepartmentMappingInput & {
+  action: "department";
+  resolutionType: "created_top_level" | "created_child";
+  createDepartment: NonNullable<ApproveDepartmentMappingInput["createDepartment"]>;
+} {
+  const created = input.resolutionType === "created_top_level" || input.resolutionType === "created_child";
+  if (!created) return false;
+  if (
+    input.action !== "department" ||
+    !input.createDepartment ||
+    input.targetDepartmentId !== undefined ||
+    input.operationalUnitId !== undefined
+  ) {
+    invalidTarget();
+  }
+  return true;
+}
+
+function validateCreatedParent(
+  resolutionType: "created_top_level" | "created_child",
+  parentId: string | null,
+) {
+  if (
+    (resolutionType === "created_top_level" && parentId !== null) ||
+    (resolutionType === "created_child" && parentId === null)
+  ) {
+    invalidTarget();
+  }
+}
+
+function phase4aAction(input: ApproveDepartmentMappingInput) {
   if (input.action === "department" || input.action === "ignore" || input.action === "defer") {
     return input.action;
   }
   throw new Error("NEON_ORGANIZATION_ALIAS_ACTION_UNSUPPORTED");
 }
 
-function targetFor(action: "department" | "ignore" | "defer", target: string | undefined) {
-  if (action === "department" && target) return target;
-  if (action !== "department" && !target) return null;
+function phase4aTarget(
+  action: "department" | "ignore" | "defer",
+  input: ApproveDepartmentMappingInput,
+) {
+  if (input.operationalUnitId !== undefined || input.createDepartment !== undefined) invalidTarget();
+  if (action === "department" && input.targetDepartmentId &&
+      (input.resolutionType === undefined || input.resolutionType === "mapped")) {
+    return input.targetDepartmentId;
+  }
+  if (action !== "department" && input.targetDepartmentId === undefined && input.resolutionType === undefined) {
+    return null;
+  }
+  return invalidTarget();
+}
+
+function exactTarget(
+  target: string | undefined,
+  otherTarget: string | undefined,
+  draft: ApproveDepartmentMappingInput["createDepartment"],
+) {
+  if (target && otherTarget === undefined && draft === undefined) return target;
+  return invalidTarget();
+}
+
+function invalidTarget(): never {
   throw new Error("NEON_ORGANIZATION_ALIAS_TARGET_INVALID");
 }
 
@@ -77,7 +182,7 @@ function alias(value: unknown): DepartmentAlias {
     confidence: integer(row.confidence, "confidence"),
     suggestionReason: text(row.suggestion_reason, "suggestion_reason"),
     targetDepartmentId: nullableText(row.target_department_id),
-    operationalUnitId: null,
+    operationalUnitId: nullableText(row.operational_unit_id),
     resolutionType: resolution(row.resolution_type), isActive: boolean(row.is_active, "is_active"),
   };
 }
