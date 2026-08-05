@@ -4,6 +4,7 @@ import type { DepartmentRepository } from "../repositories/contracts/department-
 import type { PositionRepository } from "../repositories/contracts/position-repository.ts";
 import type { DepartmentAlias, DepartmentNode, OfficialPosition, PositionFamily, PositionSourceLabel } from "../repositories/contracts/organization-models.ts";
 import { filterMappingItems,getMappingSummary,selectHighConfidenceMappings,type MappingFilters,type MappingItem,type MappingItemStatus } from "../services/mapping-workflow.ts";
+import { createdDepartmentAliasResolution } from "./department-alias-resolution.ts";
 
 type Props={tenantId:string;propertyId:string;aliases:DepartmentAlias[];positionLabels:PositionSourceLabel[];tree:DepartmentNode[];positions:OfficialPosition[];families:PositionFamily[];departmentRepository:DepartmentRepository;positionRepository:PositionRepository;complete:boolean;blocked:boolean;onAliases:(items:DepartmentAlias[])=>void;onPositions:(items:PositionSourceLabel[])=>void;onTree:(items:DepartmentNode[])=>void;onOfficialPositions:(items:OfficialPosition[])=>void;onFamilies:(items:PositionFamily[])=>void;onConfirm:()=>Promise<void>;notify:(message:string)=>void};
 type DialogAction="department"|"create-root"|"create-child"|"operational-unit"|"merge"|"position"|"create-position"|"family"|"external";
@@ -17,10 +18,15 @@ export function MappingSetupStep(props:Props){
   const openDialog=(item:MappingItem,action:DialogAction)=>{setDialog({item,action});setTargetId("");setParentId("");setNameZh(item.sourceLabel);setNameEn(item.sourceLabel);setCode(slug(item.sourceLabel));setFamilyId("");setError("")};
   const confirmDialog=async()=>{if(!dialog)return;setBusy(true);setError("");try{const item=dialog.item;
     if(item.type==="department"){
-      let departmentId=targetId;let resolution:"mapped"|"created_top_level"|"created_child"|"merged"="mapped";
-      if(dialog.action==="create-root"||dialog.action==="create-child"){if(!nameZh.trim())throw new Error("请输入正式部门中文名称");const created=await props.departmentRepository.createNode({tenantId:props.tenantId,propertyId:props.propertyId,parentId:dialog.action==="create-child"?(parentId||null):null,nodeType:"department",code:code||slug(nameEn||nameZh),nameZh,nameEn,sortOrder:(tree.length+1)*10});departmentId=created.id;resolution=dialog.action==="create-root"?"created_top_level":"created_child";props.onTree(await props.departmentRepository.listTree(props.propertyId));}
-      if(dialog.action==="operational-unit"){if(!targetId)throw new Error("请选择运营单元所属的正式部门");const unit=await props.departmentRepository.createOperationalUnit({tenantId:props.tenantId,propertyId:props.propertyId,departmentId:targetId,parentOperationalUnitId:null,unitType:"other",code:code||slug(nameEn||nameZh),nameZh:nameZh.trim(),nameEn:nameEn.trim(),sortOrder:10});await props.departmentRepository.approveMapping({aliasId:item.id,action:"operational_unit",operationalUnitId:unit.id});}
-      else{if(!departmentId)throw new Error("请选择正式部门");if(dialog.action==="merge")resolution="merged";await props.departmentRepository.approveMapping({aliasId:item.id,action:dialog.action==="merge"?"merge":"department",targetDepartmentId:departmentId,resolutionType:resolution});}
+      if(dialog.action==="create-root"||dialog.action==="create-child"){
+        if(!nameZh.trim())throw new Error("请输入正式部门中文名称");
+        await props.departmentRepository.approveMapping(createdDepartmentAliasResolution({aliasId:item.id,action:dialog.action,parentId:parentId||null,code:code||slug(nameEn||nameZh),nameZh:nameZh.trim(),nameEn:nameEn.trim(),sortOrder:(tree.length+1)*10}));
+        props.onTree(await props.departmentRepository.listTree(props.propertyId));
+      }else if(dialog.action==="operational-unit"){
+        if(!targetId)throw new Error("请选择运营单元所属的正式部门");const unit=await props.departmentRepository.createOperationalUnit({tenantId:props.tenantId,propertyId:props.propertyId,departmentId:targetId,parentOperationalUnitId:null,unitType:"other",code:code||slug(nameEn||nameZh),nameZh:nameZh.trim(),nameEn:nameEn.trim(),sortOrder:10});await props.departmentRepository.approveMapping({aliasId:item.id,action:"operational_unit",operationalUnitId:unit.id});
+      }else{
+        if(!targetId)throw new Error("请选择正式部门");const resolution=dialog.action==="merge"?"merged":"mapped";await props.departmentRepository.approveMapping({aliasId:item.id,action:dialog.action==="merge"?"merge":"department",targetDepartmentId:targetId,resolutionType:resolution});
+      }
     }else{
       let positionId=targetId;
       if(dialog.action==="create-position"){if(!nameZh.trim()||!parentId)throw new Error("请输入正式职位名称并选择适用部门");const saved=await props.positionRepository.savePosition({tenantId:props.tenantId,propertyId:props.propertyId,positionFamilyId:familyId||null,code:code||slug(nameEn||nameZh),nameZh:nameZh.trim(),nameEn:nameEn.trim()||null,gradeOrBand:null,isActive:true});await props.positionRepository.assignPositionToDepartments(saved.id,[parentId]);positionId=saved.id;props.onOfficialPositions(await props.positionRepository.listPositions(props.propertyId));}

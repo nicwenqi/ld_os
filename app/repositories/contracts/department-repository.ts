@@ -8,7 +8,18 @@ export type SaveOperationalUnitInput = CreateOperationalUnitInput & {
   expectedVersion?: number;
   isActive: boolean;
 };
-export type ApproveDepartmentMappingInput = { aliasId: string; action: "department" | "operational_unit" | "ignore" | "defer" | "merge"; targetDepartmentId?: string; operationalUnitId?: string; resolutionType?: DepartmentResolutionType };
+export type CreateDepartmentFromAliasDraft = Omit<
+  CreateDepartmentInput,
+  "tenantId" | "propertyId"
+>;
+export type ApproveDepartmentMappingInput = {
+  aliasId: string;
+  action: "department" | "operational_unit" | "ignore" | "defer" | "merge";
+  targetDepartmentId?: string;
+  operationalUnitId?: string;
+  resolutionType?: DepartmentResolutionType;
+  createDepartment?: CreateDepartmentFromAliasDraft;
+};
 
 export interface DepartmentRepository {
   listTree(propertyId: string): Promise<DepartmentNode[]>;

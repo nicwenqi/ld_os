@@ -11,12 +11,15 @@ Activation Completion closes the two remaining methods in the existing
 Supabase repository in a non-production environment. It adds no new
 Organization domain capability.
 
-The only added alias actions are:
+The only added alias completion behavior is:
 
 - `merge`, which resolves a Department alias to an existing Department with
   resolution type `merged`;
 - `operational_unit`, which atomically converts an active Department alias into
   an Operational Unit alias.
+- `department` resolutions `created_top_level` and `created_child`, which use a
+  separate entrypoint to create the Department and resolve the alias in one
+  database transaction.
 
 Position, Import, Employee writes, Actor Context, Supabase Auth, Supabase
 Storage, and the Neon runtime-role topology are out of scope.
@@ -39,8 +42,29 @@ Storage, and the Neon runtime-role topology are out of scope.
 
 ## Alias completion database boundary
 
-A forward-only child migration adds two constrained entrypoints. It does not
+A forward-only child migration adds three constrained entrypoints. It does not
 rewrite the Phase 4A migration or broaden the existing resolver.
+
+### Created Department resolution entrypoint
+
+`public.create_neon_organization_department_from_alias(text, uuid, text, uuid,
+text, text, text, text, integer)` accepts the trusted hostname, alias ID,
+resolution type, parent ID, node type, code, Chinese and English names, and sort
+order. It accepts only `created_top_level` or `created_child`.
+
+The entrypoint locks the current-property alias, validates that top-level
+creation has no parent and child creation has an active same-property parent,
+then calls the existing constrained
+`public.create_neon_organization_department(...)` entrypoint. It does not copy
+Department insertion, hierarchy initialization, closure, or Department audit
+logic. The nested entrypoint creates the Department row, depth, path, closure
+rows, and Department audit event in the same transaction. The outer entrypoint
+then resolves the alias to the new Department, appends alias activation audit,
+and returns the authoritative alias payload.
+
+The browser sends a Department creation draft without tenant, property, actor,
+or role values. Tenant/property derive from the locked alias. Failure in any
+creation, hierarchy, alias, or audit step rolls back the complete operation.
 
 ### Merge entrypoint
 
@@ -85,7 +109,7 @@ the alias update, Operational Unit alias insert, and audit insert together.
 
 ### Ownership, RLS, and grants
 
-Both entrypoints are owned by `hotel_ld_migration_owner`, use
+All three entrypoints are owned by `hotel_ld_migration_owner`, use
 `SECURITY DEFINER`, and set `search_path = ''`. `PUBLIC EXECUTE` is revoked and
 only exact `EXECUTE` is granted to `hotel_ld_application`.
 
@@ -96,22 +120,26 @@ authorization helper. No policy is granted directly to the application role.
 
 The migration adds an append-only, forced-RLS
 `app_private.organization_alias_activation_audit_events` relation for
-`merge` and `operational_unit`. Phase 4A audit rows and constraints remain
-unchanged. Audit rows contain request ID, auth user ID, actor account ID,
-tenant/property, alias ID, action, target Department or Operational Unit ID,
-and timestamp. They contain no browser-supplied identity or hostname.
+`merge`, `operational_unit`, `created_top_level`, and `created_child`. Phase 4A
+audit rows and constraints remain unchanged. Audit rows contain request ID,
+auth user ID, actor account ID, tenant/property, alias ID, action, target
+Department or Operational Unit ID, and timestamp. They contain no
+browser-supplied identity or hostname.
 
 ## Server repository and API
 
 `createNeonDepartmentAliasRepository()` keeps its current code path for
 `department`, `ignore`, and `defer`. It dispatches `merge` and
-`operational_unit` to the new exact entrypoints and strictly validates their
-payloads.
+`operational_unit` to the new exact entrypoints. A `department` action with
+`created_top_level` or `created_child` plus a creation draft dispatches to the
+separate atomic entrypoint; ordinary Department mapping remains on Phase 4A.
 
 The existing alias resolution API route expands its allowlist as follows:
 
 - `merge` accepts only `action` and `targetDepartmentId`;
 - `operational_unit` accepts only `action` and `operationalUnitId`;
+- created Department resolutions accept only `action`, `resolutionType`, and a
+  Department creation draft without tenant/property fields;
 - `department`, `ignore`, and `defer` keep the Phase 4A request shapes.
 
 All identity, hostname, property, and role decisions remain in the server
@@ -202,8 +230,8 @@ rollback means selecting the Supabase Organization repository. The new
 entrypoints and audit relation may remain dark because they expose no raw table
 access and are unreachable from the Supabase repository.
 
-If schema rollback is explicitly required on the child branch, revoke the two
-application-role execute grants, drop the two public entrypoints, drop their
-private policies/helpers and the activation audit relation, and revoke the
-newly added migration-owner column grants. Phase 4A objects and records are not
-changed.
+If schema rollback is explicitly required on the child branch, revoke the
+three application-role execute grants, drop the three public entrypoints, drop
+their private policies/helpers and the activation audit relation, and revoke
+the newly added migration-owner column grants. Phase 4A objects and records are
+not changed.
