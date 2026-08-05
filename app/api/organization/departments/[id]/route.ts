@@ -3,7 +3,12 @@ import {
   OrganizationApiError,
   organizationErrorResponse,
   runAuthorizedNeonOrganizationRead,
+  runAuthorizedNeonOrganizationWrite,
 } from "../../../../services/neon-organization-authorization.ts";
+import {
+  DepartmentInputError,
+  parseUpdateDepartmentInput,
+} from "../input.ts";
 
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -33,6 +38,26 @@ export async function GET(
   }
 }
 
+export async function PATCH(
+  request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  const requestId = resolveRequestId(request);
+  try {
+    rejectQueryParameters(request);
+    const id = await canonicalDepartmentId(context);
+    const input = parseUpdateDepartmentInput(id, await requestBody(request));
+    const result = await runAuthorizedNeonOrganizationWrite(
+      request,
+      requestId,
+      repository => repository.updateNode(input),
+    );
+    return Response.json(result.data, { headers: result.headers });
+  } catch (error) {
+    return organizationErrorResponse(inputError(error), requestId);
+  }
+}
+
 async function canonicalDepartmentId(
   context: { params: Promise<{ id: string }> },
 ) {
@@ -47,4 +72,18 @@ function rejectQueryParameters(request: Request) {
   if ([...new URL(request.url).searchParams.keys()].length > 0) {
     throw new OrganizationApiError(400, "部门详情请求不接受查询参数");
   }
+}
+
+async function requestBody(request: Request) {
+  try {
+    return await request.json();
+  } catch {
+    throw new OrganizationApiError(400, "部门更新请求格式无效");
+  }
+}
+
+function inputError(error: unknown) {
+  return error instanceof DepartmentInputError
+    ? new OrganizationApiError(400, error.message)
+    : error;
 }
