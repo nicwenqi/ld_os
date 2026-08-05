@@ -230,8 +230,8 @@ rollback means selecting the Supabase Organization repository. The new
 entrypoints and audit relation may remain dark because they expose no raw table
 access and are unreachable from the Supabase repository.
 
-If schema rollback is explicitly required on the child branch, revoke the two
-application-role execute grants, drop the two public entrypoints, drop their
-private policies/helpers and the activation audit relation, and revoke the
-newly added migration-owner column grants. Phase 4A objects and records are not
-changed.
+If schema rollback is explicitly required on the child branch, revoke the
+three application-role execute grants, drop the three public entrypoints, drop
+their private policies/helpers and the activation audit relation, and revoke
+the newly added migration-owner column grants. Phase 4A objects and records are
+not changed.
