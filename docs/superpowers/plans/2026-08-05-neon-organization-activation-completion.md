@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Complete the existing Department alias contract and rehearse replacing the browser Supabase Organization repository with the server-scoped Neon HTTP boundary in local/preview only.
+**Goal:** Complete the existing Department alias contract, including atomic created-Department resolutions, and rehearse replacing the browser Supabase Organization repository with the server-scoped Neon HTTP boundary in local/preview only.
 
 **Architecture:** Add two narrow Neon alias entrypoints without modifying Phase 4A semantics, route the two new actions through the existing server authorization runner, implement the full browser `DepartmentRepository` over same-origin HTTP, and select it through a hard-gated rehearsal mode. The Supabase repository remains the default and rollback target.
 
@@ -18,6 +18,9 @@
 - Keep `hotel_ld_application` `NOBYPASSRLS`, non-owner, and without raw business-table privileges.
 - Browser code must use HTTP only and must not import `pg` or read `DATABASE_URL`.
 - Existing `department`, `ignore`, and `defer` alias behavior must remain unchanged.
+- `created_top_level` and `created_child` call the existing controlled
+  Department creation entrypoint inside the alias transaction; Department
+  creation and hierarchy logic must not be copied.
 - Registry activation is local/preview-only, requires `APP_DATA_MODE=neon`, and is hard-denied in production.
 - Supabase remains the default repository and the tested fallback.
 
@@ -50,6 +53,8 @@
   - malformed combinations reject before querying;
   - existing `department`, `ignore`, and `defer` still invoke the Phase 4A
     resolver.
+  - `department` with `created_top_level` or `created_child` plus a creation
+    draft invokes `create_neon_organization_department_from_alias`.
 
 - [ ] **Step 2: Write parser behavior tests**
 
@@ -96,7 +101,9 @@
 
 **Interfaces:**
 - Consumes: Phase 4A alias payload helper and actor/manager authorization helpers; Phase 4B Operational Unit table and policies.
-- Produces: `merge_neon_organization_department_alias(text,uuid,uuid)` and `resolve_neon_organization_department_alias_to_operational_unit(text,uuid,uuid)`.
+- Produces: `merge_neon_organization_department_alias(text,uuid,uuid)`,
+  `resolve_neon_organization_department_alias_to_operational_unit(text,uuid,uuid)`,
+  and `create_neon_organization_department_from_alias(text,uuid,text,uuid,text,text,text,text,integer)`.
 
 - [ ] **Step 1: Add child and topology preflight**
 
@@ -137,6 +144,12 @@
 
 - [ ] **Step 6: Lock down function ACLs and postflight**
 
+  Before ACL lockdown, add the atomic created-Department entrypoint. Accept
+  only `created_top_level` and `created_child`, lock the alias, validate parent
+  shape/scope, call `create_neon_organization_department(...)` within the same
+  transaction, resolve the alias, and append activation audit. Do not insert
+  Department or closure rows directly in this function.
+
   Set owner `hotel_ld_migration_owner`, `SECURITY DEFINER`, and empty search
   path. Revoke all execution from `PUBLIC`, Supabase roles, owner/bootstrap,
   readonly, and application before granting exact execution only to
@@ -175,6 +188,9 @@
 - Modify: `app/api/organization/departments/aliases/[id]/resolution/route.ts`
 - Create: `app/repositories/http/department-repository.ts`
 - Reuse: `app/repositories/http/department-read-repository.ts`
+- Modify: `app/repositories/contracts/department-repository.ts`
+- Modify: `app/repositories/supabase/department-repository.ts`
+- Modify: `app/initialize/MappingSetupStep.tsx`
 
 **Interfaces:**
 - Consumes: `ApproveDepartmentMappingInput`, existing Organization API routes.
@@ -183,8 +199,9 @@
 - [ ] **Step 1: Implement the exact alias request parser**
 
   Return literal typed objects for `department`, `ignore`, `defer`, `merge`,
-  and `operational_unit`. Canonicalize UUIDs. Permit only the action-specific
-  target field and reject all unknown or authorization-relevant fields.
+  `operational_unit`, `created_top_level`, and `created_child`. Canonicalize
+  UUIDs. Permit only the action-specific target or Department creation draft
+  and reject all unknown or authorization-relevant fields.
 
 - [ ] **Step 2: Wire the route to the parser**
 
@@ -205,16 +222,24 @@
   Strip compatibility-only tenant/property fields where the API already
   resolves scope, and send no identity or role fields.
 
-- [ ] **Step 4: Run focused GREEN**
+- [ ] **Step 4: Make created mappings one contract call**
+
+  Extend `ApproveDepartmentMappingInput` with an optional Department creation
+  draft. Update `MappingSetupStep` so created top-level/child actions call only
+  `approveMapping` with the draft and then reload the tree. Update the Supabase
+  fallback repository to preserve its previous sequential create-then-resolve
+  behavior inside `approveMapping`; do not add a Supabase migration.
+
+- [ ] **Step 5: Run focused GREEN**
 
   Run the scratch test. Expected: alias, parser, and all HTTP adapter cases pass;
   activation-mode cases remain failing.
 
-- [ ] **Step 5: Run `npm test`**
+- [ ] **Step 6: Run `npm test`**
 
   Expected: 201 tests pass, build passes, rendered HTML test passes.
 
-- [ ] **Step 6: Commit the HTTP boundary**
+- [ ] **Step 7: Commit the HTTP boundary**
 
   Stage only the input module, route, and HTTP repository. Commit as
   `feat: add Neon organization HTTP repository`.
