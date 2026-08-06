@@ -41,9 +41,20 @@ export type OfficialPosition = {
 };
 
 export type PositionResolutionStatus = "mapped" | "family_only" | "external_only" | "ignored" | "deferred";
+export type PositionImpactAvailability<T> =
+  | { state: "available"; value: T }
+  | { state: "unavailable"; reason: "import_source_rows_not_migrated" };
+export type PositionSourceImpact = {
+  sourceLabelId: string;
+  sourceEvidence: { sourceSystem: string; sourceSheet: string; sourceRowCount: number };
+  /** Legacy UI field: source-row evidence, never inferred employee impact. */
+  syntheticEmployeeCount: number;
+  employeeImpact: PositionImpactAvailability<{ employeeCount: number }>;
+  departmentImpact: PositionImpactAvailability<{ departmentNames: string[] }>;
+};
 export type PositionSourceLabel = {
   id: string; propertyId: string; sourceSystem: string; sourceSheet: string; sourceValue: string;
-  normalizedSourceValue: string; syntheticEmployeeCount: number; departmentNames: string[];
+  normalizedSourceValue: string; sourceRowCount: number; syntheticEmployeeCount: number;
   suggestedPositionId: string | null; suggestedFamilyId: string | null; confidence: number;
   suggestionReason: string; targetPositionId: string | null; targetPositionFamilyId: string | null;
   externalRoleCode: string | null; externalRoleName: string | null; resolutionStatus: PositionResolutionStatus;

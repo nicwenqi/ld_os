@@ -15,7 +15,7 @@ export function mapOrganizationDatabaseError(
 
   if (
     code === "42501" &&
-    /^NEON_ORGANIZATION_(?:PROPERTY_CONTEXT_CHANGED|READER_FORBIDDEN|RUNTIME_FORBIDDEN|MANAGER_FORBIDDEN|PROPERTY_FORBIDDEN)$/.test(
+    /^NEON_(?:ORGANIZATION|POSITION)_(?:PROPERTY_CONTEXT_CHANGED|READER_FORBIDDEN|RUNTIME_FORBIDDEN|MANAGER_FORBIDDEN|PROPERTY_FORBIDDEN)$/.test(
       message,
     )
   ) {
@@ -25,7 +25,8 @@ export function mapOrganizationDatabaseError(
     code === "P2000" ||
     message === "NEON_ORGANIZATION_DEPARTMENT_NOT_FOUND" ||
     message === "NEON_ORGANIZATION_ALIAS_NOT_FOUND" ||
-    message === "NEON_ORGANIZATION_OPERATIONAL_UNIT_NOT_FOUND"
+    message === "NEON_ORGANIZATION_OPERATIONAL_UNIT_NOT_FOUND" ||
+    message === "NEON_POSITION_ALIAS_NOT_FOUND"
   ) {
     return { status: 404, message: "所请求的组织架构记录不存在" };
   }

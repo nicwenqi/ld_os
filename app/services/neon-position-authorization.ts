@@ -13,6 +13,10 @@ import {
   type NeonPositionWriteRepository,
 } from "../repositories/neon/position-write-repository.ts";
 import {
+  createNeonPositionMappingRepository,
+  type NeonPositionMappingRepository,
+} from "../repositories/neon/position-mapping-repository.ts";
+import {
   OrganizationApiError,
   organizationResponseHeaders,
 } from "./neon-organization-authorization.ts";
@@ -123,6 +127,49 @@ export async function runAuthorizedNeonPositionWrite<T>(
           createNeonPositionWriteRepository(database, identity.hostname),
           scope,
         );
+      },
+    );
+    return { data, headers };
+  } catch (error) {
+    const mapped = mapOrganizationDatabaseError(error);
+    throw new OrganizationApiError(mapped.status, mapped.message, headers);
+  }
+}
+
+/** Dark E4C mapping boundary. Position registry/UI activation remains separate. */
+export async function runAuthorizedNeonPositionMapping<T>(
+  request: Request,
+  requestId: string,
+  operation: (
+    repository: NeonPositionMappingRepository,
+    propertyId: string,
+  ) => Promise<T>,
+): Promise<{ data: T; headers: Headers }> {
+  const environment = parseAppEnvironment();
+  if (environment.dataMode !== "neon") {
+    throw new OrganizationApiError(503, "Position Neon 数据源尚未启用");
+  }
+  const identity = await resolveRequestAuthIdentity(request);
+  if (!identity) throw new OrganizationApiError(401, "登录状态已失效");
+  const headers = organizationResponseHeaders(requestId);
+  if (identity.refreshed) {
+    for (const value of authCookies(identity.accessToken, identity.refreshToken, environment.appEnv !== "local")) {
+      headers.append("Set-Cookie", value);
+    }
+  }
+  try {
+    let propertyId: string | null = null;
+    const data = await withNeonResolvedActorContext(
+      { authUserId: identity.userId, requestId },
+      async database => {
+        const property = await resolveNeonOrganizationPropertyScope(identity.hostname, database);
+        if (!property) throw new OrganizationApiError(403, "当前账号无权访问此酒店");
+        propertyId = property.propertyId;
+        return property.propertyId;
+      },
+      database => {
+        if (!propertyId) throw new OrganizationApiError(403, "当前账号无权访问此酒店");
+        return operation(createNeonPositionMappingRepository(database, identity.hostname), propertyId);
       },
     );
     return { data, headers };
