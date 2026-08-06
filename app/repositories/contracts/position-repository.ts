@@ -1,4 +1,4 @@
-import type { OfficialPosition, PositionFamily, PositionSourceLabel } from "./organization-models.ts";
+import type { OfficialPosition, PositionFamily, PositionSourceImpact, PositionSourceLabel } from "./organization-models.ts";
 
 export type SavePositionFamilyInput = Omit<PositionFamily, "id" | "version"> & {
   id?: string;
@@ -18,6 +18,6 @@ export interface PositionRepository {
   savePositionWithDepartments(input: SavePositionWithDepartmentsInput): Promise<OfficialPosition>;
   assignPositionToDepartments(positionId: string, departmentIds: string[]): Promise<OfficialPosition>;
   listSourceLabels(propertyId: string): Promise<PositionSourceLabel[]>;
-  previewSourceImpact(sourceLabelId: string): Promise<{ syntheticEmployeeCount: number; departmentNames: string[] }>;
+  previewSourceImpact(sourceLabelId: string): Promise<PositionSourceImpact>;
   approvePositionMapping(input: ApprovePositionMappingInput): Promise<PositionSourceLabel>;
 }
