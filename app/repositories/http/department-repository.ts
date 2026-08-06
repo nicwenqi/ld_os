@@ -22,9 +22,10 @@ export function createHttpDepartmentRepository(): DepartmentRepository {
   return {
     ...read,
     createNode(input) {
+      const { tenantId: _tenantId, propertyId: _propertyId, ...body } = input;
       return request<DepartmentNode>(
         "/api/organization/departments",
-        json("POST", input),
+        json("POST", body),
       );
     },
     updateNode,
@@ -70,7 +71,12 @@ export function createHttpDepartmentRepository(): DepartmentRepository {
       if (!input.id || input.expectedVersion === undefined) {
         throw new Error("运营单元更新需要记录标识和版本");
       }
-      const { id, ...body } = input;
+      const {
+        id,
+        tenantId: _tenantId,
+        propertyId: _propertyId,
+        ...body
+      } = input;
       return request<OperationalUnit>(
         `/api/organization/operational-units/${encodeURIComponent(id)}`,
         json("PATCH", body),
@@ -83,7 +89,7 @@ export function createHttpDepartmentRepository(): DepartmentRepository {
 }
 
 function createOperationalUnit(input: CreateOperationalUnitInput) {
-  const { propertyId: _propertyId, ...body } = input;
+  const { tenantId: _tenantId, propertyId: _propertyId, ...body } = input;
   return request<OperationalUnit>(
     "/api/organization/operational-units",
     json("POST", body),

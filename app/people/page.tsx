@@ -19,7 +19,8 @@ import type {
   EmployeeRecord,
 } from "../repositories/contracts/employee-repository";
 import { createLatestRequestGate } from "../lib/latest-request-gate";
-import { createRepositoryRegistry } from "../repositories/registry";
+import { loadRuntimeDomainRegistry } from "../repositories/runtime/load-domain-registry";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry";
 import { createEmployeeService } from "../services/employee-service";
 import {
   loadManagerPeopleFacets,
@@ -46,13 +47,13 @@ type ManagerFilters = Pick<
 type SelectFilter = Exclude<keyof ManagerFilters, "query">;
 
 function Page() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
-  const employeeService = useMemo(
-    () => createEmployeeService(registry.employee),
-    [registry.employee],
-  );
   const profileRequestGate = useMemo(() => createLatestRequestGate(), []);
   const { session } = useAuthSession();
+  const [registry, setRegistry] = useState<RuntimeDomainRegistry | null>(null);
+  const employeeService = useMemo(
+    () => registry ? createEmployeeService(registry.employee) : null,
+    [registry],
+  );
   const [directory, setDirectory] = useState<EmployeeDirectoryPage | null>(null);
   const [facetOptions, setFacetOptions] = useState<ManagerPeopleFacets>(
     EMPTY_MANAGER_PEOPLE_FACETS,
@@ -75,6 +76,19 @@ function Page() {
   );
 
   useEffect(() => {
+    let active = true;
+    void loadRuntimeDomainRegistry()
+      .then(next => { if (active) setRegistry(next); })
+      .catch(reason => {
+        if (!active) return;
+        setLoadState("error");
+        setLoadError(reason instanceof Error ? reason.message : "运行时 People 来源不可用");
+      });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!employeeService) return;
     let active = true;
     void (async () => {
       await Promise.resolve();
@@ -114,6 +128,7 @@ function Page() {
   }, [attempt, employeeService, filters, offset, session.propertyId]);
 
   useEffect(() => {
+    if (!registry) return;
     let active = true;
     void (async () => {
       await Promise.resolve();
@@ -154,6 +169,11 @@ function Page() {
   const refreshProfile = useCallback(
     async (employeeId: string) => {
       const requestToken = profileRequestGate.begin();
+      if (!employeeService) {
+        setProfileState("error");
+        setProfileError("运行时 People 来源尚未连接");
+        return;
+      }
       const propertyId = session.propertyId;
       if (!propertyId) {
         setProfileState("error");
@@ -227,7 +247,7 @@ function Page() {
 
   const rows = directory?.rows ?? [];
   const sourceState =
-    registry.environment.dataMode === "mock" ? ("demo" as const) : ("real" as const);
+    registry?.environment.dataMode === "mock" ? ("demo" as const) : ("real" as const);
   const activeOnPage = rows.filter(
     employee => employee.employmentStatus === "active",
   ).length;

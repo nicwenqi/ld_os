@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AdministrationSaveState,
   savedTime,
@@ -18,7 +18,11 @@ import type {
   OperationalUnit,
   OperationalUnitType,
 } from "../repositories/contracts/organization-models.ts";
-import { createRepositoryRegistry } from "../repositories/registry.ts";
+import {
+  loadRuntimeDomainRegistry,
+  usesFallbackDomainRegistry,
+} from "../repositories/runtime/load-domain-registry.ts";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import { useAuthSession } from "../state/auth-session";
 
 type DepartmentDraft = {
@@ -47,8 +51,8 @@ type UnitDraft = {
 };
 
 function OrganizationAdministration() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
   const { session } = useAuthSession();
+  const [registry, setRegistry] = useState<RuntimeDomainRegistry | null>(null);
   const [propertyId, setPropertyId] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [tree, setTree] = useState<DepartmentNode[]>([]);
@@ -67,21 +71,36 @@ function OrganizationAdministration() {
   const dirty = hasUnsavedChanges;
   useUnsavedChangesWarning(dirty, "组织资料有未保存更改");
 
-  const sourceState = registry.environment.dataMode === "mock" ? "demo" : "real";
+  const sourceState = registry?.environment.dataMode === "mock" ? "demo" : "real";
+
+  useEffect(() => {
+    let active = true;
+    void loadRuntimeDomainRegistry()
+      .then(next => { if (active) setRegistry(next); })
+      .catch(error => {
+        if (!active) return;
+        setPhase("failed");
+        setStatusMessage(message(error));
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const reload = useCallback(async (preferred?: { departmentId?: string; unitId?: string }) => {
-    const nextPropertyId =
-      registry.environment.dataMode === "mock"
-        ? (await registry.property.resolveContext("training-demo.example.test"))?.propertyId
-        : session.propertyId;
+    if (!registry) throw new Error("运行时组织来源尚未连接");
+    const nextPropertyId = session.propertyId;
     if (!nextPropertyId) throw new Error("当前账号尚未取得酒店组织上下文");
     const [property, nextTree, nextUnits] = await Promise.all([
-      registry.property.getProperty(nextPropertyId),
+      usesFallbackDomainRegistry(registry) && registry.property
+        ? registry.property.getProperty(nextPropertyId)
+        : Promise.resolve(null),
       registry.department.listTree(nextPropertyId),
       registry.department.listOperationalUnits(nextPropertyId),
     ]);
     setPropertyId(nextPropertyId);
-    setTenantId(property.identity.tenantId);
+    setTenantId(
+      property?.identity.tenantId ?? nextTree[0]?.tenantId ?? nextUnits[0]?.tenantId ?? "",
+    );
     setTree(nextTree);
     setUnits(nextUnits);
     setSelectedDepartmentId(current => {
@@ -95,6 +114,7 @@ function OrganizationAdministration() {
   }, [registry, session.propertyId]);
 
   useEffect(() => {
+    if (!registry) return;
     let active = true;
     queueMicrotask(() => {
       void reload()
@@ -111,7 +131,7 @@ function OrganizationAdministration() {
     return () => {
       active = false;
     };
-  }, [reload]);
+  }, [registry, reload]);
 
   const selectedDepartment =
     tree.find(item => item.id === selectedDepartmentId) ?? null;
@@ -191,7 +211,7 @@ function OrganizationAdministration() {
   };
 
   const saveDepartment = async () => {
-    if (!departmentDraft) return;
+    if (!departmentDraft || !registry) return;
     try {
       validateDepartment(departmentDraft);
       setPhase("saving");
@@ -226,7 +246,7 @@ function OrganizationAdministration() {
   };
 
   const saveUnit = async () => {
-    if (!unitDraft) return;
+    if (!unitDraft || !registry) return;
     try {
       validateUnit(unitDraft);
       setPhase("saving");
@@ -259,7 +279,7 @@ function OrganizationAdministration() {
   };
 
   const previewMove = async () => {
-    if (!selectedDepartment) return;
+    if (!selectedDepartment || !registry) return;
     try {
       setMovePreview(
         await registry.department.previewMove(
@@ -274,7 +294,7 @@ function OrganizationAdministration() {
   };
 
   const confirmMove = async () => {
-    if (!selectedDepartment || !movePreview) return;
+    if (!selectedDepartment || !movePreview || !registry) return;
     try {
       setPhase("saving");
       const saved = await registry.department.moveNode(
@@ -292,6 +312,7 @@ function OrganizationAdministration() {
   };
 
   const reloadLatest = async () => {
+    if (!registry) return;
     try {
       await reload({
         departmentId: selectedDepartmentId,
@@ -302,11 +323,7 @@ function OrganizationAdministration() {
           ? departmentDraftFrom(await registry.department.getNode(selectedDepartmentId))
           : null,
       );
-      const nextPropertyId = propertyId || (
-        registry.environment.dataMode === "mock"
-          ? (await registry.property.resolveContext("training-demo.example.test"))?.propertyId
-          : session.propertyId
-      );
+      const nextPropertyId = propertyId || session.propertyId;
       const nextUnits = nextPropertyId
         ? await registry.department.listOperationalUnits(nextPropertyId)
         : [];

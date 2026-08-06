@@ -29,11 +29,13 @@ export async function POST(request: Request) {
   const requestId = resolveRequestId(request);
   try {
     rejectQueryParameters(request);
-    const input = parseCreateDepartmentInput(await requestBody(request));
+    const body = await requestBody(request);
     const result = await runAuthorizedNeonOrganizationWrite(
       request,
       requestId,
-      repository => repository.createNode(input),
+      (repository, scope) => repository.createNode(
+        parseCreateDepartmentInput(body, scope),
+      ),
     );
     return Response.json(result.data, {
       status: 201,
