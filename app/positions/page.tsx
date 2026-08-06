@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   AdministrationSaveState,
   savedTime,
@@ -16,7 +16,11 @@ import type {
   OfficialPosition,
   PositionFamily,
 } from "../repositories/contracts/organization-models.ts";
-import { createRepositoryRegistry } from "../repositories/registry.ts";
+import {
+  loadRuntimeDomainRegistry,
+  usesFallbackDomainRegistry,
+} from "../repositories/runtime/load-domain-registry.ts";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import { useAuthSession } from "../state/auth-session";
 
 type FamilyDraft = {
@@ -43,8 +47,8 @@ type PositionDraft = {
 };
 
 function PositionAdministration() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
   const { session } = useAuthSession();
+  const [registry, setRegistry] = useState<RuntimeDomainRegistry | null>(null);
   const [propertyId, setPropertyId] = useState("");
   const [tenantId, setTenantId] = useState("");
   const [tree, setTree] = useState<DepartmentNode[]>([]);
@@ -61,22 +65,41 @@ function PositionAdministration() {
   const [loading, setLoading] = useState(true);
   const dirty = hasUnsavedChanges;
   useUnsavedChangesWarning(dirty, "职位资料有未保存更改");
-  const sourceState = registry.environment.dataMode === "mock" ? "demo" : "real";
+  const sourceState = registry?.environment.dataMode === "mock" ? "demo" : "real";
+
+  useEffect(() => {
+    let active = true;
+    void loadRuntimeDomainRegistry()
+      .then(next => { if (active) setRegistry(next); })
+      .catch(error => {
+        if (!active) return;
+        setPhase("failed");
+        setStatusMessage(message(error));
+        setLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const reload = useCallback(async (preferred?: { familyId?: string; positionId?: string }) => {
-    const nextPropertyId =
-      registry.environment.dataMode === "mock"
-        ? (await registry.property.resolveContext("training-demo.example.test"))?.propertyId
-        : session.propertyId;
+    if (!registry) throw new Error("运行时职位来源尚未连接");
+    const nextPropertyId = session.propertyId;
     if (!nextPropertyId) throw new Error("当前账号尚未取得酒店职位上下文");
     const [property, nextTree, nextFamilies, nextPositions] = await Promise.all([
-      registry.property.getProperty(nextPropertyId),
+      usesFallbackDomainRegistry(registry) && registry.property
+        ? registry.property.getProperty(nextPropertyId)
+        : Promise.resolve(null),
       registry.department.listTree(nextPropertyId),
       registry.position.listPositionFamilies(nextPropertyId),
       registry.position.listPositions(nextPropertyId),
     ]);
     setPropertyId(nextPropertyId);
-    setTenantId(property.identity.tenantId);
+    setTenantId(
+      property?.identity.tenantId ??
+        nextFamilies[0]?.tenantId ??
+        nextPositions[0]?.tenantId ??
+        nextTree[0]?.tenantId ??
+        "",
+    );
     setTree(nextTree);
     setFamilies(nextFamilies);
     setPositions(nextPositions);
@@ -92,6 +115,7 @@ function PositionAdministration() {
   }, [registry, session.propertyId]);
 
   useEffect(() => {
+    if (!registry) return;
     let active = true;
     queueMicrotask(() => {
       void reload()
@@ -108,7 +132,7 @@ function PositionAdministration() {
     return () => {
       active = false;
     };
-  }, [reload]);
+  }, [registry, reload]);
 
   useEffect(() => {
     if (dirty || familyDraft || positionDraft) return;
@@ -170,7 +194,7 @@ function PositionAdministration() {
   };
 
   const saveFamily = async () => {
-    if (!familyDraft) return;
+    if (!familyDraft || !registry) return;
     try {
       validateFamily(familyDraft);
       setPhase("saving");
@@ -200,7 +224,7 @@ function PositionAdministration() {
   };
 
   const savePosition = async () => {
-    if (!positionDraft) return;
+    if (!positionDraft || !registry) return;
     try {
       validatePosition(positionDraft);
       setPhase("saving");

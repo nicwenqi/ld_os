@@ -40,7 +40,10 @@ export class OrganizationApiError extends Error {
 export async function runAuthorizedNeonOrganizationWrite<T>(
   request: Request,
   requestId: string,
-  operation: (repository: NeonDepartmentWriteRepository) => Promise<T>,
+  operation: (
+    repository: NeonDepartmentWriteRepository,
+    scope: { tenantId: string; propertyId: string },
+  ) => Promise<T>,
 ): Promise<{ data: T; headers: Headers }> {
   const environment = parseAppEnvironment();
   if (environment.dataMode !== "neon") {
@@ -64,6 +67,7 @@ export async function runAuthorizedNeonOrganizationWrite<T>(
   }
 
   try {
+    let scope: { tenantId: string; propertyId: string } | null = null;
     const data = await withNeonResolvedActorContext(
       {
         authUserId: identity.userId,
@@ -77,11 +81,16 @@ export async function runAuthorizedNeonOrganizationWrite<T>(
         if (!property) {
           throw new OrganizationApiError(403, "当前账号无权访问此酒店");
         }
+        scope = property;
         return property.propertyId;
       },
-      database => operation(
-        createNeonDepartmentWriteRepository(database, identity.hostname),
-      ),
+      database => {
+        if (!scope) throw new OrganizationApiError(403, "当前账号无权访问此酒店");
+        return operation(
+          createNeonDepartmentWriteRepository(database, identity.hostname),
+          scope,
+        );
+      },
     );
 
     return { data, headers };
@@ -238,15 +247,21 @@ async function runAuthorizedNeonOrganizationAliasOperation<T>(
   }
 }
 
+type OrganizationPropertyScope = { tenantId: string; propertyId: string };
+
 export async function runAuthorizedNeonOrganizationOperationalUnitRead<T>(request: Request, requestId: string, operation: (repository: NeonOperationalUnitRepository, propertyId: string) => Promise<T>) {
+  return runAuthorizedNeonOrganizationOperationalUnitOperation(
+    request,
+    requestId,
+    (repository, scope) => operation(repository, scope.propertyId),
+  );
+}
+
+export async function runAuthorizedNeonOrganizationOperationalUnitWrite<T>(request: Request, requestId: string, operation: (repository: NeonOperationalUnitRepository, scope: OrganizationPropertyScope) => Promise<T>) {
   return runAuthorizedNeonOrganizationOperationalUnitOperation(request, requestId, operation);
 }
 
-export async function runAuthorizedNeonOrganizationOperationalUnitWrite<T>(request: Request, requestId: string, operation: (repository: NeonOperationalUnitRepository, propertyId: string) => Promise<T>) {
-  return runAuthorizedNeonOrganizationOperationalUnitOperation(request, requestId, operation);
-}
-
-async function runAuthorizedNeonOrganizationOperationalUnitOperation<T>(request: Request, requestId: string, operation: (repository: NeonOperationalUnitRepository, propertyId: string) => Promise<T>) {
+async function runAuthorizedNeonOrganizationOperationalUnitOperation<T>(request: Request, requestId: string, operation: (repository: NeonOperationalUnitRepository, scope: OrganizationPropertyScope) => Promise<T>) {
   const environment = parseAppEnvironment();
   if (environment.dataMode !== "neon") throw new OrganizationApiError(503, "Organization Neon 数据源尚未启用");
   const identity = await resolveRequestAuthIdentity(request);
@@ -254,15 +269,15 @@ async function runAuthorizedNeonOrganizationOperationalUnitOperation<T>(request:
   const headers = organizationResponseHeaders(requestId);
   if (identity.refreshed) for (const value of authCookies(identity.accessToken, identity.refreshToken, environment.appEnv !== "local")) headers.append("Set-Cookie", value);
   try {
-    let propertyId: string | null = null;
+    let scope: OrganizationPropertyScope | null = null;
     const data = await withNeonResolvedActorContext({ authUserId: identity.userId, requestId }, async database => {
       const property = await resolveNeonOrganizationPropertyScope(identity.hostname, database);
       if (!property) throw new OrganizationApiError(403, "当前账号无权访问此酒店");
-      propertyId = property.propertyId;
+      scope = property;
       return property.propertyId;
     }, database => {
-      if (!propertyId) throw new OrganizationApiError(403, "当前账号无权访问此酒店");
-      return operation(createNeonOperationalUnitRepository(database, identity.hostname), propertyId);
+      if (!scope) throw new OrganizationApiError(403, "当前账号无权访问此酒店");
+      return operation(createNeonOperationalUnitRepository(database, identity.hostname), scope);
     });
     return { data, headers };
   } catch (error) {

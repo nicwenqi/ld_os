@@ -15,8 +15,6 @@ const NODE_TYPES = new Set<DepartmentNodeType>([
   "other",
 ]);
 const CREATE_KEYS = new Set([
-  "tenantId",
-  "propertyId",
   "parentId",
   "nodeType",
   "code",
@@ -43,6 +41,7 @@ export class DepartmentInputError extends Error {
 
 export function parseCreateDepartmentInput(
   value: unknown,
+  scope: { tenantId: string; propertyId: string },
 ): CreateDepartmentInput {
   const body = record(value, "部门创建请求格式无效");
   assertKeys(body, CREATE_KEYS, "部门创建请求包含不支持的字段");
@@ -56,8 +55,8 @@ export function parseCreateDepartmentInput(
   }
 
   return {
-    tenantId: uuid(body.tenantId, "租户标识无效"),
-    propertyId: uuid(body.propertyId, "酒店标识无效"),
+    tenantId: scope.tenantId,
+    propertyId: scope.propertyId,
     parentId: nullableUuid(body.parentId, "上级部门标识无效"),
     nodeType: nodeType as DepartmentNodeType,
     code,
