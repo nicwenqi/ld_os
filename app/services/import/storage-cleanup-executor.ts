@@ -27,7 +27,6 @@ export function cleanupRetryDelayMs(attemptCount: number) {
   if (!Number.isSafeInteger(attemptCount) || attemptCount < 1) return RETRY_DELAYS_MS[0];
   return RETRY_DELAYS_MS[Math.min(attemptCount, RETRY_DELAYS_MS.length) - 1];
 }
-
 /**
  * Claims same-property cleanup work, deletes only the exact returned object,
  * then records completion/failure through separate repository operations.
@@ -69,4 +68,3 @@ export async function executeDueStorageCleanup(options: CleanupExecutorOptions) 
   }
   return results;
 }
-
