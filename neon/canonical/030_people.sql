@@ -80,27 +80,85 @@ create table public.roles (
   tenant_id uuid not null references public.tenants(id),
   property_id uuid,
   code text not null,
-  scope_level text not null check (scope_level in ('tenant', 'property', 'department')),
+  scope_level text not null check (
+    scope_level in ('tenant', 'property', 'department')
+    and (
+      (scope_level = 'tenant' and property_id is null)
+      or (scope_level in ('property', 'department') and property_id is not null)
+    )
+  ),
   is_active boolean not null default true,
-  unique (tenant_id, property_id, code),
+  foreign key (tenant_id, property_id) references public.properties(tenant_id, id),
+  unique nulls not distinct (tenant_id, property_id, code),
+  unique (tenant_id, id),
   unique (tenant_id, property_id, id)
 );
 
 create table public.role_assignments (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null,
-  property_id uuid not null,
+  property_id uuid,
   user_id uuid not null,
   role_id uuid not null,
   status text not null default 'active' check (status in ('active', 'inactive')),
   foreign key (tenant_id, property_id) references public.properties(tenant_id, id),
-  foreign key (tenant_id, property_id, user_id)
-    references public.property_memberships(tenant_id, property_id, user_id),
-  foreign key (tenant_id, property_id, role_id)
-    references public.roles(tenant_id, property_id, id),
-  unique (property_id, user_id, role_id),
+  foreign key (tenant_id, user_id)
+    references public.tenant_memberships(tenant_id, user_id),
+  foreign key (tenant_id, role_id)
+    references public.roles(tenant_id, id),
+  unique nulls not distinct (tenant_id, property_id, user_id, role_id),
   unique (tenant_id, property_id, id)
 );
+
+create function app_private.validate_neon_role_assignment_scope()
+returns trigger language plpgsql volatile security invoker set search_path = ''
+as $function$
+declare
+  role_row public.roles;
+begin
+  select role.* into role_row
+  from public.roles role
+  where role.tenant_id = new.tenant_id and role.id = new.role_id
+  order by role.id
+  for key share;
+  if not found then
+    raise exception using errcode = '23503', message = 'NEON_ROLE_ASSIGNMENT_ROLE_INVALID';
+  end if;
+
+  if role_row.scope_level = 'tenant' then
+    if new.property_id is not null then
+      raise exception using errcode = '23514', message = 'NEON_ROLE_ASSIGNMENT_SCOPE_INVALID';
+    end if;
+    perform membership.id
+    from public.tenant_memberships membership
+    where membership.tenant_id = new.tenant_id
+      and membership.user_id = new.user_id
+      and membership.status = 'active'
+    order by membership.id
+    for key share;
+  else
+    if new.property_id is null or new.property_id is distinct from role_row.property_id then
+      raise exception using errcode = '23514', message = 'NEON_ROLE_ASSIGNMENT_SCOPE_INVALID';
+    end if;
+    perform membership.id
+    from public.property_memberships membership
+    where membership.tenant_id = new.tenant_id
+      and membership.property_id = new.property_id
+      and membership.user_id = new.user_id
+      and membership.status = 'active'
+    order by membership.id
+    for key share;
+  end if;
+  if not found then
+    raise exception using errcode = '23514', message = 'NEON_ROLE_ASSIGNMENT_MEMBERSHIP_INACTIVE';
+  end if;
+  return new;
+end
+$function$;
+
+create trigger canonical_role_assignment_scope
+before insert or update of tenant_id, property_id, user_id, role_id, status on public.role_assignments
+for each row execute function app_private.validate_neon_role_assignment_scope();
 
 create table public.trainer_scopes (
   id uuid primary key default pg_catalog.gen_random_uuid(),
@@ -398,6 +456,7 @@ end
 $function$;
 
 revoke all on function app_private.reject_people_read_audit_mutation() from public;
+revoke all on function app_private.validate_neon_role_assignment_scope() from public;
 revoke all on function app_private.neon_people_actor_is_active() from public;
 revoke all on function app_private.neon_people_actor_has_role(text) from public;
 revoke all on function app_private.neon_people_actor_has_department_scope(uuid) from public;

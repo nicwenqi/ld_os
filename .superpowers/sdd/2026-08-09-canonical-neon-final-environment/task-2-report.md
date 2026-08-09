@@ -169,3 +169,59 @@ No database or network connection was made. The remaining Task 3 concern is
 runtime-only verification of PostgreSQL grammar, composite-FK creation order,
 row-lock behavior, FORCE RLS interactions, and hierarchy/alias/employee
 transactions on a disposable empty PostgreSQL 18 cluster.
+
+## Review fix round 2/5 — hierarchy locks and tenant roles
+
+Two focused contract mutations were added before implementation. The targeted
+RED run was 0/2: hierarchy creation did not participate in the property lock
+and existing update/move paths could lock rows before the advisory lock; role
+assignments also forced every role into property scope and had no scope-aware
+membership validator.
+
+The hierarchy writers now share one ordering protocol for the actor property:
+authorize and validate scalar input, acquire
+`lock_neon_organization_hierarchy`, then acquire every required department or
+operational-unit row lock in UUID order. Department and operational-unit
+creates participate, rename locks its complete descendant set, move locks its
+subtree plus proposed parent together, and operational-unit update locks its
+target, descendants, and proposed parent together. No direct hierarchy writer
+retains a row-lock-before-advisory path.
+
+The authorization model now preserves tenant roles rather than treating all
+roles as property roles. Tenant roles require a null property; property and
+department roles require an existing same-tenant property. Role assignments
+may therefore have a null property, retain a general tenant/user and
+tenant/role foreign-key spine, and run an append-free constrained trigger that
+locks and validates the role plus the appropriate active tenant or property
+membership. Activation is revalidated because assignment status updates also
+fire the trigger. Property-facing authorization helpers continue to require
+`assignment.property_id = account.property_id`, so tenant assignments never
+implicitly authorize a property action. RLS exposes null-property assignments
+only for the actor tenant and non-null assignments only for the actor property.
+
+The new helper and trigger are declared in the canonical manifest, bringing
+the inventory to 83 routines and 15 triggers. Fresh connection-free checks:
+
+```text
+node scripts/neon/validate-canonical-neon-baseline.mjs source
+GREEN — 7 modules; 31 tables; 83 routines; 10 policy names; 15 triggers; 6 types
+
+node --test scripts/neon/validate-canonical-neon-baseline.test.mjs
+56/56 pass
+
+node --experimental-strip-types --test scripts/neon/canonical-neon-bootstrap-contract.test.mjs
+15/15 pass
+
+npm test
+201/201 primary tests pass; embedded build passes; rendered HTML 1/1 passes
+
+npm run build
+exit 0; all five vinext build phases pass
+
+git diff --check
+exit 0
+```
+
+No database or network connection was made. Task 3 must runtime-check the
+PostgreSQL 18 `UNIQUE NULLS NOT DISTINCT` constraints, trigger/RLS interaction,
+and the advisory-plus-ordered-row-lock protocol under concurrent transactions.

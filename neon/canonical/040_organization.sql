@@ -154,7 +154,11 @@ declare i uuid:=pg_catalog.gen_random_uuid();
 begin
   perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager();
   if p_tenant<>(select tenant_id from public.properties where id=p_property and status='active') or p_property<>app_private.current_actor_property_id() or nullif(pg_catalog.btrim(coalesce(p_zh,'')),'') is null then raise exception using errcode='42501',message='NEON_ORGANIZATION_SCOPE_DENIED'; end if;
-  if p_parent is not null and not exists(select 1 from public.departments d where d.id=p_parent and d.tenant_id=p_tenant and d.property_id=p_property and d.is_active) then raise exception using errcode='22023',message='NEON_ORGANIZATION_DEPARTMENT_PARENT_INVALID'; end if;
+  perform app_private.lock_neon_organization_hierarchy(p_property);
+  if p_parent is not null then
+    perform d.id from public.departments d where d.id=p_parent and d.tenant_id=p_tenant and d.property_id=p_property and d.is_active order by d.id for key share;
+    if not found then raise exception using errcode='22023',message='NEON_ORGANIZATION_DEPARTMENT_PARENT_INVALID'; end if;
+  end if;
   insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values(i,p_tenant,p_property,p_parent,p_type::public.department_node_type,nullif(pg_catalog.lower(pg_catalog.btrim(p_code)),''),pg_catalog.btrim(p_zh),nullif(pg_catalog.btrim(p_en),''),coalesce(p_sort,0)); perform app_private.append_neon_organization_write_audit('department_create',i,'{}'::jsonb); return app_private.neon_organization_department_payload(i);
 end $f$;
 create function public.update_neon_organization_department(p_hostname text,p_id uuid,p_version bigint,p_zh text,p_en text,p_sort integer,p_active boolean) returns jsonb language plpgsql volatile security definer set search_path='' as $f$
@@ -162,8 +166,9 @@ declare prop uuid;
 begin
   perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager();
   if nullif(pg_catalog.btrim(coalesce(p_zh,'')),'') is null or p_version is null or p_version<1 or p_active is null then raise exception using errcode='22023',message='NEON_ORGANIZATION_DEPARTMENT_INPUT_INVALID'; end if;
-  select property_id into strict prop from public.departments where id=p_id and property_id=app_private.current_actor_property_id() for update;
+  prop:=app_private.current_actor_property_id();
   perform app_private.lock_neon_organization_hierarchy(prop);
+  perform d.id from public.departments d where d.property_id=prop and (d.id=p_id or p_id=any(d.path_ids)) order by d.id for update;
   update public.departments set name_zh=pg_catalog.btrim(p_zh),name_en=nullif(pg_catalog.btrim(p_en),''),sort_order=coalesce(p_sort,0),is_active=p_active,version=version+1 where id=p_id and property_id=prop and version=p_version;
   if not found then raise exception using errcode='40001',message='NEON_ORGANIZATION_VERSION_CONFLICT'; end if;
   with recursive tree as (
@@ -194,17 +199,18 @@ begin
   );
 end $f$;
 create function public.move_neon_organization_department(p_hostname text,p_id uuid,p_parent uuid,p_version bigint) returns jsonb language plpgsql volatile security definer set search_path='' as $f$
-declare moving public.departments; parent public.departments;
+declare moving public.departments; parent public.departments; prop uuid;
 begin
   perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager();
-  select * into strict moving from public.departments where id=p_id and property_id=app_private.current_actor_property_id() for update;
+  prop:=app_private.current_actor_property_id();
+  perform app_private.lock_neon_organization_hierarchy(prop);
+  perform d.id from public.departments d where d.property_id=prop and (d.id=p_id or d.id=p_parent or p_id=any(d.path_ids)) order by d.id for update;
+  select * into strict moving from public.departments where id=p_id and property_id=prop;
   if moving.version<>p_version then raise exception using errcode='40001',message='NEON_ORGANIZATION_VERSION_CONFLICT'; end if;
-  perform app_private.lock_neon_organization_hierarchy(moving.property_id);
-  perform 1 from public.departments d join public.department_closure c on c.tenant_id=d.tenant_id and c.property_id=d.property_id and c.descendant_department_id=d.id where c.tenant_id=moving.tenant_id and c.property_id=moving.property_id and c.ancestor_department_id=moving.id order by d.id for update of d;
   if p_parent is null then null;
   else
     if p_parent=p_id then raise exception using errcode='23514',message='NEON_ORGANIZATION_MOVE_SELF_PARENT'; end if;
-    select * into strict parent from public.departments where id=p_parent and tenant_id=moving.tenant_id and property_id=moving.property_id and is_active for key share;
+    select * into strict parent from public.departments where id=p_parent and tenant_id=moving.tenant_id and property_id=moving.property_id and is_active;
     if exists(select 1 from public.department_closure where tenant_id=moving.tenant_id and property_id=moving.property_id and ancestor_department_id=moving.id and descendant_department_id=p_parent) then raise exception using errcode='23514',message='NEON_ORGANIZATION_MOVE_CYCLE'; end if;
   end if;
   update public.departments set parent_id=p_parent,version=version+1 where id=p_id and tenant_id=moving.tenant_id and property_id=moving.property_id;
@@ -258,25 +264,34 @@ declare i uuid:=pg_catalog.gen_random_uuid(); parent public.operational_units;
 begin
   perform app_private.assert_neon_organization_hostname(p_hostname);
   if not app_private.neon_organization_actor_can_mutate_operational_units() or p_property<>app_private.current_actor_property_id() or nullif(pg_catalog.btrim(coalesce(p_zh,'')),'') is null then raise exception using errcode='42501',message='NEON_ORGANIZATION_UNIT_DENIED'; end if;
-  if not exists(select 1 from public.departments d where d.id=p_department and d.tenant_id=p_tenant and d.property_id=p_property and d.is_active for key share) then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_DEPARTMENT_INVALID'; end if;
-  if p_parent is not null then select * into strict parent from public.operational_units u where u.id=p_parent and u.tenant_id=p_tenant and u.property_id=p_property and u.department_id=p_department and u.is_active for key share; end if;
+  perform app_private.lock_neon_organization_hierarchy(p_property);
+  perform d.id from public.departments d where d.id=p_department and d.tenant_id=p_tenant and d.property_id=p_property and d.is_active order by d.id for key share;
+  if not found then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_DEPARTMENT_INVALID'; end if;
+  if p_parent is not null then
+    perform u.id from public.operational_units u where u.id=p_parent and u.tenant_id=p_tenant and u.property_id=p_property and u.department_id=p_department and u.is_active order by u.id for key share;
+    if not found then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_PARENT_INVALID'; end if;
+    select * into parent from public.operational_units u where u.id=p_parent and u.tenant_id=p_tenant and u.property_id=p_property;
+  end if;
   insert into public.operational_units(id,tenant_id,property_id,department_id,parent_operational_unit_id,unit_type,code,name_zh,name_en,sort_order,is_active) values(i,p_tenant,p_property,p_department,p_parent,p_type::public.operational_unit_type,nullif(pg_catalog.lower(pg_catalog.btrim(p_code)),''),pg_catalog.btrim(p_zh),nullif(pg_catalog.btrim(p_en),''),coalesce(p_sort,0),coalesce(p_active,true));
   insert into app_private.organization_operational_unit_audit_events(request_id,auth_user_id,actor_user_id,tenant_id,property_id,operation,target_id,details) values(app_private.current_actor_request_id(),app_private.current_actor_auth_user_id(),app_private.current_neon_organization_actor_user_id(),p_tenant,p_property,'create',i,'{}'::jsonb); return app_private.neon_organization_operational_unit_payload(i);
 end $f$;
 create function public.update_neon_organization_operational_unit(p_hostname text,p_id uuid,p_version bigint,p_department uuid,p_parent uuid,p_type text,p_code text,p_zh text,p_en text,p_sort integer,p_active boolean) returns jsonb language plpgsql volatile security definer set search_path='' as $f$
-declare current_unit public.operational_units; parent public.operational_units; has_children boolean;
+declare current_unit public.operational_units; parent public.operational_units; has_children boolean; prop uuid;
 begin
   perform app_private.assert_neon_organization_hostname(p_hostname);
   if not app_private.neon_organization_actor_can_mutate_operational_units() or nullif(pg_catalog.btrim(coalesce(p_zh,'')),'') is null then raise exception using errcode='42501',message='NEON_ORGANIZATION_UNIT_DENIED'; end if;
-  select * into strict current_unit from public.operational_units where id=p_id and property_id=app_private.current_actor_property_id() for update;
+  prop:=app_private.current_actor_property_id();
+  perform app_private.lock_neon_organization_hierarchy(prop);
+  select * into strict current_unit from public.operational_units where id=p_id and property_id=prop;
+  perform d.id from public.departments d where d.id=p_department and d.tenant_id=current_unit.tenant_id and d.property_id=current_unit.property_id and d.is_active order by d.id for key share;
+  if not found then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_DEPARTMENT_INVALID'; end if;
+  perform u.id from public.operational_units u where u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id and (u.id=p_id or u.id=p_parent or p_id=any(u.path_ids)) order by u.id for update;
+  select * into strict current_unit from public.operational_units where id=p_id and property_id=prop;
   if current_unit.version<>p_version then raise exception using errcode='40001',message='NEON_ORGANIZATION_VERSION_CONFLICT'; end if;
-  perform app_private.lock_neon_organization_hierarchy(current_unit.property_id);
-  if not exists(select 1 from public.departments d where d.id=p_department and d.tenant_id=current_unit.tenant_id and d.property_id=current_unit.property_id and d.is_active for key share) then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_DEPARTMENT_INVALID'; end if;
   select exists(select 1 from public.operational_units u where u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id and u.parent_operational_unit_id=p_id) into has_children;
   if current_unit.department_id<>p_department and has_children then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_DEPARTMENT_MOVE_BLOCKED'; end if;
   if p_parent=p_id or (p_parent is not null and exists(with recursive descendants(id) as (select u.id from public.operational_units u where u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id and u.parent_operational_unit_id=p_id union all select u.id from public.operational_units u join descendants d on u.parent_operational_unit_id=d.id where u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id) select 1 from descendants where id=p_parent)) then raise exception using errcode='22023',message='NEON_ORGANIZATION_OPERATIONAL_UNIT_CYCLE'; end if;
-  if p_parent is not null then select * into strict parent from public.operational_units u where u.id=p_parent and u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id and u.department_id=p_department and u.is_active for key share; end if;
-  perform 1 from public.operational_units u where u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id and (u.id=p_id or p_id=any(u.path_ids)) order by u.id for update;
+  if p_parent is not null then select * into strict parent from public.operational_units u where u.id=p_parent and u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id and u.department_id=p_department and u.is_active; end if;
   update public.operational_units set department_id=p_department,parent_operational_unit_id=p_parent,unit_type=p_type::public.operational_unit_type,code=nullif(pg_catalog.lower(pg_catalog.btrim(p_code)),''),name_zh=pg_catalog.btrim(p_zh),name_en=nullif(pg_catalog.btrim(p_en),''),sort_order=coalesce(p_sort,0),is_active=coalesce(p_active,true),version=version+1 where id=p_id and tenant_id=current_unit.tenant_id and property_id=current_unit.property_id;
   with recursive subtree as (
     select u.id,u.depth,u.path_ids from public.operational_units u where u.id=p_id and u.tenant_id=current_unit.tenant_id and u.property_id=current_unit.property_id

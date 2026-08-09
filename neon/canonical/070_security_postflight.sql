@@ -90,8 +90,8 @@ create policy canonical_tenant_scope on public.roles for all to hotel_ld_migrati
   using (session_user='hotel_ld_application' and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()) and (property_id is null or property_id=app_private.current_actor_property_id()))
   with check (session_user='hotel_ld_application' and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()) and (property_id is null or property_id=app_private.current_actor_property_id()));
 create policy canonical_tenant_scope on public.role_assignments for all to hotel_ld_migration_owner
-  using (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id())
-  with check (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id());
+  using (session_user='hotel_ld_application' and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()) and (property_id is null or property_id=app_private.current_actor_property_id()))
+  with check (session_user='hotel_ld_application' and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()) and (property_id is null or property_id=app_private.current_actor_property_id()));
 create policy canonical_tenant_scope on public.trainer_scopes for all to hotel_ld_migration_owner
   using (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id())
   with check (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id());

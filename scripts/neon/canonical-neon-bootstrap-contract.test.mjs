@@ -158,7 +158,7 @@ test("repository query signatures exactly match the canonical manifest", async (
 test("every relationship carrying tenant and property scope uses a composite foreign key", async () => {
   const source = `${await canonicalSql("030_people.sql")} ${await canonicalSql("040_organization.sql")} ${await canonicalSql("050_position.sql")} ${await canonicalSql("060_employee_write.sql")}`;
   const required = [
-    "foreign key(tenant_id,property_id,role_id)references public.roles(tenant_id,property_id,id)",
+    "foreign key(tenant_id,role_id)references public.roles(tenant_id,id)",
     "foreign key(tenant_id,property_id,role_assignment_id)references public.role_assignments(tenant_id,property_id,id)",
     "foreign key(tenant_id,property_id,parent_id)references public.departments(tenant_id,property_id,id)",
     "foreign key(tenant_id,property_id,target_department_id)references public.departments(tenant_id,property_id,id)",
@@ -168,6 +168,56 @@ test("every relationship carrying tenant and property scope uses a composite for
     "foreign key(tenant_id,property_id,employee_id)references public.employees(tenant_id,property_id,id)",
   ];
   for (const contract of required) assert.equal(source.includes(contract), true, contract);
+});
+
+test("every hierarchy writer takes the property advisory lock before deterministic row locks", async () => {
+  const source = await canonicalSql("040_organization.sql");
+  const writers = [
+    "public.create_neon_organization_department",
+    "public.update_neon_organization_department",
+    "public.move_neon_organization_department",
+    "public.create_neon_organization_operational_unit",
+    "public.update_neon_organization_operational_unit",
+  ];
+
+  for (const writer of writers) {
+    const routine = routineSource(source, writer);
+    const advisory = routine.indexOf("perform app_private.lock_neon_organization_hierarchy(");
+    const lockStatements = routine.split(";").filter((statement) => /\bfor (?:update|key share)\b/.test(statement));
+    assert.notEqual(advisory, -1, `${writer} does not participate in the property advisory lock`);
+    assert.equal(lockStatements.length > 0, true, `${writer} does not lock its hierarchy rows`);
+    assert.equal(lockStatements.every((statement) => statement.includes("order by")), true, `${writer} has a nondeterministic row lock`);
+    assert.equal(advisory < routine.search(/\bfor (?:update|key share)\b/), true, `${writer} locks a row before the advisory lock`);
+  }
+});
+
+test("tenant and property role assignments preserve scope-sensitive membership integrity", async () => {
+  const people = await canonicalSql("030_people.sql");
+  const roles = people.slice(people.indexOf("create table public.roles"), people.indexOf("create table public.role_assignments"));
+  const assignments = people.slice(people.indexOf("create table public.role_assignments"), people.indexOf("create table public.trainer_scopes"));
+  const validator = routineSource(people, "app_private.validate_neon_role_assignment_scope");
+  const rls = await canonicalSql("070_security_postflight.sql");
+  const assignmentPolicy = rls.slice(rls.indexOf("create policy canonical_tenant_scope on public.role_assignments"), rls.indexOf("create policy canonical_tenant_scope on public.trainer_scopes"));
+  const actorRole = routineSource(people, "app_private.neon_people_actor_has_role");
+
+  assert.equal(roles.includes("scope_level='tenant' and property_id is null"), true);
+  assert.equal(roles.includes("scope_level in('property','department')and property_id is not null"), true);
+  assert.equal(roles.includes("unique(tenant_id,id)"), true);
+  assert.equal(roles.includes("foreign key(tenant_id,property_id)references public.properties(tenant_id,id)"), true);
+  assert.equal(assignments.includes("property_id uuid,"), true);
+  assert.equal(assignments.includes("property_id uuid not null"), false);
+  assert.equal(assignments.includes("foreign key(tenant_id,user_id)references public.tenant_memberships(tenant_id,user_id)"), true);
+  assert.equal(assignments.includes("foreign key(tenant_id,role_id)references public.roles(tenant_id,id)"), true);
+  assert.equal(validator.includes("scope_level='tenant'"), true);
+  assert.equal(validator.includes("new.property_id is not null"), true);
+  assert.equal(validator.includes("membership.status='active'"), true);
+  assert.equal(validator.includes("public.tenant_memberships"), true);
+  assert.equal(validator.includes("public.property_memberships"), true);
+  assert.equal(people.includes("before insert or update of tenant_id,property_id,user_id,role_id,status on public.role_assignments"), true);
+  assert.equal(people.includes("execute function app_private.validate_neon_role_assignment_scope()"), true);
+  assert.equal(assignmentPolicy.includes("tenant_id=(select tenant_id from public.properties"), true);
+  assert.equal(assignmentPolicy.includes("property_id is null or property_id=app_private.current_actor_property_id()"), true);
+  assert.equal(actorRole.includes("assignment.property_id=account.property_id"), true);
 });
 
 test("employee save locks deterministically and validates every authoritative target", async () => {
