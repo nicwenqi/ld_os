@@ -1,5 +1,6 @@
 begin;
 set local role hotel_ld_migration_owner;
+set local check_function_bodies = off;
 
 create type public.department_node_type as enum ('division','department','section','team','other');
 create type public.department_resolution_type as enum ('mapped','created_top_level','created_child','merged','ignored','deferred');

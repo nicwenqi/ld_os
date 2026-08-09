@@ -1,5 +1,6 @@
 begin;
 set local role hotel_ld_migration_owner;
+set local check_function_bodies = off;
 
 create type public.employee_employment_status as enum ('active', 'inactive', 'leave', 'terminated', 'unknown');
 create type public.employee_identifier_type as enum ('local_employee_number', 'lms_employee_id', 'merlin_id', 'hris_id', 'other');
@@ -233,9 +234,10 @@ as $function$
 $function$;
 
 create function app_private.neon_people_actor_has_department_scope(p_department_id uuid)
-returns boolean language sql stable security invoker set search_path = ''
+returns boolean language plpgsql stable security invoker set search_path = ''
 as $function$
-  select app_private.neon_people_actor_has_role('property_ld_manager') or exists (
+begin
+  return app_private.neon_people_actor_has_role('property_ld_manager') or exists (
     select 1
     from public.user_accounts account
     join public.role_assignments assignment on assignment.user_id = account.user_id and assignment.property_id = account.property_id and assignment.status = 'active'
@@ -249,18 +251,21 @@ as $function$
           and closure.ancestor_department_id = scope.department_id
           and closure.descendant_department_id = p_department_id
       )))
-  )
+  );
+end
 $function$;
 
 create function app_private.neon_people_can_read_employee(p_employee_id uuid)
-returns boolean language sql stable security invoker set search_path = ''
+returns boolean language plpgsql stable security invoker set search_path = ''
 as $function$
-  select exists (
+begin
+  return exists (
     select 1 from public.employees employee
     where employee.id = p_employee_id
       and employee.property_id = app_private.current_actor_property_id()
       and app_private.neon_people_actor_has_department_scope(employee.department_id)
-  )
+  );
+end
 $function$;
 
 create function app_private.neon_people_hostname_matches(p_hostname text)
@@ -365,7 +370,7 @@ begin
       and (p_employment_status is null or e.employment_status::text = p_employment_status)
       and (p_active is null or e.is_active = p_active)
   ), paged as (
-    select * from filtered order by employee_number limit pg_catalog.greatest(1, pg_catalog.least(coalesce(p_limit,25),100)) offset pg_catalog.greatest(coalesce(p_offset,0),0)
+    select * from filtered order by employee_number limit greatest(1, least(coalesce(p_limit,25),100)) offset greatest(coalesce(p_offset,0),0)
   )
   select pg_catalog.jsonb_build_object(
     'rows', coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
@@ -446,7 +451,7 @@ begin
     left join public.positions p on p.id=e.position_id left join public.position_families f on f.id=e.position_family_id
     where e.property_id=app_private.current_actor_property_id() and app_private.neon_people_actor_has_department_scope(e.department_id)
       and (p_query is null or e.employee_number ilike '%'||p_query||'%' or coalesce(e.name_zh,'') ilike '%'||p_query||'%')
-  ), paged as (select * from scoped order by employee_number limit pg_catalog.greatest(1,pg_catalog.least(coalesce(p_limit,25),100)) offset pg_catalog.greatest(coalesce(p_offset,0),0))
+  ), paged as (select * from scoped order by employee_number limit greatest(1,least(coalesce(p_limit,25),100)) offset greatest(coalesce(p_offset,0),0))
   select pg_catalog.jsonb_build_object(
     'rows',coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('employee_number',employee_number,'name_zh',name_zh,'name_en',name_en,'department_id',department_id,'department_name',department_name,'operational_unit_id',operational_unit_id,'operational_unit_name',operational_unit_name,'position_id',position_id,'position_name',position_name,'position_family_id',position_family_id,'position_family_name',position_family_name,'hire_date',hire_date,'probation_or_confirmation_date',probation_or_confirmation_date,'employment_status',employment_status,'is_new_employee',coalesce(hire_date>=current_date-30,false),'is_active',is_active) order by employee_number),'[]'::jsonb),
     'total',(select count(*) from scoped),

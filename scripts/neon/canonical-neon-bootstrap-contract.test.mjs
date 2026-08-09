@@ -85,6 +85,20 @@ async function isolatedActorContext(t) {
   return import(`${pathToFileURL(target).href}?test=${Date.now()}`);
 }
 
+async function isolatedNeonServer(t) {
+  const root = await mkdtemp(join(tmpdir(), "canonical-neon-server-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = join(root, "server.ts");
+  const source = (await readFile(join(neonLibRoot, "server.ts"), "utf8"))
+    .replace('import "server-only";', "")
+    .replace(
+      'import { Pool, type PoolConfig } from "pg";',
+      "class Pool { constructor(_config: unknown) {} }\ntype PoolConfig = Record<string, unknown>;",
+    );
+  await writeFile(target, `${source}\nexport { assertRuntimeConnection };\n`);
+  return import(`${pathToFileURL(target).href}?test=${Date.now()}`);
+}
+
 function actorClient() {
   const statements = [];
   const releases = [];
@@ -123,6 +137,56 @@ test("the ordered canonical modules form a complete connection-free source basel
     "060_employee_write.sql",
     "070_security_postflight.sql",
   ]);
+});
+
+test("bootstrap changes migration-owner default privileges only after assuming that role", async () => {
+  const source = await canonicalSql("010_roles.sql");
+  const grant = source.indexOf("grant hotel_ld_migration_owner to session_user with inherit false,set true,admin false");
+  const publicOwnership = source.indexOf("alter schema public owner to hotel_ld_migration_owner");
+  const assumeOwner = source.indexOf("set local role hotel_ld_migration_owner");
+  const defaultPrivileges = source.indexOf("alter default privileges for role hotel_ld_migration_owner");
+
+  assert.ok(grant >= 0 && publicOwnership > grant);
+  assert.ok(assumeOwner > publicOwnership);
+  assert.ok(defaultPrivileges > assumeOwner);
+});
+
+test("People helpers defer cross-module relation binding until the complete bootstrap is installed", async () => {
+  const source = await canonicalSql("030_people.sql");
+  for (const name of [
+    "app_private.neon_people_actor_has_department_scope",
+    "app_private.neon_people_can_read_employee",
+  ]) {
+    const routine = routineSource(source, name);
+    assert.equal(routine.includes("language plpgsql"), true, name);
+    assert.equal(routine.includes("language sql"), false, name);
+  }
+});
+
+test("modules with forward relation references disable body checks only for their transaction", async () => {
+  for (const name of ["030_people.sql", "040_organization.sql"]) {
+    const source = await canonicalSql(name);
+    assert.equal(source.includes("set local check_function_bodies=off"), true, name);
+    assert.equal(source.includes("set check_function_bodies=off"), false, name);
+  }
+});
+
+test("canonical modules never schema-qualify PostgreSQL special expression forms", async () => {
+  const specialForms = [
+    "cast", "coalesce", "collation_for", "current_catalog", "current_date",
+    "current_role", "current_schema", "current_time", "current_timestamp",
+    "current_user", "extract", "greatest", "least", "localtime",
+    "localtimestamp", "normalize", "nullif", "overlay", "position",
+    "session_user", "substring", "system_user", "treat", "trim",
+    "xmlconcat", "xmlelement", "xmlexists", "xmlforest", "xmlparse",
+    "xmlpi", "xmlroot", "xmlserialize",
+  ];
+  const qualifiedSpecialForm = new RegExp(`\\bpg_catalog\\.(?:${specialForms.join("|")})\\b`, "gi");
+
+  for (const name of (await readdir(canonicalRoot)).filter((entry) => entry.endsWith(".sql")).sort()) {
+    const source = await readFile(join(canonicalRoot, name), "utf8");
+    assert.deepEqual([...source.matchAll(qualifiedSpecialForm)].map((match) => match[0]), [], name);
+  }
 });
 
 test("the canonical manifest retains final append-only E2-E5A audit capability", async () => {
@@ -329,6 +393,36 @@ test("runtime actor checks require only the canonical roles and schemas", async 
   for (const forbidden of forbiddenCompatibilityChecks) {
     assert.equal(source.includes(forbidden), false, `legacy runtime dependency: ${forbidden}`);
   }
+});
+
+test("actor context loads without the server-only pool module when callers inject a pool", async () => {
+  const actorContext = await import(`../../app/lib/neon/actor-context.ts?injected-pool=${Date.now()}`);
+  assert.equal(typeof actorContext.withNeonActorContext, "function");
+  assert.equal(typeof actorContext.withNeonResolvedActorContext, "function");
+});
+
+test("runtime connection trusts the exact supplied non-Production Neon endpoint", async (t) => {
+  const { assertRuntimeConnection } = await isolatedNeonServer(t);
+  const fixture = (endpointId) => {
+    const url = new URL(["postgresql:", "", `${endpointId}-pooler.fixture.neon.tech`, "neondb"].join("/"));
+    url.username = "hotel_ld_application";
+    url.password = "fixture-credential";
+    url.searchParams.set("sslmode", "verify-full");
+    return url.toString();
+  };
+
+  assert.doesNotThrow(() => assertRuntimeConnection(
+    fixture("ep-winter-resonance-ax340i3r"),
+    "ep-winter-resonance-ax340i3r",
+  ));
+  assert.throws(
+    () => assertRuntimeConnection(fixture("ep-wild-wave-azjmgdif"), "ep-wild-wave-azjmgdif"),
+    /Production Neon endpoint/,
+  );
+  assert.throws(
+    () => assertRuntimeConnection(fixture("ep-winter-resonance-ax340i3r"), "ep-other-staging-123"),
+    /NEON_ENDPOINT_ID.*不匹配/,
+  );
 });
 
 test("actor context remains transaction-local through set, commit, and connection release", async (t) => {

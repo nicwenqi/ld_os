@@ -15,6 +15,8 @@ alter schema public owner to hotel_ld_migration_owner;
 revoke all on schema app_private from public;
 revoke create on schema public from public;
 
+set local role hotel_ld_migration_owner;
+
 alter default privileges for role hotel_ld_migration_owner
   revoke execute on functions from public;
 

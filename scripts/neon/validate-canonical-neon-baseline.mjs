@@ -1,13 +1,37 @@
 #!/usr/bin/env node
 
 import { access, readFile, readdir } from "node:fs/promises";
+import { randomBytes, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 
 const VALID_MODES = new Set(["source", "dry-run", "apply", "catalog", "runtime", "repeatability"]);
 const DATABASE_MODES = new Set(["dry-run", "apply", "catalog", "runtime", "repeatability"]);
 const DEFAULT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../neon/canonical");
 const IDENTIFIER = "[a-z_][a-z0-9_]*";
+
+export const EXPECTED_NEON_TARGET = Object.freeze({
+  projectName: "hotel-ld-os-neon-final-staging",
+  projectId: "jolly-dawn-48919555",
+  branchName: "main",
+  branchId: "br-empty-star-axdyyv60",
+  endpointId: "ep-winter-resonance-ax340i3r",
+  database: "neondb",
+  bootstrapRole: "neondb_owner",
+  postgresMajor: 18,
+});
+
+const FORBIDDEN_NEON_TARGETS = new Set([
+  "br-twilight-leaf-azmowo1k",
+  "ep-wild-wave-azjmgdif",
+  "br-aged-river-az1gke14",
+  "ep-sparkling-shape-az9gxtuh",
+  "billowing-wave-98815473",
+  "br-little-sky-auwkzocd",
+  "ep-wispy-star-auleq9jk",
+  "flat-brook-43278549",
+]);
 
 export class CanonicalNeonValidationError extends Error {
   constructor(code, message) {
@@ -582,31 +606,987 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
   };
 }
 
-export async function validateCanonicalNeon({ mode = "source", root = DEFAULT_ROOT } = {}) {
-  if (!VALID_MODES.has(mode)) fail("CANONICAL_NEON_UNKNOWN_MODE", `unknown mode: ${mode}`);
-  if (DATABASE_MODES.has(mode)) {
-    fail("CANONICAL_NEON_DATABASE_VALIDATION_UNAVAILABLE", `${mode} is fail-closed until Task 3 validates the independent Neon PostgreSQL 18 environment`);
+function assertExpectedTarget(target) {
+  if (!target || typeof target !== "object" || Array.isArray(target)) {
+    fail("CANONICAL_NEON_TARGET_REQUIRED", "exact canonical Neon target metadata is required");
   }
-  return validateCanonicalNeonSource({ root });
+  if (Object.values(target).some((value) => FORBIDDEN_NEON_TARGETS.has(String(value)))) {
+    fail("CANONICAL_NEON_TARGET_MISMATCH", "forbidden Neon target metadata");
+  }
+  for (const [key, expected] of Object.entries(EXPECTED_NEON_TARGET)) {
+    if (target[key] !== expected) {
+      fail("CANONICAL_NEON_TARGET_MISMATCH", `canonical Neon target ${key} mismatch`);
+    }
+  }
+}
+
+function parseConnectionTarget(connectionString, kind) {
+  let parsed;
+  try {
+    parsed = new URL(connectionString);
+  } catch {
+    fail(`CANONICAL_NEON_${kind.toUpperCase()}_CONNECTION_MISMATCH`, `${kind} connection is not a PostgreSQL URL`);
+  }
+  const code = `CANONICAL_NEON_${kind.toUpperCase()}_CONNECTION_MISMATCH`;
+  const endpointLabel = kind === "runtime"
+    ? `${EXPECTED_NEON_TARGET.endpointId}-pooler`
+    : EXPECTED_NEON_TARGET.endpointId;
+  const expectedRole = kind === "runtime" ? "hotel_ld_application" : EXPECTED_NEON_TARGET.bootstrapRole;
+  const decodedDatabase = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+  const unsafeSsl = new Set(["disable", "prefer", "allow", "no-verify"]);
+  if (
+    !/^postgres(?:ql)?:$/.test(parsed.protocol)
+    || !parsed.hostname.endsWith(".neon.tech")
+    || parsed.hostname.split(".")[0] !== endpointLabel
+    || decodeURIComponent(parsed.username) !== expectedRole
+    || !decodeURIComponent(parsed.password)
+    || decodedDatabase !== EXPECTED_NEON_TARGET.database
+    || unsafeSsl.has(parsed.searchParams.get("sslmode") ?? "")
+    || [...FORBIDDEN_NEON_TARGETS].some((id) => parsed.hostname.includes(id))
+  ) {
+    fail(code, `${kind} connection does not match the authorized canonical Neon target`);
+  }
+  return { kind, endpointId: EXPECTED_NEON_TARGET.endpointId, database: decodedDatabase, role: expectedRole };
+}
+
+function stripModuleTransactionFrame(source, path) {
+  const framed = source.match(/^\s*begin\s*;([\s\S]*?)commit\s*;\s*$/i);
+  if (!framed) {
+    fail("CANONICAL_NEON_MODULE_TRANSACTION_FRAME", `${path} must have exactly one validated leading BEGIN and trailing COMMIT frame`);
+  }
+  return framed[1].trim();
+}
+
+async function loadDatabaseBundle(root) {
+  const canonicalRoot = resolve(root);
+  const manifest = await loadManifest(canonicalRoot);
+  const modules = validateManifest(manifest);
+  const sources = await Promise.all(modules.map(async ({ path }) => ({
+    path,
+    source: stripModuleTransactionFrame(await readFile(join(canonicalRoot, path), "utf8"), path),
+  })));
+  return { manifest, modules: sources };
+}
+
+const TARGET_IDENTITY_SQL = `
+  /* canonical_target_identity */
+  select
+    pg_catalog.current_setting('server_version_num')::integer as server_version_num,
+    current_database() as database_name,
+    database_owner.rolname as database_owner,
+    current_user as current_role,
+    session_user as session_role
+  from pg_catalog.pg_database as database_record
+  join pg_catalog.pg_roles as database_owner on database_owner.oid = database_record.datdba
+  where database_record.datname = current_database()
+`;
+
+const EMPTY_STATE_SQL = `
+  /* canonical_empty_state */
+  select
+    (select count(*)::integer from pg_catalog.pg_class as relation
+      join pg_catalog.pg_namespace as namespace on namespace.oid = relation.relnamespace
+      where namespace.nspname in ('public','app_private')
+        and relation.relkind in ('r','p'))
+    + (select count(*)::integer from pg_catalog.pg_proc as routine
+          join pg_catalog.pg_namespace as namespace on namespace.oid = routine.pronamespace
+          where namespace.nspname = 'app_private')
+      + (select count(*)::integer from pg_catalog.pg_type as data_type
+          join pg_catalog.pg_namespace as namespace on namespace.oid = data_type.typnamespace
+          where namespace.nspname in ('public','app_private') and data_type.typtype = 'e')
+      + (select count(*)::integer from pg_catalog.pg_namespace where nspname='app_private')
+      as application_object_count,
+    (select count(*)::integer from pg_catalog.pg_roles
+      where rolname in ('hotel_ld_application','hotel_ld_migration_owner')) as canonical_role_count,
+    (select count(*)::integer from pg_catalog.pg_namespace
+      where nspname in ('auth','storage')) as forbidden_schema_count,
+    0::integer as application_row_count,
+    (select count(*)::integer from pg_catalog.pg_proc as routine
+      join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+      where namespace.nspname='public') as provider_routine_count
+`;
+
+function expectedCatalogCounts(manifest, modules) {
+  const source = modules.map(({ source }) => source).join("\n");
+  return {
+    schema_count: asStringArray(manifest, "schemas").length,
+    type_count: asStringArray(manifest, "types").length,
+    table_count: asStringArray(manifest, "tables").length,
+    routine_count: asStringArray(manifest, "routines").length,
+    entrypoint_count: asStringArray(manifest, "entrypoints").length,
+    policy_count: [...source.matchAll(/\bcreate\s+policy\b/gi)].length,
+    trigger_count: asStringArray(manifest, "triggers").length,
+    rls_table_count: asStringArray(manifest, "tables").length,
+    application_row_count: 0,
+    audit_row_count: 0,
+  };
+}
+
+const CATALOG_BOOLEAN_FIELDS = [
+  "roles_exact",
+  "runtime_role_restricted",
+  "migration_role_restricted",
+  "runtime_memberships_empty",
+  "runtime_owns_nothing",
+  "migration_owner_owns_all",
+  "schemas_exact",
+  "types_exact",
+  "tables_exact",
+  "routines_exact",
+  "entrypoints_exact",
+  "policies_exact",
+  "triggers_exact",
+  "rls_exact",
+  "runtime_raw_privileges_empty",
+  "runtime_private_schema_denied",
+  "runtime_entrypoints_exact",
+  "definers_hardened",
+  "audit_append_only",
+  "exclusions_absent",
+  "rows_empty",
+];
+
+const CATALOG_MATRIX_SQL = `
+  /* canonical_catalog_matrix */
+  with expected as (
+    select $1::text[] as schemas, $2::text[] as types, $3::text[] as tables,
+           $4::text[] as routines, $5::text[] as entrypoints,
+           $6::text[] as policies, $7::text[] as triggers, $8::text[] as audit_tables
+  ), actual as (
+    select
+      coalesce((select pg_catalog.array_agg(namespace.nspname::text order by namespace.nspname)
+        from pg_catalog.pg_namespace as namespace
+        where namespace.nspname !~ '^pg_' and namespace.nspname <> 'information_schema'), '{}'::text[]) as schemas,
+      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||data_type.typname order by namespace.nspname,data_type.typname)
+        from pg_catalog.pg_type as data_type join pg_catalog.pg_namespace as namespace on namespace.oid=data_type.typnamespace
+        where namespace.nspname in ('public','app_private') and data_type.typtype='e'), '{}'::text[]) as types,
+      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||relation.relname order by namespace.nspname,relation.relname)
+        from pg_catalog.pg_class as relation join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+        where namespace.nspname in ('public','app_private') and relation.relkind in ('r','p')), '{}'::text[]) as tables,
+      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||routine.proname order by namespace.nspname,routine.proname)
+        from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+        where namespace.nspname in ('public','app_private')), '{}'::text[]) as routines,
+      coalesce((select pg_catalog.array_agg(
+          namespace.nspname||'.'||routine.proname||'('||pg_catalog.replace(pg_catalog.oidvectortypes(routine.proargtypes),' ','')||')'
+          order by namespace.nspname,routine.proname,pg_catalog.oidvectortypes(routine.proargtypes))
+        from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+        where namespace.nspname='public'), '{}'::text[]) as entrypoints,
+      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||relation.relname||':'||policy.polname order by namespace.nspname,relation.relname,policy.polname)
+        from pg_catalog.pg_policy as policy join pg_catalog.pg_class as relation on relation.oid=policy.polrelid
+        join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+        where namespace.nspname in ('public','app_private')), '{}'::text[]) as policies,
+      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||relation.relname||':'||trigger.tgname order by namespace.nspname,relation.relname,trigger.tgname)
+        from pg_catalog.pg_trigger as trigger join pg_catalog.pg_class as relation on relation.oid=trigger.tgrelid
+        join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+        where namespace.nspname in ('public','app_private') and not trigger.tgisinternal), '{}'::text[]) as triggers
+  )
+  select
+    pg_catalog.cardinality(actual.schemas)::integer as schema_count,
+    pg_catalog.cardinality(actual.types)::integer as type_count,
+    pg_catalog.cardinality(actual.tables)::integer as table_count,
+    pg_catalog.cardinality(actual.routines)::integer as routine_count,
+    pg_catalog.cardinality(actual.entrypoints)::integer as entrypoint_count,
+    pg_catalog.cardinality(actual.policies)::integer as policy_count,
+    pg_catalog.cardinality(actual.triggers)::integer as trigger_count,
+    (select count(*)::integer from pg_catalog.pg_class as relation
+      join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+      where namespace.nspname in ('public','app_private') and relation.relkind in ('r','p')
+        and relation.relrowsecurity and relation.relforcerowsecurity) as rls_table_count,
+    0::integer as application_row_count,
+    0::integer as audit_row_count,
+    ((select count(*) from pg_catalog.pg_roles where rolname in ('hotel_ld_application','hotel_ld_migration_owner'))=2) as roles_exact,
+    coalesce((select role_record.rolcanlogin and not role_record.rolinherit and not role_record.rolsuper
+      and not role_record.rolbypassrls and not role_record.rolcreatedb and not role_record.rolcreaterole
+      and not role_record.rolreplication from pg_catalog.pg_roles as role_record where role_record.rolname='hotel_ld_application'),false)
+      as runtime_role_restricted,
+    coalesce((select not role_record.rolcanlogin and not role_record.rolinherit and not role_record.rolsuper
+      and not role_record.rolbypassrls and not role_record.rolcreatedb and not role_record.rolcreaterole
+      and not role_record.rolreplication from pg_catalog.pg_roles as role_record where role_record.rolname='hotel_ld_migration_owner'),false)
+      as migration_role_restricted,
+    not exists(select 1 from pg_catalog.pg_auth_members as membership join pg_catalog.pg_roles as member_role on member_role.oid=membership.member
+      where member_role.rolname='hotel_ld_application') as runtime_memberships_empty,
+    not exists(
+      select 1 from pg_catalog.pg_database as database_record join pg_catalog.pg_roles as owner_role on owner_role.oid=database_record.datdba where owner_role.rolname='hotel_ld_application'
+      union all select 1 from pg_catalog.pg_namespace as namespace join pg_catalog.pg_roles as owner_role on owner_role.oid=namespace.nspowner where owner_role.rolname='hotel_ld_application'
+      union all select 1 from pg_catalog.pg_class as relation join pg_catalog.pg_roles as owner_role on owner_role.oid=relation.relowner where owner_role.rolname='hotel_ld_application'
+      union all select 1 from pg_catalog.pg_type as data_type join pg_catalog.pg_roles as owner_role on owner_role.oid=data_type.typowner where owner_role.rolname='hotel_ld_application'
+      union all select 1 from pg_catalog.pg_proc as routine join pg_catalog.pg_roles as owner_role on owner_role.oid=routine.proowner where owner_role.rolname='hotel_ld_application'
+    ) as runtime_owns_nothing,
+    not exists(
+      select 1 from pg_catalog.unnest(expected.schemas) as item(value)
+        left join pg_catalog.pg_namespace as namespace on namespace.nspname=item.value
+        left join pg_catalog.pg_roles as owner_role on owner_role.oid=namespace.nspowner
+        where owner_role.rolname is distinct from 'hotel_ld_migration_owner'
+      union all select 1 from pg_catalog.unnest(expected.tables) as item(value)
+        left join pg_catalog.pg_class as relation on relation.oid=pg_catalog.to_regclass(item.value)
+        left join pg_catalog.pg_roles as owner_role on owner_role.oid=relation.relowner
+        where owner_role.rolname is distinct from 'hotel_ld_migration_owner'
+      union all select 1 from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+        join pg_catalog.pg_roles as owner_role on owner_role.oid=routine.proowner
+        where namespace.nspname in ('public','app_private') and owner_role.rolname<>'hotel_ld_migration_owner'
+      union all select 1 from pg_catalog.pg_type as data_type join pg_catalog.pg_namespace as namespace on namespace.oid=data_type.typnamespace
+        join pg_catalog.pg_roles as owner_role on owner_role.oid=data_type.typowner
+        where namespace.nspname in ('public','app_private') and data_type.typtype='e' and owner_role.rolname<>'hotel_ld_migration_owner'
+    ) as migration_owner_owns_all,
+    actual.schemas=expected.schemas as schemas_exact,
+    actual.types=expected.types as types_exact,
+    actual.tables=expected.tables as tables_exact,
+    actual.routines=expected.routines as routines_exact,
+    actual.entrypoints=expected.entrypoints as entrypoints_exact,
+    actual.policies=expected.policies as policies_exact,
+    actual.triggers=expected.triggers as triggers_exact,
+    not exists(select 1 from pg_catalog.unnest(expected.tables) as item(value)
+      join pg_catalog.pg_class as relation on relation.oid=pg_catalog.to_regclass(item.value)
+      where not relation.relrowsecurity or not relation.relforcerowsecurity) as rls_exact,
+    not exists(select 1 from pg_catalog.pg_class as relation join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+      where namespace.nspname in ('public','app_private') and relation.relkind in ('r','p','S')
+        and (pg_catalog.has_table_privilege('hotel_ld_application',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+          or pg_catalog.has_any_column_privilege('hotel_ld_application',relation.oid,'SELECT,INSERT,UPDATE,REFERENCES'))) as runtime_raw_privileges_empty,
+    not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','USAGE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','CREATE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_application','public','CREATE') as runtime_private_schema_denied,
+    coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||routine.proname||'('||pg_catalog.replace(pg_catalog.oidvectortypes(routine.proargtypes),' ','')||')'
+      order by namespace.nspname,routine.proname,pg_catalog.oidvectortypes(routine.proargtypes))
+      from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+      where namespace.nspname='public' and pg_catalog.has_function_privilege('hotel_ld_application',routine.oid,'EXECUTE')), '{}'::text[])=expected.entrypoints
+      as runtime_entrypoints_exact,
+    not exists(select 1 from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+      join pg_catalog.pg_roles as owner_role on owner_role.oid=routine.proowner
+      where namespace.nspname='public' and (owner_role.rolname<>'hotel_ld_migration_owner' or not routine.prosecdef
+        or routine.proconfig is distinct from array['search_path=""']::text[]
+        or pg_catalog.has_function_privilege('public',routine.oid,'EXECUTE')))
+      as definers_hardened,
+    not exists(select 1 from pg_catalog.unnest(expected.audit_tables) as item(value)
+      where not exists(select 1 from pg_catalog.pg_trigger as trigger
+        where trigger.tgrelid=pg_catalog.to_regclass(item.value) and not trigger.tgisinternal
+          and pg_catalog.pg_get_triggerdef(trigger.oid) ilike '% BEFORE %'
+          and pg_catalog.pg_get_triggerdef(trigger.oid) ilike '% UPDATE %'
+          and pg_catalog.pg_get_triggerdef(trigger.oid) ilike '% DELETE %')) as audit_append_only,
+    not exists(select 1 from pg_catalog.pg_namespace where nspname in ('auth','storage'))
+      and not exists(select 1 from pg_catalog.pg_roles where rolname in ('authenticated','anon','service_role','supabase_admin','dashboard_user','hotel_ld_people_read','hotel_ld_readonly'))
+      and not exists(select 1 from pg_catalog.pg_class as relation join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+        where namespace.nspname in ('public','app_private') and relation.relname ~* '(import|provenance|commit|revert|compatibility|bridge|reset)')
+      and not exists(select 1 from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+        where namespace.nspname in ('public','app_private') and routine.proname ~* '(import|provenance|commit|revert|compatibility|bridge|reset)')
+      as exclusions_absent,
+    true as rows_empty
+  from expected cross join actual
+`;
+
+function catalogInventories(bundle) {
+  const source = bundle.modules.map(({ source }) => source).join("\n");
+  const descriptorInventory = (expression) => orderedUnique(
+    [...source.matchAll(expression)].map((match) => `${normalizeIdentifier(match[2])}:${normalizeIdentifier(match[1])}`),
+  );
+  return [
+    asStringArray(bundle.manifest, "schemas").sort(),
+    asStringArray(bundle.manifest, "types").sort(),
+    asStringArray(bundle.manifest, "tables").sort(),
+    asStringArray(bundle.manifest, "routines").sort(),
+    asStringArray(bundle.manifest, "entrypointSignatures").map((value) => value.replace(/\s+/g, "")).sort(),
+    descriptorInventory(/\bcreate\s+policy\s+([a-z_][a-z0-9_]*)\s+on\s+((?:[a-z_][a-z0-9_]*\.)[a-z_][a-z0-9_]*)/gi),
+    descriptorInventory(/\bcreate\s+(?:constraint\s+)?trigger\s+([a-z_][a-z0-9_]*)[\s\S]*?\bon\s+((?:[a-z_][a-z0-9_]*\.)[a-z_][a-z0-9_]*)\s+for\s+each\s+row/gi),
+    asStringArray(bundle.manifest, "tables").filter((value) => value.startsWith("app_private.")).sort(),
+  ];
+}
+
+function assertBootstrapIdentity(row) {
+  if (
+    Math.trunc(Number(row?.server_version_num) / 10_000) !== EXPECTED_NEON_TARGET.postgresMajor
+    || row?.database_name !== EXPECTED_NEON_TARGET.database
+    || row?.database_owner !== EXPECTED_NEON_TARGET.bootstrapRole
+    || row?.current_role !== EXPECTED_NEON_TARGET.bootstrapRole
+    || row?.session_role !== EXPECTED_NEON_TARGET.bootstrapRole
+  ) {
+    fail("CANONICAL_NEON_DATABASE_IDENTITY_MISMATCH", "connected database identity does not match the authorized PostgreSQL 18 bootstrap target");
+  }
+}
+
+function assertRuntimeIdentity(row) {
+  if (
+    Math.trunc(Number(row?.server_version_num) / 10_000) !== EXPECTED_NEON_TARGET.postgresMajor
+    || row?.database_name !== EXPECTED_NEON_TARGET.database
+    || row?.database_owner !== EXPECTED_NEON_TARGET.bootstrapRole
+    || row?.current_role !== "hotel_ld_application"
+    || row?.session_role !== "hotel_ld_application"
+  ) {
+    fail("CANONICAL_NEON_RUNTIME_IDENTITY_MISMATCH", "pooled runtime identity is not the canonical application role on PostgreSQL 18");
+  }
+}
+
+function assertEmptyState(row) {
+  const requiredZero = [
+    "application_object_count",
+    "canonical_role_count",
+    "forbidden_schema_count",
+    "application_row_count",
+    "provider_routine_count",
+  ];
+  if (!row || requiredZero.some((key) => Number(row[key]) !== 0)) {
+    fail("CANONICAL_NEON_EMPTY_BASELINE_REQUIRED", "canonical install requires and must restore an empty baseline");
+  }
+}
+
+function assertCatalogMatrix(row, expected) {
+  const countDrift = Object.entries(expected).filter(([key, value]) => Number(row?.[key]) !== value);
+  const verdictDrift = CATALOG_BOOLEAN_FIELDS.filter((key) => row?.[key] !== true);
+  if (countDrift.length || verdictDrift.length) {
+    fail("CANONICAL_NEON_CATALOG_DRIFT", `catalog validation failed (${[...countDrift.map(([key]) => key), ...verdictDrift].join(", ")})`);
+  }
+}
+
+async function defaultPool(connectionString) {
+  const { Pool } = await import("pg");
+  return new Pool({
+    connectionString,
+    ssl: { rejectUnauthorized: true },
+    enableChannelBinding: true,
+    max: 6,
+    connectionTimeoutMillis: 10_000,
+  });
+}
+
+function runtimeAssert(condition, code) {
+  if (!condition) fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", code);
+}
+
+export async function runCanonicalRuntimeStage(stage, action) {
+  if (!/^[a-z][a-z0-9-]{1,63}$/.test(stage) || typeof action !== "function") {
+    fail("CANONICAL_NEON_RUNTIME_STAGE_INVALID", "runtime stage must be a stable lowercase identifier");
+  }
+  try {
+    return await action();
+  } catch (error) {
+    if (error?.code === "CANONICAL_NEON_RUNTIME_STAGE_FAILED") throw error;
+    const code = typeof error?.code === "string" && /^[A-Z0-9_]{2,80}$/.test(error.code)
+      ? error.code
+      : "ERROR";
+    const message = typeof error?.message === "string" && /^[A-Z][A-Z0-9_:-]{1,160}$/.test(error.message)
+      ? error.message
+      : "REDACTED_RUNTIME_ERROR";
+    fail("CANONICAL_NEON_RUNTIME_STAGE_FAILED", `${stage}:${code}:${message}`);
+  }
+}
+
+function validationSeed() {
+  const id = () => randomUUID();
+  const suffix = id();
+  return {
+    tenantA: id(), propertyA: id(), domainA: id(),
+    tenantB: id(), propertyB: id(), domainB: id(),
+    managerProfile: id(), managerAuth: id(), managerAccount: id(),
+    adminProfile: id(), adminAuth: id(), adminAccount: id(),
+    managerRole: id(), adminRole: id(), managerAssignment: id(), adminAssignment: id(),
+    rootDepartment: id(), childDepartment: id(), otherDepartment: id(), trainerScope: id(),
+    positionFamily: id(), position: id(), positionAssignment: id(),
+    childEmployee: id(), otherEmployee: id(), childIdentifier: id(), otherIdentifier: id(),
+    hostnameA: `${suffix}.validation.invalid`,
+    hostnameB: `${id()}.validation.invalid`,
+  };
+}
+
+async function withBootstrapSeedPolicies(client, tables, context, action) {
+  await client.query("BEGIN");
+  let transactionOpen = true;
+  try {
+    await client.query("SET LOCAL ROLE hotel_ld_migration_owner");
+    await client.query(
+      `select
+        pg_catalog.set_config('app.actor_auth_user_id',$1::text,true),
+        pg_catalog.set_config('app.actor_property_id',$2::text,true),
+        pg_catalog.set_config('app.actor_request_id',$3::text,true)`,
+      [context.authUserId, context.propertyId, context.requestId],
+    );
+    for (const table of tables) {
+      runtimeAssert(/^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/.test(table), "RUNTIME_SEED_TABLE_INVALID");
+      await client.query(`create policy canonical_validation_owner_seed on ${table} for all to hotel_ld_migration_owner using (session_user='neondb_owner') with check (session_user='neondb_owner')`);
+    }
+    await action(client);
+    for (const table of [...tables].reverse()) {
+      await client.query(`drop policy canonical_validation_owner_seed on ${table}`);
+    }
+    await client.query("COMMIT");
+    transactionOpen = false;
+  } catch (error) {
+    if (transactionOpen) {
+      try { await client.query("ROLLBACK"); } catch { /* original error remains authoritative */ }
+    }
+    throw error;
+  }
+}
+
+async function createRuntimeSeed(bootstrapPool, bundle) {
+  const seed = validationSeed();
+  const publicTables = asStringArray(bundle.manifest, "tables").filter((table) => table.startsWith("public."));
+  const context = { authUserId: seed.managerAuth, propertyId: seed.propertyA, requestId: randomUUID() };
+  await runWithPool(bootstrapPool, async (client) => withBootstrapSeedPolicies(client, publicTables, context, async (database) => {
+    await database.query(`insert into public.tenants(id,code,name) values ($1,'validation-a','Validation A'),($2,'validation-b','Validation B')`, [seed.tenantA, seed.tenantB]);
+    await database.query(`insert into public.properties(id,tenant_id,code,name_zh,name_en) values ($1,$2,'validation-a','Validation A','Validation A'),($3,$4,'validation-b','Validation B','Validation B')`, [seed.propertyA, seed.tenantA, seed.propertyB, seed.tenantB]);
+    await database.query(`insert into public.property_domains(id,tenant_id,property_id,hostname) values ($1,$2,$3,$4),($5,$6,$7,$8)`, [seed.domainA, seed.tenantA, seed.propertyA, seed.hostnameA, seed.domainB, seed.tenantB, seed.propertyB, seed.hostnameB]);
+    await database.query(`insert into public.profiles(id,display_name,email) values ($1,'Validation Manager',null),($2,'Validation Department Admin',null)`, [seed.managerProfile, seed.adminProfile]);
+    await database.query(`insert into public.user_accounts(id,auth_user_id,user_id,tenant_id,property_id) values ($1,$2,$3,$4,$5),($6,$7,$8,$4,$5)`, [seed.managerAccount, seed.managerAuth, seed.managerProfile, seed.tenantA, seed.propertyA, seed.adminAccount, seed.adminAuth, seed.adminProfile]);
+    await database.query(`insert into public.tenant_memberships(tenant_id,user_id) values ($1,$2),($1,$3)`, [seed.tenantA, seed.managerProfile, seed.adminProfile]);
+    await database.query(`insert into public.property_memberships(tenant_id,property_id,user_id) values ($1,$2,$3),($1,$2,$4)`, [seed.tenantA, seed.propertyA, seed.managerProfile, seed.adminProfile]);
+    await database.query(`insert into public.roles(id,tenant_id,property_id,code,scope_level) values ($1,$2,$3,'property_ld_manager','property'),($4,$2,$3,'department_trainer','department')`, [seed.managerRole, seed.tenantA, seed.propertyA, seed.adminRole]);
+    await database.query(`insert into public.role_assignments(id,tenant_id,property_id,user_id,role_id) values ($1,$2,$3,$4,$5),($6,$2,$3,$7,$8)`, [seed.managerAssignment, seed.tenantA, seed.propertyA, seed.managerProfile, seed.managerRole, seed.adminAssignment, seed.adminProfile, seed.adminRole]);
+    await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,null,'department','root','Validation Root','Validation Root',1)`, [seed.rootDepartment, seed.tenantA, seed.propertyA]);
+    await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,$4,'team','child','Validation Child','Validation Child',2),($5,$2,$3,null,'department','other','Validation Other','Validation Other',3)`, [seed.childDepartment, seed.tenantA, seed.propertyA, seed.rootDepartment, seed.otherDepartment]);
+    await database.query(`insert into public.trainer_scopes(id,tenant_id,property_id,role_assignment_id,department_id,include_descendants) values ($1,$2,$3,$4,$5,true)`, [seed.trainerScope, seed.tenantA, seed.propertyA, seed.adminAssignment, seed.rootDepartment]);
+    await database.query(`insert into public.position_families(id,tenant_id,property_id,code,name_zh,name_en) values ($1,$2,$3,'validation-family','Validation Family','Validation Family')`, [seed.positionFamily, seed.tenantA, seed.propertyA]);
+    await database.query(`insert into public.positions(id,tenant_id,property_id,position_family_id,code,name_zh,name_en) values ($1,$2,$3,$4,'validation-position','Validation Position','Validation Position')`, [seed.position, seed.tenantA, seed.propertyA, seed.positionFamily]);
+    await database.query(`insert into public.position_department_assignments(id,tenant_id,property_id,position_id,department_id) values ($1,$2,$3,$4,$5)`, [seed.positionAssignment, seed.tenantA, seed.propertyA, seed.position, seed.childDepartment]);
+    await database.query(`insert into public.employees(id,tenant_id,property_id,employee_number,name_zh,department_id,position_id,position_family_id,employment_status) values ($1,$2,$3,'validation-child','Validation Child Employee',$4,$5,$6,'active'),($7,$2,$3,'validation-other','Validation Other Employee',$8,$5,$6,'active')`, [seed.childEmployee, seed.tenantA, seed.propertyA, seed.childDepartment, seed.position, seed.positionFamily, seed.otherEmployee, seed.otherDepartment]);
+    await database.query(`insert into public.employee_external_identifiers(id,tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary) values ($1,$2,$3,$4,'validation','other','validation-child',true),($5,$2,$3,$6,'validation','other','validation-other',true)`, [seed.childIdentifier, seed.tenantA, seed.propertyA, seed.childEmployee, seed.otherIdentifier, seed.otherEmployee]);
+  }));
+  return seed;
+}
+
+async function cleanupRuntimeSeed(bootstrapPool, bundle, seed) {
+  const publicTables = asStringArray(bundle.manifest, "tables").filter((table) => table.startsWith("public."));
+  const context = { authUserId: seed.managerAuth, propertyId: seed.propertyA, requestId: randomUUID() };
+  await runWithPool(bootstrapPool, async (client) => withBootstrapSeedPolicies(client, publicTables, context, async (database) => {
+    const tenantTables = [
+      "public.employee_external_identifiers", "public.employees", "public.position_department_assignments",
+      "public.position_aliases", "public.positions", "public.position_families", "public.operational_unit_aliases",
+      "public.operational_units", "public.department_aliases", "public.trainer_scopes", "public.department_closure",
+      "public.departments", "public.role_assignments", "public.roles", "public.property_memberships",
+      "public.tenant_memberships", "public.user_accounts", "public.property_domains", "public.properties",
+    ];
+    for (const table of tenantTables) await database.query(`delete from ${table} where tenant_id=any($1::uuid[])`, [[seed.tenantA, seed.tenantB]]);
+    await database.query("delete from public.profiles where id=any($1::uuid[])", [[seed.managerProfile, seed.adminProfile]]);
+    await database.query("delete from public.tenants where id=any($1::uuid[])", [[seed.tenantA, seed.tenantB]]);
+  }));
+}
+
+class RuntimeRollback extends Error {
+  constructor(value) { super("CANONICAL_RUNTIME_ROLLBACK"); this.value = value; }
+}
+
+async function rolledBackActor(withActor, input, pool, action) {
+  try {
+    await withActor(input, async (database) => { throw new RuntimeRollback(await action(database)); }, pool);
+  } catch (error) {
+    if (error instanceof RuntimeRollback) return error.value;
+    throw error;
+  }
+  fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", "RUNTIME_ROLLBACK_SENTINEL_MISSING");
+}
+
+async function expectedRuntimeFailure(action, acceptedCodes = []) {
+  try {
+    await action();
+  } catch (error) {
+    if (acceptedCodes.length === 0 || acceptedCodes.includes(error?.code) || acceptedCodes.some((code) => error?.message?.includes(code))) return error;
+    throw error;
+  }
+  fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", "EXPECTED_RUNTIME_DENIAL_MISSING");
+}
+
+function actor(seed, kind = "manager", propertyId = seed.propertyA) {
+  return {
+    authUserId: kind === "manager" ? seed.managerAuth : seed.adminAuth,
+    propertyId,
+    requestId: randomUUID(),
+  };
+}
+
+function smokeValue(type, index, seed) {
+  if (type === "text") return index === 0 ? seed.hostnameA : "validation";
+  if (type === "uuid") return randomUUID();
+  if (type === "uuid[]") return [];
+  if (type === "bigint" || type === "integer") return 0;
+  if (type === "boolean") return false;
+  if (type === "date") return null;
+  if (type === "jsonb") return [];
+  fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", `UNSUPPORTED_SMOKE_TYPE_${type}`);
+}
+
+export function runtimeEntrypointQuery(manifest, signature, values) {
+  const normalized = normalizeIdentifier(signature).replace(/\s+/g, "");
+  const declared = new Set(asStringArray(manifest, "entrypointSignatures").map((value) => value.replace(/\s+/g, "")));
+  if (!declared.has(normalized)) {
+    fail("CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT", "runtime query signature is not declared by the canonical manifest");
+  }
+  const match = normalized.match(/^([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\((.*)\)$/);
+  if (!match) fail("CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT", "runtime query signature is invalid");
+  const types = match[2] ? match[2].split(",") : [];
+  if (!Array.isArray(values) || values.length !== types.length) {
+    fail("CANONICAL_NEON_ENTRYPOINT_ARGUMENT_DRIFT", "runtime query values must match the exact manifest signature");
+  }
+  return {
+    text: `select ${match[1]}(${types.map((type, index) => `$${index + 1}::${type}`).join(",")}) as payload`,
+    values,
+  };
+}
+
+async function smokeAllEntrypoints(withActor, runtimePool, seed, bundle) {
+  const smoked = new Set();
+  for (const signature of asStringArray(bundle.manifest, "entrypointSignatures")) {
+    const match = signature.match(/^([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\((.*)\)$/);
+    runtimeAssert(match, "ENTRYPOINT_SIGNATURE_INVALID");
+    const types = match[2] ? match[2].split(",") : [];
+    const parameters = types.map((type, index) => `$${index + 1}::${type}`).join(",");
+    const values = types.map((type, index) => smokeValue(type, index, seed));
+    try {
+      await rolledBackActor(withActor, actor(seed), runtimePool, (database) => database.query(`select ${match[1]}(${parameters}) as payload`, values));
+    } catch (error) {
+      if (["42883", "42P01", "3F000"].includes(error?.code) || /permission denied for function/i.test(error?.message ?? "")) throw error;
+    }
+    smoked.add(signature);
+  }
+  runtimeAssert(smoked.size === asStringArray(bundle.manifest, "entrypointSignatures").length, "ENTRYPOINT_SMOKE_INCOMPLETE");
+}
+
+async function runCanonicalRuntimeMatrix({ bootstrapPool, runtimePool, bundle }) {
+  const { withNeonActorContext, withNeonResolvedActorContext } = await import("../../app/lib/neon/actor-context.ts");
+  const seed = await runCanonicalRuntimeStage("seed-create", () => createRuntimeSeed(bootstrapPool, bundle));
+  try {
+    await runCanonicalRuntimeStage("actor-context-reuse", async () => {
+      const reusedClient = await runtimePool.connect();
+      const pinnedPool = {
+        async connect() {
+          return {
+            query: (...argumentsList) => reusedClient.query(...argumentsList),
+            release() { /* released once after both real helper calls */ },
+          };
+        },
+      };
+      try {
+        const committedActor = await withNeonActorContext(
+          actor(seed),
+          async (database) => (await database.query("select pg_catalog.current_setting('app.actor_auth_user_id') as actor")).rows[0].actor,
+          pinnedPool,
+        );
+        const afterCommitClear = (await reusedClient.query(`
+          select (
+            nullif(pg_catalog.btrim(pg_catalog.current_setting('app.actor_auth_user_id',true)),'') is null
+            and nullif(pg_catalog.btrim(pg_catalog.current_setting('app.actor_property_id',true)),'') is null
+            and nullif(pg_catalog.btrim(pg_catalog.current_setting('app.actor_request_id',true)),'') is null
+          ) as after_commit_clear
+        `)).rows[0].after_commit_clear;
+        const rolledBackActorId = await rolledBackActor(
+          withNeonActorContext,
+          actor(seed, "admin"),
+          pinnedPool,
+          async (database) => (await database.query("select pg_catalog.current_setting('app.actor_auth_user_id') as actor")).rows[0].actor,
+        );
+        const afterRollbackClear = (await reusedClient.query(`
+          select (
+            nullif(pg_catalog.btrim(pg_catalog.current_setting('app.actor_auth_user_id',true)),'') is null
+            and nullif(pg_catalog.btrim(pg_catalog.current_setting('app.actor_property_id',true)),'') is null
+            and nullif(pg_catalog.btrim(pg_catalog.current_setting('app.actor_request_id',true)),'') is null
+          ) as after_rollback_clear
+        `)).rows[0].after_rollback_clear;
+        runtimeAssert(
+          committedActor === seed.managerAuth
+            && rolledBackActorId === seed.adminAuth
+            && afterCommitClear === true
+            && afterRollbackClear === true,
+          "RUNTIME_CONNECTION_REUSE_CLEANUP_FAILED",
+        );
+      } finally {
+        reusedClient.release();
+      }
+    });
+
+    const resolved = await runCanonicalRuntimeStage("resolved-actor", () => withNeonResolvedActorContext(
+      { authUserId: seed.managerAuth, requestId: randomUUID() },
+      async (database) => (await database.query("select property_id from public.resolve_neon_people_property($1::text)", [seed.hostnameA])).rows[0].property_id,
+      async (database) => (await database.query("select pg_catalog.current_setting('app.actor_property_id',true) as property_id")).rows[0].property_id,
+      runtimePool,
+    ));
+    runtimeAssert(resolved === seed.propertyA, "RESOLVED_ACTOR_CONTEXT_FAILED");
+
+    const managerReads = await runCanonicalRuntimeStage("manager-reads", () => rolledBackActor(withNeonActorContext, actor(seed), runtimePool, async (database) => {
+      const people = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_people_manager_directory(text,text,uuid,uuid,uuid,text,boolean,integer,integer)",
+        [seed.hostnameA, null, null, null, null, null, null, 100, 0],
+      ))).rows[0].payload;
+      const organization = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_organization_department_tree(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      const positions = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_positions(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      return { people, organization, positions };
+    }));
+    runtimeAssert(managerReads.people.rows.length === 2 && managerReads.organization.rows.length === 3 && managerReads.positions.rows.length === 1, "MANAGER_READ_SCOPE_FAILED");
+
+    const adminReads = await runCanonicalRuntimeStage("department-admin-reads", () => rolledBackActor(withNeonActorContext, actor(seed, "admin"), runtimePool, async (database) => {
+      const people = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_people_department_directory(text,text,integer,integer)",
+        [seed.hostnameA, null, 100, 0],
+      ))).rows[0].payload;
+      const organization = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_organization_department_tree(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      const positions = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_positions(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      return { people, organization, positions };
+    }));
+    runtimeAssert(adminReads.people.rows.length === 1 && adminReads.people.rows[0].department_id === seed.childDepartment, "DEPARTMENT_PEOPLE_SCOPE_FAILED");
+    runtimeAssert(adminReads.organization.rows.length === 2 && adminReads.positions.rows.length === 1, "DEPARTMENT_ORGANIZATION_POSITION_SCOPE_FAILED");
+
+    await runCanonicalRuntimeStage("scope-denials", async () => {
+      await expectedRuntimeFailure(
+        () => rolledBackActor(withNeonActorContext, actor(seed, "manager", seed.propertyB), runtimePool, (database) => database.query(runtimeEntrypointQuery(
+          bundle.manifest,
+          "public.read_neon_people_manager_facets(text)",
+          [seed.hostnameB],
+        ))),
+        ["42501", "NEON_PEOPLE_MANAGER_REQUIRED"],
+      );
+      await expectedRuntimeFailure(
+        () => withNeonResolvedActorContext(
+          { authUserId: seed.managerAuth, requestId: randomUUID() },
+          async (database) => {
+            const row = (await database.query("select property_id from public.resolve_neon_people_property($1::text)", [`${randomUUID()}.unknown.invalid`])).rows[0];
+            if (!row) throw new Error("UNKNOWN_PROPERTY_DENIED");
+            return row.property_id;
+          },
+          async () => null,
+          runtimePool,
+        ),
+        ["UNKNOWN_PROPERTY_DENIED"],
+      );
+    });
+
+    await runCanonicalRuntimeStage("rollback-writes", async () => {
+      await rolledBackActor(withNeonActorContext, actor(seed), runtimePool, (database) => database.query(
+        runtimeEntrypointQuery(
+          bundle.manifest,
+          "public.create_neon_organization_department(text,uuid,uuid,uuid,text,text,text,text,integer)",
+          [seed.hostnameA, seed.tenantA, seed.propertyA, null, "department", randomUUID(), "Validation Write", "Validation Write", 10],
+        ),
+      ));
+      await rolledBackActor(withNeonActorContext, actor(seed), runtimePool, (database) => database.query(
+        runtimeEntrypointQuery(
+          bundle.manifest,
+          "public.save_neon_position_family(text,uuid,uuid,uuid,bigint,text,text,text,text,integer,boolean)",
+          [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, randomUUID(), "Validation Write", "Validation Write", "Validation Write", 10, true],
+        ),
+      ));
+      await rolledBackActor(withNeonActorContext, actor(seed), runtimePool, (database) => database.query(
+        runtimeEntrypointQuery(
+          bundle.manifest,
+          "public.save_neon_employee_with_identifiers(text,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid,uuid,text,date,date,text,boolean,jsonb)",
+          [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, randomUUID(), "Validation Write", "Validation Write", seed.childDepartment, null, seed.position, seed.positionFamily, null, null, null, "active", true, JSON.stringify([])],
+        ),
+      ));
+    });
+
+    await runCanonicalRuntimeStage("conflict-atomicity", async () => {
+      await expectedRuntimeFailure(
+        () => rolledBackActor(withNeonActorContext, actor(seed), runtimePool, (database) => database.query(
+          runtimeEntrypointQuery(
+            bundle.manifest,
+            "public.save_neon_employee_with_identifiers(text,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid,uuid,text,date,date,text,boolean,jsonb)",
+            [seed.hostnameA, seed.tenantA, seed.propertyA, seed.childEmployee, 99, "validation-child", "Validation Child Employee", null, seed.childDepartment, null, seed.position, seed.positionFamily, null, null, null, "active", true, JSON.stringify([])],
+          ),
+        )),
+        ["40001", "NEON_EMPLOYEE_WRITE_STALE"],
+      );
+      await expectedRuntimeFailure(
+        () => rolledBackActor(withNeonActorContext, actor(seed), runtimePool, (database) => database.query(
+          runtimeEntrypointQuery(
+            bundle.manifest,
+            "public.save_neon_employee_with_identifiers(text,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid,uuid,text,date,date,text,boolean,jsonb)",
+            [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, randomUUID(), "Validation Conflict", null, seed.childDepartment, null, seed.position, seed.positionFamily, null, null, null, "active", true, JSON.stringify([{ source_system: "validation", identifier_type: "other", identifier_value: "validation-child", is_primary: true, is_active: true }])],
+          ),
+        )),
+        ["40001", "NEON_EMPLOYEE_WRITE_IDENTIFIER_CONFLICT"],
+      );
+    });
+
+    await runCanonicalRuntimeStage("raw-access-denials", async () => {
+      const rawClient = await runtimePool.connect();
+      try {
+        for (const sql of [
+          "select * from public.properties",
+          "insert into public.tenants(id,code,name) values (pg_catalog.gen_random_uuid(),'denied','denied')",
+          "update public.tenants set name='denied'",
+          "delete from public.tenants",
+          "select app_private.current_actor_auth_user_id()",
+        ]) await expectedRuntimeFailure(() => rawClient.query(sql), ["42501"]);
+      } finally {
+        rawClient.release();
+      }
+    });
+
+    const isolated = await runCanonicalRuntimeStage("concurrent-isolation", () => Promise.all([
+      withNeonActorContext(actor(seed), async (database) => (await database.query("select pg_catalog.current_setting('app.actor_auth_user_id') as actor,pg_catalog.pg_sleep(0.05)")).rows[0].actor, runtimePool),
+      withNeonActorContext(actor(seed, "admin"), async (database) => (await database.query("select pg_catalog.current_setting('app.actor_auth_user_id') as actor,pg_catalog.pg_sleep(0.05)")).rows[0].actor, runtimePool),
+    ]));
+    runtimeAssert(new Set(isolated).size === 2 && isolated.includes(seed.managerAuth) && isolated.includes(seed.adminAuth), "CONCURRENT_ACTOR_ISOLATION_FAILED");
+
+    await runCanonicalRuntimeStage("entrypoint-smoke", () => smokeAllEntrypoints(withNeonActorContext, runtimePool, seed, bundle));
+    return {
+      actorContext: "PASS", resolvedActorContext: "PASS", managerReads: "PASS",
+      departmentAdminScope: "PASS", crossScopeDenials: "PASS", rollbackWrites: "PASS",
+      conflictAtomicity: "PASS", rawAccessDenied: "PASS", concurrentIsolation: "PASS", cleanup: "PASS",
+    };
+  } finally {
+    await runCanonicalRuntimeStage("seed-cleanup", () => cleanupRuntimeSeed(bootstrapPool, bundle, seed));
+  }
+}
+
+function resolvedDependencies(overrides = {}) {
+  return {
+    createBootstrapPool: (connectionString) => defaultPool(connectionString),
+    createRuntimePool: (connectionString) => defaultPool(connectionString),
+    randomPassword: () => randomBytes(36).toString("base64url"),
+    runRuntimeMatrix: runCanonicalRuntimeMatrix,
+    ...overrides,
+  };
+}
+
+async function closePool(pool) {
+  if (typeof pool?.end === "function") await pool.end();
+}
+
+async function runWithPool(pool, action) {
+  const client = await pool.connect();
+  try {
+    return await action(client);
+  } finally {
+    client.release();
+  }
+}
+
+async function readIdentity(client) {
+  const result = await client.query(TARGET_IDENTITY_SQL);
+  return result.rows[0];
+}
+
+async function readEmptyState(client) {
+  const result = await client.query(EMPTY_STATE_SQL);
+  return result.rows[0];
+}
+
+async function readCatalog(client, bundle) {
+  const inventories = catalogInventories(bundle);
+  const result = await client.query({ text: CATALOG_MATRIX_SQL, values: inventories });
+  const tables = inventories[2];
+  if (tables.some((value) => !/^[a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*$/.test(value))) {
+    fail("CANONICAL_NEON_INVALID_MANIFEST", "catalog row inventory contains an unsafe qualified identifier");
+  }
+  const rowResult = await client.query(`
+    /* canonical_row_counts */
+    ${tables.map((value) => {
+      const [schema, table] = value.split(".");
+      return `select '${schema}.${table}'::text as table_name, count(*)::bigint as row_count from "${schema}"."${table}"`;
+    }).join("\nunion all\n")}
+  `);
+  const auditTables = new Set(inventories[7]);
+  const row = result.rows[0];
+  row.application_row_count = rowResult.rows.reduce((sum, item) => sum + Number(item.row_count), 0);
+  row.audit_row_count = rowResult.rows.reduce((sum, item) => sum + (auditTables.has(item.table_name) ? Number(item.row_count) : 0), 0);
+  row.rows_empty = row.application_row_count === 0;
+  const expected = expectedCatalogCounts(bundle.manifest, bundle.modules);
+  assertCatalogMatrix(row, expected);
+  return expected;
+}
+
+async function executeInstall(client, bundle, { rollback }) {
+  await client.query("BEGIN");
+  let transactionOpen = true;
+  try {
+    assertEmptyState(await readEmptyState(client));
+    for (const module of bundle.modules) await client.query(module.source);
+    await client.query("RESET ROLE");
+    const counts = await readCatalog(client, bundle);
+    await client.query(rollback ? "ROLLBACK" : "COMMIT");
+    transactionOpen = false;
+    if (rollback) assertEmptyState(await readEmptyState(client));
+    return counts;
+  } catch (error) {
+    if (transactionOpen) {
+      try { await client.query("ROLLBACK"); } catch { /* connection close is the remaining safe action */ }
+    }
+    throw error;
+  }
+}
+
+async function provisionRuntimePassword(client, password) {
+  await client.query("BEGIN");
+  let transactionOpen = true;
+  try {
+    await client.query(
+      "select pg_catalog.set_config('app.canonical_runtime_password', $1::text, true)",
+      [password],
+    );
+    await client.query(`
+      do $password$
+      begin
+        execute pg_catalog.format(
+          'alter role %I password %L',
+          'hotel_ld_application',
+          pg_catalog.current_setting('app.canonical_runtime_password')
+        );
+      end
+      $password$
+    `);
+    await client.query("COMMIT");
+    transactionOpen = false;
+  } catch (error) {
+    if (transactionOpen) {
+      try { await client.query("ROLLBACK"); } catch { /* connection close is the remaining safe action */ }
+    }
+    throw error;
+  }
+}
+
+export async function validateCanonicalNeon({
+  mode = "source",
+  root = DEFAULT_ROOT,
+  target,
+  bootstrapConnectionString,
+  runtimeConnectionString,
+  runtimePassword,
+  dependencies,
+} = {}) {
+  if (!VALID_MODES.has(mode)) fail("CANONICAL_NEON_UNKNOWN_MODE", `unknown mode: ${mode}`);
+  const sourceResult = await validateCanonicalNeonSource({ root });
+  if (!DATABASE_MODES.has(mode)) return sourceResult;
+
+  assertExpectedTarget(target);
+  parseConnectionTarget(bootstrapConnectionString, "bootstrap");
+  if (mode === "runtime") parseConnectionTarget(runtimeConnectionString, "runtime");
+  const bundle = await loadDatabaseBundle(root);
+  const injected = resolvedDependencies(dependencies);
+
+  if (mode === "runtime") {
+    const bootstrapPool = await injected.createBootstrapPool(bootstrapConnectionString);
+    let runtimePool;
+    try {
+      runtimePool = await injected.createRuntimePool(runtimeConnectionString);
+      await runWithPool(bootstrapPool, async (client) => {
+        assertBootstrapIdentity(await readIdentity(client));
+        await readCatalog(client, bundle);
+      });
+      await runWithPool(runtimePool, async (client) => assertRuntimeIdentity(await readIdentity(client)));
+      const matrix = await injected.runRuntimeMatrix({ bootstrapPool, runtimePool, bundle });
+      await runWithPool(bootstrapPool, async (client) => await readCatalog(client, bundle));
+      return { mode, matrix, finalRowsZero: true };
+    } finally {
+      if (runtimePool) await closePool(runtimePool);
+      await closePool(bootstrapPool);
+    }
+  }
+
+  const pool = await injected.createBootstrapPool(bootstrapConnectionString);
+  try {
+    return await runWithPool(pool, async (client) => {
+      assertBootstrapIdentity(await readIdentity(client));
+      if (mode === "dry-run") {
+        return { mode, counts: await executeInstall(client, bundle, { rollback: true }), rolledBack: true };
+      }
+      if (mode === "catalog") {
+        return { mode, counts: await readCatalog(client, bundle), rowsEmpty: true };
+      }
+      if (mode === "apply") {
+        const counts = await executeInstall(client, bundle, { rollback: false });
+        await provisionRuntimePassword(client, runtimePassword ?? injected.randomPassword());
+        return { mode, counts, runtimeCredentialProvisioned: true };
+      }
+      const first = await executeInstall(client, bundle, { rollback: true });
+      const second = await executeInstall(client, bundle, { rollback: true });
+      if (JSON.stringify(first) !== JSON.stringify(second)) {
+        fail("CANONICAL_NEON_REPEATABILITY_DRIFT", "successive full dry-runs produced different catalog evidence");
+      }
+      const counts = await executeInstall(client, bundle, { rollback: false });
+      await provisionRuntimePassword(client, runtimePassword ?? injected.randomPassword());
+      await readCatalog(client, bundle);
+      return {
+        mode,
+        counts,
+        dryRuns: 2,
+        identical: true,
+        applied: true,
+        runtimeCredentialProvisioned: true,
+      };
+    });
+  } finally {
+    await closePool(pool);
+  }
 }
 
 function parseCli(argv) {
   const [mode = "source", ...rest] = argv;
   let root = DEFAULT_ROOT;
+  let credentialsStdin = false;
   for (let index = 0; index < rest.length; index += 1) {
     if (rest[index] === "--root" && rest[index + 1]) {
       root = rest[index + 1];
       index += 1;
+    } else if (rest[index] === "--credentials-stdin") {
+      credentialsStdin = true;
     } else {
       fail("CANONICAL_NEON_INVALID_ARGUMENT", `unknown argument: ${rest[index]}`);
     }
   }
-  return { mode, root };
+  return { mode, root, credentialsStdin };
+}
+
+function targetFromEnvironment(environment) {
+  const postgresMajor = Number.parseInt(environment.NEON_POSTGRES_MAJOR ?? "", 10);
+  return {
+    projectName: environment.NEON_PROJECT_NAME,
+    projectId: environment.NEON_PROJECT_ID,
+    branchName: environment.NEON_BRANCH_NAME,
+    branchId: environment.NEON_BRANCH_ID,
+    endpointId: environment.NEON_ENDPOINT_ID,
+    database: environment.PGDATABASE,
+    bootstrapRole: environment.NEON_BOOTSTRAP_ROLE,
+    postgresMajor,
+  };
+}
+
+async function credentialsFromStdin(enabled) {
+  if (!enabled) return {};
+  let parsed;
+  try {
+    const input = createInterface({ input: process.stdin, terminal: false });
+    let line;
+    for await (const candidate of input) {
+      line = candidate;
+      input.close();
+      break;
+    }
+    parsed = JSON.parse(line ?? "");
+  } catch {
+    fail("CANONICAL_NEON_CREDENTIAL_INPUT_INVALID", "credential stdin must be one valid JSON object");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    fail("CANONICAL_NEON_CREDENTIAL_INPUT_INVALID", "credential stdin must be one valid JSON object");
+  }
+  return {
+    bootstrapConnectionString: parsed.bootstrapConnectionString,
+    runtimeConnectionString: parsed.runtimeConnectionString,
+    runtimePassword: parsed.runtimePassword,
+  };
 }
 
 async function main() {
   try {
-    const result = await validateCanonicalNeon(parseCli(process.argv.slice(2)));
+    const parsed = parseCli(process.argv.slice(2));
+    const credentials = await credentialsFromStdin(parsed.credentialsStdin);
+    const result = await validateCanonicalNeon({
+      mode: parsed.mode,
+      root: parsed.root,
+      ...(DATABASE_MODES.has(parsed.mode) ? { target: targetFromEnvironment(process.env), ...credentials } : {}),
+    });
     process.stdout.write(`${JSON.stringify(result)}\n`);
   } catch (error) {
     const code = error instanceof CanonicalNeonValidationError ? error.code : "CANONICAL_NEON_VALIDATION_FAILED";

@@ -1,7 +1,5 @@
 import type { Pool, PoolClient } from "pg";
 
-import { createNeonPool } from "./server.ts";
-
 export type NeonQueryable = Pick<PoolClient, "query">;
 export type NeonPool = Pick<Pool, "connect">;
 
@@ -156,13 +154,13 @@ async function assertRuntimeRole(client: PoolClient) {
 export async function withNeonActorContext<T>(
   input: NeonActorInput,
   action: (database: NeonQueryable) => Promise<T>,
-  pool: NeonPool = createNeonPool(),
+  pool?: NeonPool,
 ): Promise<T> {
   return runNeonActorTransaction(
     input,
     async () => input.propertyId,
     action,
-    pool,
+    pool ?? (await loadDefaultNeonPool()),
     "BEGIN",
   );
 }
@@ -176,15 +174,20 @@ export async function withNeonResolvedActorContext<T>(
   input: NeonResolvedActorInput,
   resolvePropertyId: (database: NeonQueryable) => Promise<string>,
   action: (database: NeonQueryable) => Promise<T>,
-  pool: NeonPool = createNeonPool(),
+  pool?: NeonPool,
 ): Promise<T> {
   return runNeonActorTransaction(
     input,
     resolvePropertyId,
     action,
-    pool,
+    pool ?? (await loadDefaultNeonPool()),
     "BEGIN ISOLATION LEVEL REPEATABLE READ",
   );
+}
+
+async function loadDefaultNeonPool(): Promise<NeonPool> {
+  const { createNeonPool } = await import("./server.ts");
+  return createNeonPool();
 }
 
 async function runNeonActorTransaction<T>(

@@ -4,7 +4,6 @@ import { Pool, type PoolConfig } from "pg";
 
 let pool: Pool | null = null;
 
-const APPROVED_DEVELOPMENT_ENDPOINT_ID = "ep-sparkling-shape-az9gxtuh";
 const PRODUCTION_ENDPOINT_DENY_LIST = new Set([
   "ep-wild-wave-azjmgdif",
 ]);
@@ -54,9 +53,6 @@ function assertRuntimeConnection(connectionString: string, expectedEndpointId: s
   }
   if (PRODUCTION_ENDPOINT_DENY_LIST.has(expectedEndpointId)) {
     throw new Error("禁止连接 Production Neon endpoint");
-  }
-  if (expectedEndpointId !== APPROVED_DEVELOPMENT_ENDPOINT_ID) {
-    throw new Error("Neon endpoint 未列入当前 development allow-list");
   }
   const sslMode = parsed.searchParams.get("sslmode");
   if (["disable", "prefer", "no-verify"].includes(sslMode ?? "")) {
