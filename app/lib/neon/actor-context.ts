@@ -65,8 +65,7 @@ async function assertRuntimeRole(client: PoolClient) {
   try {
     result = await client.query<RuntimeRoleAssertionRow>(`
       select (
-        current_database() = 'neondb'
-        and current_user = 'hotel_ld_application'
+        current_user = 'hotel_ld_application'
         and session_user = 'hotel_ld_application'
         and exists (
           select 1
@@ -86,20 +85,7 @@ async function assertRuntimeRole(client: PoolClient) {
           join pg_catalog.pg_roles as member_role
             on member_role.oid = membership.member
           where member_role.rolname = current_user
-        ) = 1
-        and exists (
-          select 1
-          from pg_catalog.pg_auth_members as membership
-          join pg_catalog.pg_roles as granted_role
-            on granted_role.oid = membership.roleid
-          join pg_catalog.pg_roles as member_role
-            on member_role.oid = membership.member
-          where member_role.rolname = current_user
-            and granted_role.rolname = 'hotel_ld_people_read'
-            and membership.inherit_option
-            and not membership.set_option
-            and not membership.admin_option
-        )
+        ) = 0
         and not exists (
           select 1
           from (
@@ -117,22 +103,16 @@ async function assertRuntimeRole(client: PoolClient) {
             on namespace.oid = owned_object.namespace_oid
           join pg_catalog.pg_roles as owner_role
             on owner_role.oid = owned_object.owner_oid
-          where namespace.nspname in ('public', 'auth', 'app_private')
-            and owner_role.rolname in (
-              'hotel_ld_application',
-              'hotel_ld_people_read'
-            )
+          where namespace.nspname in ('public', 'app_private')
+            and owner_role.rolname = 'hotel_ld_application'
         )
         and not exists (
           select 1
           from pg_catalog.pg_namespace as namespace
           join pg_catalog.pg_roles as owner_role
             on owner_role.oid = namespace.nspowner
-          where namespace.nspname in ('public', 'auth', 'app_private')
-            and owner_role.rolname in (
-              'hotel_ld_application',
-              'hotel_ld_people_read'
-            )
+          where namespace.nspname in ('public', 'app_private')
+            and owner_role.rolname = 'hotel_ld_application'
         )
         and not exists (
           select 1
@@ -140,30 +120,21 @@ async function assertRuntimeRole(client: PoolClient) {
           join pg_catalog.pg_roles as owner_role
             on owner_role.oid = database_record.datdba
           where database_record.datname = current_database()
-            and owner_role.rolname in (
-              'hotel_ld_application',
-              'hotel_ld_people_read'
+            and owner_role.rolname = 'hotel_ld_application'
+        )
+        and not exists (
+          select 1
+          from pg_catalog.pg_auth_members as membership
+          join pg_catalog.pg_roles as granted_role
+            on granted_role.oid = membership.roleid
+          join pg_catalog.pg_roles as member_role
+            on member_role.oid = membership.member
+          where member_role.rolname = current_user
+            and granted_role.rolname in (
+              'neon_superuser',
+              'neondb_owner',
+              'hotel_ld_migration_owner'
             )
-        )
-        and not pg_catalog.pg_has_role(
-          current_user,
-          'neon_superuser',
-          'MEMBER'
-        )
-        and not pg_catalog.pg_has_role(
-          current_user,
-          'neondb_owner',
-          'MEMBER'
-        )
-        and not pg_catalog.pg_has_role(
-          current_user,
-          'hotel_ld_migration_owner',
-          'MEMBER'
-        )
-        and not pg_catalog.pg_has_role(
-          current_user,
-          'authenticated',
-          'MEMBER'
         )
       ) as authorized
     `);

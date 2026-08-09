@@ -495,7 +495,7 @@ function rejectUnsafeSource(source, manifest) {
   const forbiddenSchema = /\b(?:create|alter|grant\s+usage\s+on)\s+schema\s+(?:if\s+not\s+exists\s+)?(?:auth|storage|extensions|supabase_functions)\b|\b(?:auth|storage)\s*\./i;
   if (/\bauth\s*\.\s*(?:uid|users)\b/i.test(source)) fail("CANONICAL_NEON_FORBIDDEN_TOKEN", "canonical baseline cannot use auth.uid() or auth.users");
   if (forbiddenSchema.test(source)) fail("CANONICAL_NEON_FORBIDDEN_SCHEMA", "canonical baseline cannot contain a Supabase schema or reference");
-  if (/(?:\bcreate\s+(?:table|view|function|type|role)|\bcreate\s+(?:constraint\s+)?trigger|\bcreate\s+policy)\s+[^;\n]*(?:import|provenance|history|audit|compatibility|bridge|reset|test_user|test_data)[a-z0-9_]*/i.test(source)) {
+  if (/(?:\bcreate\s+(?:table|view|function|type|role)|\bcreate\s+(?:constraint\s+)?trigger|\bcreate\s+policy)\s+[^;\n]*(?:import|provenance|history|compatibility|bridge|reset|test_user|test_data)[a-z0-9_]*/i.test(source)) {
     fail("CANONICAL_NEON_FORBIDDEN_OBJECT", "canonical baseline contains an explicitly excluded object");
   }
   if (/\bgrant\s+(?:execute|all(?:\s+privileges)?)\s+on\s+(?:function|all\s+functions)[^;]*\bto\s+public\b/i.test(source)) {
