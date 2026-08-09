@@ -147,7 +147,7 @@ function managerEmployee(value: unknown): EmployeeRecord {
       row.probation_or_confirmation_date,
     ),
     employmentStatus: employmentStatus(row.employment_status),
-    isNewEmployee: boolean(row.is_new_employee),
+    isNewEmployee: nullableBoolean(row.is_new_employee),
     isActive: boolean(row.is_active),
     externalIdentifierTypes: array(row.external_identifier_types).map(string),
     version: nonNegativeNumber(row.version, "employee version"),
@@ -178,7 +178,7 @@ function departmentEmployee(value: unknown): EmployeeRecord {
       row.probation_or_confirmation_date,
     ),
     employmentStatus: employmentStatus(row.employment_status),
-    isNewEmployee: boolean(row.is_new_employee),
+    isNewEmployee: nullableBoolean(row.is_new_employee),
     isActive: boolean(row.is_active),
     externalIdentifierTypes: [],
     version: 0,
@@ -242,6 +242,10 @@ function nullableString(value: unknown): string | null {
 function boolean(value: unknown): boolean {
   if (typeof value !== "boolean") throw new Error("NEON_PEOPLE_PAYLOAD_INVALID:boolean");
   return value;
+}
+
+function nullableBoolean(value: unknown): boolean | null {
+  return value === null ? null : boolean(value);
 }
 
 function nonNegativeNumber(value: unknown, label: string): number {

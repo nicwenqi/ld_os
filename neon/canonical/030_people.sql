@@ -241,7 +241,7 @@ begin
     select 1
     from public.user_accounts account
     join public.role_assignments assignment on assignment.user_id = account.user_id and assignment.property_id = account.property_id and assignment.status = 'active'
-    join public.roles role on role.id = assignment.role_id and role.code = 'department_trainer' and role.is_active
+    join public.roles role on role.id = assignment.role_id and role.code = 'department_training_admin' and role.is_active
     join public.trainer_scopes scope on scope.role_assignment_id = assignment.id and scope.is_active
     where account.auth_user_id = app_private.current_actor_auth_user_id()
       and account.property_id = app_private.current_actor_property_id()
@@ -308,7 +308,7 @@ create function app_private.assert_neon_people_department()
 returns void language plpgsql stable security invoker set search_path = ''
 as $function$
 begin
-  if not app_private.neon_people_actor_has_role('department_trainer') then
+  if not app_private.neon_people_actor_has_role('department_training_admin') then
     raise exception using errcode = '42501', message = 'NEON_PEOPLE_DEPARTMENT_REQUIRED';
   end if;
 end
@@ -380,7 +380,7 @@ begin
       'position_id', position_id, 'position_name', position_name, 'position_family_id', position_family_id,
       'position_family_name', position_family_name, 'grade_or_band', grade_or_band, 'hire_date', hire_date,
       'probation_or_confirmation_date', probation_or_confirmation_date, 'employment_status', employment_status,
-      'is_new_employee', coalesce(hire_date >= current_date - 30, false), 'is_active', is_active,
+      'is_new_employee', null::boolean, 'is_active', is_active,
       'external_identifier_types', coalesce((select pg_catalog.jsonb_agg(x.identifier_type order by x.identifier_type) from public.employee_external_identifiers x where x.employee_id = paged.id and x.is_active), '[]'::jsonb),
       'version', version
     ) order by employee_number), '[]'::jsonb),
@@ -405,7 +405,7 @@ begin
     'operational_unit_id', e.operational_unit_id, 'operational_unit_name', u.name_zh, 'position_id', e.position_id,
     'position_name', p.name_zh, 'position_family_id', e.position_family_id, 'position_family_name', f.name_zh,
     'grade_or_band', e.grade_or_band, 'hire_date', e.hire_date, 'probation_or_confirmation_date', e.probation_or_confirmation_date,
-    'employment_status', e.employment_status, 'is_new_employee', coalesce(e.hire_date >= current_date - 30, false),
+    'employment_status', e.employment_status, 'is_new_employee', null::boolean,
     'is_active', e.is_active, 'external_identifier_types', coalesce((select pg_catalog.jsonb_agg(x.identifier_type order by x.identifier_type) from public.employee_external_identifiers x where x.employee_id=e.id and x.is_active),'[]'::jsonb), 'version', e.version
   ) into v_payload
   from public.employees e
@@ -453,7 +453,7 @@ begin
       and (p_query is null or e.employee_number ilike '%'||p_query||'%' or coalesce(e.name_zh,'') ilike '%'||p_query||'%')
   ), paged as (select * from scoped order by employee_number limit greatest(1,least(coalesce(p_limit,25),100)) offset greatest(coalesce(p_offset,0),0))
   select pg_catalog.jsonb_build_object(
-    'rows',coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('employee_number',employee_number,'name_zh',name_zh,'name_en',name_en,'department_id',department_id,'department_name',department_name,'operational_unit_id',operational_unit_id,'operational_unit_name',operational_unit_name,'position_id',position_id,'position_name',position_name,'position_family_id',position_family_id,'position_family_name',position_family_name,'hire_date',hire_date,'probation_or_confirmation_date',probation_or_confirmation_date,'employment_status',employment_status,'is_new_employee',coalesce(hire_date>=current_date-30,false),'is_active',is_active) order by employee_number),'[]'::jsonb),
+    'rows',coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('employee_number',employee_number,'name_zh',name_zh,'name_en',name_en,'department_id',department_id,'department_name',department_name,'operational_unit_id',operational_unit_id,'operational_unit_name',operational_unit_name,'position_id',position_id,'position_name',position_name,'position_family_id',position_family_id,'position_family_name',position_family_name,'hire_date',hire_date,'probation_or_confirmation_date',probation_or_confirmation_date,'employment_status',employment_status,'is_new_employee',null::boolean,'is_active',is_active) order by employee_number),'[]'::jsonb),
     'total',(select count(*) from scoped),
     'refreshed_at',pg_catalog.transaction_timestamp(),
     'scopes',coalesce((select pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object('department_id',d.id,'department_name_zh',d.name_zh,'department_name_en',d.name_en,'breadcrumb',d.path_names_zh,'breadcrumb_en',d.path_names_en,'include_descendants',s.include_descendants)) from public.user_accounts a join public.role_assignments ra on ra.user_id=a.user_id and ra.status='active' join public.trainer_scopes s on s.role_assignment_id=ra.id and s.is_active join public.departments d on d.id=s.department_id where a.auth_user_id=app_private.current_actor_auth_user_id() and a.property_id=app_private.current_actor_property_id()),'[]'::jsonb)

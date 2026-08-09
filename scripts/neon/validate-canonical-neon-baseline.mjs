@@ -1201,8 +1201,10 @@ function validationSeed() {
     adminProfile: id(), adminAuth: id(), adminAccount: id(),
     managerRole: id(), adminRole: id(), managerAssignment: id(), adminAssignment: id(),
     rootDepartment: id(), childDepartment: id(), otherDepartment: id(), trainerScope: id(),
-    operationalUnit: id(), departmentAlias: id(),
-    positionFamily: id(), position: id(), positionAssignment: id(), positionAlias: id(),
+    operationalUnit: id(), departmentAlias: id(), departmentAliasOutside: id(),
+    positionFamily: id(), unassignedPositionFamily: id(), outsidePositionFamily: id(),
+    position: id(), unassignedPosition: id(), outsidePosition: id(),
+    positionAssignment: id(), positionAssignmentOutside: id(), outsidePositionAssignment: id(), positionAlias: id(),
     childEmployee: id(), otherEmployee: id(), childIdentifier: id(), otherIdentifier: id(),
     hostnameA: `${suffix}.validation.invalid`,
     hostnameB: `${id()}.validation.invalid`,
@@ -1251,17 +1253,17 @@ async function createRuntimeSeed(bootstrapPool, bundle) {
     await database.query(`insert into public.user_accounts(id,auth_user_id,user_id,tenant_id,property_id) values ($1,$2,$3,$4,$5),($6,$7,$8,$4,$5)`, [seed.managerAccount, seed.managerAuth, seed.managerProfile, seed.tenantA, seed.propertyA, seed.adminAccount, seed.adminAuth, seed.adminProfile]);
     await database.query(`insert into public.tenant_memberships(tenant_id,user_id) values ($1,$2),($1,$3)`, [seed.tenantA, seed.managerProfile, seed.adminProfile]);
     await database.query(`insert into public.property_memberships(tenant_id,property_id,user_id) values ($1,$2,$3),($1,$2,$4)`, [seed.tenantA, seed.propertyA, seed.managerProfile, seed.adminProfile]);
-    await database.query(`insert into public.roles(id,tenant_id,property_id,code,scope_level) values ($1,$2,$3,'property_ld_manager','property'),($4,$2,$3,'department_trainer','department')`, [seed.managerRole, seed.tenantA, seed.propertyA, seed.adminRole]);
+    await database.query(`insert into public.roles(id,tenant_id,property_id,code,scope_level) values ($1,$2,$3,'property_ld_manager','property'),($4,$2,$3,'department_training_admin','department')`, [seed.managerRole, seed.tenantA, seed.propertyA, seed.adminRole]);
     await database.query(`insert into public.role_assignments(id,tenant_id,property_id,user_id,role_id) values ($1,$2,$3,$4,$5),($6,$2,$3,$7,$8)`, [seed.managerAssignment, seed.tenantA, seed.propertyA, seed.managerProfile, seed.managerRole, seed.adminAssignment, seed.adminProfile, seed.adminRole]);
     await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,null,'department','root','Validation Root','Validation Root',1)`, [seed.rootDepartment, seed.tenantA, seed.propertyA]);
     await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,$4,'team','child','Validation Child','Validation Child',2),($5,$2,$3,null,'department','other','Validation Other','Validation Other',3)`, [seed.childDepartment, seed.tenantA, seed.propertyA, seed.rootDepartment, seed.otherDepartment]);
     await database.query(`insert into public.operational_units(id,tenant_id,property_id,department_id,unit_type,code,name_zh,name_en) values ($1,$2,$3,$4,'other','validation-unit','Validation Unit','Validation Unit')`, [seed.operationalUnit, seed.tenantA, seed.propertyA, seed.childDepartment]);
-    await database.query(`insert into public.department_aliases(id,tenant_id,property_id,source_system,source_sheet,source_value,normalized_source_value,suggested_target_id) values ($1,$2,$3,'validation','fixture','Validation Department Alias','validation department alias',$4)`, [seed.departmentAlias, seed.tenantA, seed.propertyA, seed.childDepartment]);
+    await database.query(`insert into public.department_aliases(id,tenant_id,property_id,source_system,source_sheet,source_value,normalized_source_value,suggested_target_id) values ($1,$2,$3,'validation','fixture','Validation Department Alias','validation department alias',$4),($5,$2,$3,'validation','fixture','Validation Outside Alias','validation outside alias',$6)`, [seed.departmentAlias, seed.tenantA, seed.propertyA, seed.childDepartment, seed.departmentAliasOutside, seed.otherDepartment]);
     await database.query(`insert into public.trainer_scopes(id,tenant_id,property_id,role_assignment_id,department_id,include_descendants) values ($1,$2,$3,$4,$5,true)`, [seed.trainerScope, seed.tenantA, seed.propertyA, seed.adminAssignment, seed.rootDepartment]);
-    await database.query(`insert into public.position_families(id,tenant_id,property_id,code,name_zh,name_en) values ($1,$2,$3,'validation-family','Validation Family','Validation Family')`, [seed.positionFamily, seed.tenantA, seed.propertyA]);
-    await database.query(`insert into public.positions(id,tenant_id,property_id,position_family_id,code,name_zh,name_en) values ($1,$2,$3,$4,'validation-position','Validation Position','Validation Position')`, [seed.position, seed.tenantA, seed.propertyA, seed.positionFamily]);
+    await database.query(`insert into public.position_families(id,tenant_id,property_id,code,name_zh,name_en) values ($1,$2,$3,'validation-family','Validation Family','Validation Family'),($4,$2,$3,'validation-unassigned-family','Validation Unassigned Family','Validation Unassigned Family'),($5,$2,$3,'validation-outside-family','Validation Outside Family','Validation Outside Family')`, [seed.positionFamily, seed.tenantA, seed.propertyA, seed.unassignedPositionFamily, seed.outsidePositionFamily]);
+    await database.query(`insert into public.positions(id,tenant_id,property_id,position_family_id,code,name_zh,name_en) values ($1,$2,$3,$4,'validation-position','Validation Position','Validation Position'),($5,$2,$3,$6,'validation-unassigned-position','Validation Unassigned Position','Validation Unassigned Position'),($7,$2,$3,$8,'validation-outside-position','Validation Outside Position','Validation Outside Position')`, [seed.position, seed.tenantA, seed.propertyA, seed.positionFamily, seed.unassignedPosition, seed.unassignedPositionFamily, seed.outsidePosition, seed.outsidePositionFamily]);
     await database.query(`insert into public.position_aliases(id,tenant_id,property_id,source_system,source_sheet,source_value,normalized_source_value,suggested_position_id,suggested_family_id) values ($1,$2,$3,'validation','fixture','Validation Position Alias','validation position alias',$4,$5)`, [seed.positionAlias, seed.tenantA, seed.propertyA, seed.position, seed.positionFamily]);
-    await database.query(`insert into public.position_department_assignments(id,tenant_id,property_id,position_id,department_id) values ($1,$2,$3,$4,$5)`, [seed.positionAssignment, seed.tenantA, seed.propertyA, seed.position, seed.childDepartment]);
+    await database.query(`insert into public.position_department_assignments(id,tenant_id,property_id,position_id,department_id) values ($1,$2,$3,$4,$5),($6,$2,$3,$4,$7),($8,$2,$3,$9,$7)`, [seed.positionAssignment, seed.tenantA, seed.propertyA, seed.position, seed.childDepartment, seed.positionAssignmentOutside, seed.otherDepartment, seed.outsidePositionAssignment, seed.outsidePosition]);
     await database.query(`insert into public.employees(id,tenant_id,property_id,employee_number,name_zh,department_id,position_id,position_family_id,employment_status) values ($1,$2,$3,'validation-child','Validation Child Employee',$4,$5,$6,'active'),($7,$2,$3,'validation-other','Validation Other Employee',$8,$5,$6,'active')`, [seed.childEmployee, seed.tenantA, seed.propertyA, seed.childDepartment, seed.position, seed.positionFamily, seed.otherEmployee, seed.otherDepartment]);
     await database.query(`insert into public.employee_external_identifiers(id,tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary) values ($1,$2,$3,$4,'validation','other','validation-child',true),($5,$2,$3,$6,'validation','other','validation-other',true)`, [seed.childIdentifier, seed.tenantA, seed.propertyA, seed.childEmployee, seed.otherIdentifier, seed.otherEmployee]);
   }));
@@ -1304,6 +1306,16 @@ async function expectedRuntimeFailure(action, acceptedCodes = []) {
     await action();
   } catch (error) {
     if (acceptedCodes.length === 0 || acceptedCodes.includes(error?.code) || acceptedCodes.some((code) => error?.message?.includes(code))) return error;
+    throw error;
+  }
+  fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", "EXPECTED_RUNTIME_DENIAL_MISSING");
+}
+
+export async function expectRuntimeRejection(action, expectedCode, expectedMessage) {
+  try {
+    await action();
+  } catch (error) {
+    if (error?.code === expectedCode && error?.message === expectedMessage) return error;
     throw error;
   }
   fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", "EXPECTED_RUNTIME_DENIAL_MISSING");
@@ -1498,14 +1510,34 @@ async function runCanonicalRuntimeMatrix({ bootstrapPool, runtimePool, bundle })
         "public.read_neon_organization_department_tree(text)",
         [seed.hostnameA],
       ))).rows[0].payload;
+      const aliases = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_organization_department_aliases(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      const families = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_position_families(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
       const positions = (await database.query(runtimeEntrypointQuery(
         bundle.manifest,
         "public.read_neon_positions(text)",
         [seed.hostnameA],
       ))).rows[0].payload;
-      return { people, organization, positions };
+      return { people, organization, aliases, families, positions };
     }));
-    runtimeAssert(managerReads.people.rows.length === 2 && managerReads.organization.rows.length === 3 && managerReads.positions.rows.length === 1, "MANAGER_READ_SCOPE_FAILED");
+    const managerAssignedPosition = managerReads.positions.rows.find((row) => row.id === seed.position);
+    runtimeAssert(
+      managerReads.people.rows.length === 2
+        && managerReads.people.rows.every((row) => row.is_new_employee === null)
+        && managerReads.organization.rows.length === 3
+        && managerReads.aliases.rows.length === 2
+        && managerReads.families.rows.length === 3
+        && managerReads.positions.rows.length === 3
+        && managerAssignedPosition?.department_ids.length === 2,
+      "MANAGER_READ_SCOPE_FAILED",
+    );
 
     const adminReads = await runCanonicalRuntimeStage("department-admin-reads", () => rolledBackActor(withNeonActorContext, actor(seed, "admin"), runtimePool, async (database) => {
       const people = (await database.query(runtimeEntrypointQuery(
@@ -1518,17 +1550,42 @@ async function runCanonicalRuntimeMatrix({ bootstrapPool, runtimePool, bundle })
         "public.read_neon_organization_department_tree(text)",
         [seed.hostnameA],
       ))).rows[0].payload;
+      const aliases = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_organization_department_aliases(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      const families = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_position_families(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
       const positions = (await database.query(runtimeEntrypointQuery(
         bundle.manifest,
         "public.read_neon_positions(text)",
         [seed.hostnameA],
       ))).rows[0].payload;
-      return { people, organization, positions };
+      return { people, organization, aliases, families, positions };
     }));
-    runtimeAssert(adminReads.people.rows.length === 1 && adminReads.people.rows[0].department_id === seed.childDepartment, "DEPARTMENT_PEOPLE_SCOPE_FAILED");
-    runtimeAssert(adminReads.organization.rows.length === 2 && adminReads.positions.rows.length === 1, "DEPARTMENT_ORGANIZATION_POSITION_SCOPE_FAILED");
+    runtimeAssert(adminReads.people.rows.length === 1 && adminReads.people.rows[0].department_id === seed.childDepartment && adminReads.people.rows[0].is_new_employee === null, "DEPARTMENT_PEOPLE_SCOPE_FAILED");
+    runtimeAssert(adminReads.organization.rows.length === 2, "DEPARTMENT_ORGANIZATION_SCOPE_FAILED");
+    runtimeAssert(adminReads.aliases.rows.length === 2 && adminReads.aliases.rows.some((row) => row.id === seed.departmentAliasOutside), "DEPARTMENT_ALIAS_PROPERTY_WIDE_READ_FAILED");
+    const adminAssignedPosition = adminReads.positions.rows.find((row) => row.id === seed.position);
+    const adminUnassignedPosition = adminReads.positions.rows.find((row) => row.id === seed.unassignedPosition);
+    runtimeAssert(adminUnassignedPosition?.department_ids.length === 0 && !adminReads.positions.rows.some((row) => row.id === seed.outsidePosition), "DEPARTMENT_POSITION_UNASSIGNED_PARITY_FAILED");
+    runtimeAssert(adminAssignedPosition?.department_ids.length === 1 && adminAssignedPosition.department_ids[0] === seed.childDepartment, "DEPARTMENT_POSITION_ASSIGNMENT_PROJECTION_FAILED");
+    runtimeAssert(adminReads.families.rows.length === 2 && adminReads.families.rows.some((row) => row.id === seed.positionFamily) && adminReads.families.rows.some((row) => row.id === seed.unassignedPositionFamily) && !adminReads.families.rows.some((row) => row.id === seed.outsidePositionFamily), "DEPARTMENT_POSITION_FAMILY_VISIBILITY_FAILED");
 
     await runCanonicalRuntimeStage("scope-denials", async () => {
+      await expectRuntimeRejection(
+        () => rolledBackActor(withNeonActorContext, actor(seed, "admin"), runtimePool, (database) => database.query(runtimeEntrypointQuery(
+          bundle.manifest,
+          "public.resolve_neon_organization_department_alias(text,uuid,text,uuid)",
+          [seed.hostnameA, seed.departmentAlias, "defer", null],
+        ))),
+        "42501",
+        "NEON_ORGANIZATION_ALIAS_DENIED",
+      );
       await expectedRuntimeFailure(
         () => rolledBackActor(withNeonActorContext, actor(seed, "manager", seed.propertyB), runtimePool, (database) => database.query(runtimeEntrypointQuery(
           bundle.manifest,

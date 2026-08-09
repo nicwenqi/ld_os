@@ -98,13 +98,36 @@ create function app_private.neon_organization_actor_has_role(p_code text) return
 create function app_private.neon_organization_actor_has_department_scope(p_id uuid) returns boolean language sql stable security invoker set search_path='' as $f$ select app_private.neon_people_actor_has_department_scope(p_id) $f$;
 create function app_private.neon_organization_hostname_matches(p_hostname text) returns boolean language sql stable security invoker set search_path='' as $f$ select app_private.neon_people_hostname_matches(p_hostname) $f$;
 create function app_private.neon_organization_actor_can_read_department(p_id uuid) returns boolean language sql stable security invoker set search_path='' as $f$ select app_private.neon_organization_actor_has_role('property_ld_manager') or app_private.neon_organization_actor_has_department_scope(p_id) $f$;
-create function app_private.neon_organization_actor_can_read_aliases() returns boolean language sql stable security invoker set search_path='' as $f$ select app_private.neon_organization_actor_has_role('property_ld_manager') $f$;
-create function app_private.neon_organization_actor_can_resolve_aliases() returns boolean language sql stable security invoker set search_path='' as $f$ select app_private.neon_organization_actor_has_role('property_ld_manager') $f$;
+create function app_private.neon_organization_actor_can_read_aliases() returns boolean language sql stable security invoker set search_path='' as $f$
+  select app_private.neon_organization_actor_is_active() and (
+    app_private.neon_organization_actor_has_role('property_ld_manager') or exists (
+      select 1
+      from public.user_accounts account
+      join public.role_assignments assignment
+        on assignment.user_id=account.user_id and assignment.tenant_id=account.tenant_id
+        and assignment.property_id=account.property_id and assignment.status='active'
+      join public.roles role
+        on role.id=assignment.role_id and role.tenant_id=assignment.tenant_id
+        and role.property_id=assignment.property_id and role.code='department_training_admin' and role.is_active
+      join public.trainer_scopes scope
+        on scope.role_assignment_id=assignment.id and scope.tenant_id=assignment.tenant_id
+        and scope.property_id=assignment.property_id and scope.is_active
+      join public.departments department
+        on department.id=scope.department_id and department.tenant_id=scope.tenant_id
+        and department.property_id=scope.property_id and department.is_active
+      where account.auth_user_id=app_private.current_actor_auth_user_id()
+        and account.property_id=app_private.current_actor_property_id()
+    )
+  )
+$f$;
+create function app_private.neon_organization_actor_can_resolve_aliases() returns boolean language sql stable security invoker set search_path='' as $f$
+  select app_private.neon_organization_actor_is_active() and app_private.neon_organization_actor_has_role('property_ld_manager')
+$f$;
 create function app_private.neon_organization_actor_can_read_operational_unit(p_id uuid) returns boolean language sql stable security invoker set search_path='' as $f$ select exists(select 1 from public.operational_units u where u.id=p_id and u.property_id=app_private.current_actor_property_id() and app_private.neon_organization_actor_can_read_department(u.department_id)) $f$;
 create function app_private.neon_organization_actor_can_mutate_operational_units() returns boolean language sql stable security invoker set search_path='' as $f$ select app_private.neon_organization_actor_has_role('property_ld_manager') $f$;
 
 create function app_private.assert_neon_organization_hostname(p_hostname text) returns void language plpgsql stable security invoker set search_path='' as $f$ begin perform app_private.assert_actor_context(); if not app_private.neon_organization_actor_is_active() or not app_private.neon_organization_hostname_matches(p_hostname) then raise exception using errcode='42501',message='NEON_ORGANIZATION_SCOPE_DENIED'; end if; end $f$;
-create function app_private.assert_neon_organization_reader() returns void language plpgsql stable security invoker set search_path='' as $f$ begin if not (app_private.neon_organization_actor_has_role('property_ld_manager') or app_private.neon_organization_actor_has_role('department_trainer')) then raise exception using errcode='42501',message='NEON_ORGANIZATION_READER_REQUIRED'; end if; end $f$;
+create function app_private.assert_neon_organization_reader() returns void language plpgsql stable security invoker set search_path='' as $f$ begin if not (app_private.neon_organization_actor_has_role('property_ld_manager') or app_private.neon_organization_actor_has_role('department_training_admin')) then raise exception using errcode='42501',message='NEON_ORGANIZATION_READER_REQUIRED'; end if; end $f$;
 create function app_private.assert_neon_organization_manager() returns void language plpgsql stable security invoker set search_path='' as $f$ begin if not app_private.neon_organization_actor_has_role('property_ld_manager') then raise exception using errcode='42501',message='NEON_ORGANIZATION_MANAGER_REQUIRED'; end if; end $f$;
 create function app_private.lock_neon_organization_hierarchy(p_property_id uuid) returns void language plpgsql volatile security invoker set search_path='' as $f$ begin perform pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_property_id::text,0)); end $f$;
 

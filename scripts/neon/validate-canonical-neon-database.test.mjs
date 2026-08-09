@@ -628,6 +628,42 @@ test("runtime stage failures expose only a stable stage, code, and safe canonica
   );
 });
 
+test("runtime business denial matching requires the exact SQLSTATE and message", async () => {
+  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const denial = Object.assign(new Error("NEON_ORGANIZATION_ALIAS_DENIED"), { code: "42501" });
+
+  assert.equal(typeof module.expectRuntimeRejection, "function");
+  await assert.doesNotReject(() => module.expectRuntimeRejection(async () => { throw denial; }, "42501", "NEON_ORGANIZATION_ALIAS_DENIED"));
+  await assert.rejects(
+    () => module.expectRuntimeRejection(async () => { throw denial; }, "42501", "NEON_ORGANIZATION_MANAGER_REQUIRED"),
+    (error) => error === denial,
+  );
+});
+
+test("runtime admin matrix covers alias access and complete Position parity", async () => {
+  const source = await readFile(validatorPath, "utf8");
+  const seed = source.slice(source.indexOf("function validationSeed"), source.indexOf("async function cleanupRuntimeSeed"));
+  const admin = source.slice(source.indexOf("const adminReads"), source.indexOf("await runCanonicalRuntimeStage(\"scope-denials\""));
+  const denials = source.slice(source.indexOf("await runCanonicalRuntimeStage(\"scope-denials\""), source.indexOf("await runCanonicalRuntimeStage(\"rollback-writes\""));
+
+  assert.match(seed, /department_training_admin/);
+  assert.doesNotMatch(seed, /\bdepartment_trainer\b/);
+  for (const token of [
+    "unassignedPosition",
+    "outsidePosition",
+    "positionAssignmentOutside",
+  ]) assert.match(seed, new RegExp(token));
+  assert.match(admin, /public\.read_neon_organization_department_aliases\(text\)/);
+  assert.match(admin, /public\.read_neon_position_families\(text\)/);
+  assert.match(admin, /DEPARTMENT_ALIAS_PROPERTY_WIDE_READ_FAILED/);
+  assert.match(admin, /DEPARTMENT_POSITION_UNASSIGNED_PARITY_FAILED/);
+  assert.match(admin, /DEPARTMENT_POSITION_ASSIGNMENT_PROJECTION_FAILED/);
+  assert.match(admin, /DEPARTMENT_POSITION_FAMILY_VISIBILITY_FAILED/);
+  assert.match(denials, /public\.resolve_neon_organization_department_alias\(text,uuid,text,uuid\)/);
+  assert.match(denials, /expectRuntimeRejection/);
+  assert.match(denials, /NEON_ORGANIZATION_ALIAS_DENIED/);
+});
+
 test("bootstrap seed and cleanup bind synthetic actor settings locally before forced-RLS DML", async () => {
   const source = await readFile(validatorPath, "utf8");
   const helper = source.slice(

@@ -82,7 +82,13 @@ export function EmployeeDirectory({
                 </div>
                 <div className="risk-tags employee-record-state">
                   <span className="not-connected">权威员工主数据</span>
-                  <small>{employee.isNewEmployee ? "新员工标记已确认" : "当前员工记录"}</small>
+                  <small>
+                    {employee.isNewEmployee === null
+                      ? "新员工规则尚未接入"
+                      : employee.isNewEmployee
+                        ? "新员工标记已确认"
+                        : "当前员工记录"}
+                  </small>
                 </div>
                 <button
                   type="button"
@@ -134,7 +140,11 @@ export function EmployeeDirectory({
                 <strong>{employmentStatus(employee.employmentStatus)}</strong>
                 <small>
                   {formatDate(employee.hireDate)}
-                  {employee.isNewEmployee ? " · 新员工" : ""}
+                  {employee.isNewEmployee === null
+                    ? " · 新员工规则尚未接入"
+                    : employee.isNewEmployee
+                      ? " · 新员工"
+                      : ""}
                 </small>
               </div>
               <div>

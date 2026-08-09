@@ -377,6 +377,40 @@ test("tenant and property role assignments preserve scope-sensitive membership i
   assert.equal(actorRole.includes("assignment.property_id=account.property_id"), true);
 });
 
+test("canonical department authorization uses only the application role code", async () => {
+  const manifest = JSON.parse(await readFile(join(canonicalRoot, "manifest.json"), "utf8"));
+  const canonicalSources = await Promise.all(manifest.modules.map(({ path }) => readFile(join(canonicalRoot, path), "utf8")));
+  const validator = await readFile(resolve(canonicalRoot, "../../scripts/neon/validate-canonical-neon-baseline.mjs"), "utf8");
+  const fixtureRoot = resolve(canonicalRoot, "../../scripts/neon/fixtures/canonical-neon-source");
+  const fixtureSources = await Promise.all((await readdir(fixtureRoot)).map((path) => readFile(join(fixtureRoot, path), "utf8")));
+  const completeContract = [...canonicalSources, JSON.stringify(manifest), validator, ...fixtureSources].join("\n");
+
+  assert.doesNotMatch(completeContract, /\bdepartment_trainer\b/);
+  for (const source of [canonicalSources[2], canonicalSources[3], validator]) {
+    assert.match(source, /\bdepartment_training_admin\b/);
+  }
+});
+
+test("active scoped department admins read aliases property-wide but cannot resolve them", async () => {
+  const source = await canonicalSql("040_organization.sql");
+  const reader = routineSource(source, "app_private.neon_organization_actor_can_read_aliases");
+  const resolver = routineSource(source, "app_private.neon_organization_actor_can_resolve_aliases");
+
+  for (const token of [
+    "neon_organization_actor_is_active",
+    "property_ld_manager",
+    "department_training_admin",
+    "trainer_scopes",
+    "scope.is_active",
+    "department.is_active",
+    "current_actor_property_id",
+  ]) assert.equal(reader.includes(token), true, token);
+  assert.equal(resolver.includes("property_ld_manager"), true);
+  assert.equal(resolver.includes("neon_organization_actor_is_active"), true);
+  assert.equal(resolver.includes("department_training_admin"), false);
+  assert.equal(resolver.includes("trainer_scopes"), false);
+});
+
 test("role assignment deactivation preserves scope checks but skips active membership validation", async () => {
   const validator = routineSource(await canonicalSql("030_people.sql"), "app_private.validate_neon_role_assignment_scope");
   const inactiveGate = validator.indexOf("if new.status='inactive' then return new; end if;");
@@ -446,6 +480,42 @@ test("alias resolution accepts only active same-scope targets and coherent actio
   assert.equal(position.includes("external_role_code_required"), true);
   assert.equal(position.includes("external_role_name_required"), true);
   assert.equal(position.includes("is_active"), true);
+});
+
+test("department-admin position reads preserve unassigned, family, and assignment-projection parity", async () => {
+  const source = await canonicalSql("050_position.sql");
+  const visibility = routineSource(source, "app_private.neon_position_actor_can_read_position");
+  const families = routineSource(source, "public.read_neon_position_families");
+  const positions = routineSource(source, "public.read_neon_positions");
+
+  assert.equal(visibility.includes("not exists"), true);
+  assert.equal(visibility.includes("position_department_assignments"), true);
+  assert.equal(families.includes("neon_position_actor_can_read_position"), true);
+  assert.equal(families.includes("property_ld_manager"), true);
+  assert.equal(positions.includes("neon_organization_actor_has_department_scope(a.department_id)"), true);
+  assert.equal(positions.includes("property_ld_manager"), true);
+});
+
+test("Neon People exposes new-employee readiness as nullable until property rules are authoritative", async () => {
+  const source = await canonicalSql("030_people.sql");
+  for (const name of [
+    "public.read_neon_people_manager_directory",
+    "public.read_neon_people_manager_employee",
+    "public.read_neon_people_department_directory",
+  ]) {
+    const routine = routineSource(source, name);
+    assert.equal(routine.includes("current_date"), false, name);
+    assert.equal(routine.includes("is_new_employee',null::boolean"), true, name);
+  }
+
+  const contract = await readFile(resolve(canonicalRoot, "../../app/repositories/contracts/employee-repository.ts"), "utf8");
+  const repository = await readFile(join(repositoryRoot, "employee-read-repository.ts"), "utf8");
+  const directory = await readFile(resolve(canonicalRoot, "../../app/components/people/EmployeeDirectory.tsx"), "utf8");
+  const drawer = await readFile(resolve(canonicalRoot, "../../app/components/people/EmployeeProfileDrawer.tsx"), "utf8");
+  assert.match(contract, /isNewEmployee:\s*boolean\s*\|\s*null/);
+  assert.match(repository, /isNewEmployee:\s*nullableBoolean\(row\.is_new_employee\)/);
+  assert.match(`${directory}\n${drawer}`, /新员工规则尚未接入/);
+  assert.match(`${directory}\n${drawer}`, /isNewEmployee\s*===\s*null/);
 });
 
 test("authorization RLS limits tenant, profile, membership, and global-role rows to the actor", async () => {

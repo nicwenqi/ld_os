@@ -19,7 +19,7 @@ export type EmployeeRecord = {
   hireDate: string | null;
   probationOrConfirmationDate: string | null;
   employmentStatus: "active" | "inactive" | "leave" | "terminated" | "unknown";
-  isNewEmployee: boolean;
+  isNewEmployee: boolean | null;
   isActive: boolean;
   externalIdentifierTypes: readonly string[];
   version: number;

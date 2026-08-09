@@ -159,7 +159,11 @@ export function EmployeeProfileDrawer({
               <dt>员工状态</dt>
               <dd>
                 {employmentStatus(employee.employmentStatus)}
-                {employee.isNewEmployee ? " · 新员工" : ""}
+                {employee.isNewEmployee === null
+                  ? " · 新员工规则尚未接入"
+                  : employee.isNewEmployee
+                    ? " · 新员工"
+                    : ""}
               </dd>
             </div>
           </dl>
