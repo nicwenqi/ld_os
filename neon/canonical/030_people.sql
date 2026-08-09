@@ -29,11 +29,13 @@ create table public.property_domains (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null,
   property_id uuid not null,
-  hostname text not null unique,
+  hostname text not null check (hostname = pg_catalog.lower(pg_catalog.btrim(hostname)) and hostname !~ ':'),
   verification_status text not null default 'verified' check (verification_status in ('pending', 'verified', 'failed')),
   is_active boolean not null default true,
   foreign key (tenant_id, property_id) references public.properties(tenant_id, id)
 );
+create unique index canonical_property_domain_hostname
+  on public.property_domains(pg_catalog.lower(hostname));
 
 create table public.profiles (
   id uuid primary key default pg_catalog.gen_random_uuid(),
@@ -69,7 +71,8 @@ create table public.property_memberships (
   user_id uuid not null references public.profiles(id),
   status text not null default 'active' check (status in ('active', 'inactive')),
   foreign key (tenant_id, property_id) references public.properties(tenant_id, id),
-  unique (property_id, user_id)
+  unique (property_id, user_id),
+  unique (tenant_id, property_id, user_id)
 );
 
 create table public.roles (
@@ -79,29 +82,37 @@ create table public.roles (
   code text not null,
   scope_level text not null check (scope_level in ('tenant', 'property', 'department')),
   is_active boolean not null default true,
-  unique (tenant_id, property_id, code)
+  unique (tenant_id, property_id, code),
+  unique (tenant_id, property_id, id)
 );
 
 create table public.role_assignments (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null,
   property_id uuid not null,
-  user_id uuid not null references public.profiles(id),
-  role_id uuid not null references public.roles(id),
+  user_id uuid not null,
+  role_id uuid not null,
   status text not null default 'active' check (status in ('active', 'inactive')),
   foreign key (tenant_id, property_id) references public.properties(tenant_id, id),
-  unique (property_id, user_id, role_id)
+  foreign key (tenant_id, property_id, user_id)
+    references public.property_memberships(tenant_id, property_id, user_id),
+  foreign key (tenant_id, property_id, role_id)
+    references public.roles(tenant_id, property_id, id),
+  unique (property_id, user_id, role_id),
+  unique (tenant_id, property_id, id)
 );
 
 create table public.trainer_scopes (
   id uuid primary key default pg_catalog.gen_random_uuid(),
   tenant_id uuid not null,
   property_id uuid not null,
-  role_assignment_id uuid not null references public.role_assignments(id),
+  role_assignment_id uuid not null,
   department_id uuid not null,
   include_descendants boolean not null default false,
   is_active boolean not null default true,
   foreign key (tenant_id, property_id) references public.properties(tenant_id, id),
+  foreign key (tenant_id, property_id, role_assignment_id)
+    references public.role_assignments(tenant_id, property_id, id),
   unique (role_assignment_id, department_id)
 );
 
@@ -197,7 +208,9 @@ as $function$
     select 1 from public.property_domains domain
     join public.properties property on property.id = domain.property_id and property.tenant_id = domain.tenant_id and property.status = 'active'
     join public.tenants tenant on tenant.id = domain.tenant_id and tenant.status = 'active'
-    where pg_catalog.lower(domain.hostname) = pg_catalog.lower(pg_catalog.btrim(p_hostname))
+    where pg_catalog.lower(domain.hostname) = pg_catalog.lower(
+      pg_catalog.split_part(pg_catalog.btrim(coalesce(p_hostname,'')),':',1)
+    )
       and domain.is_active and domain.verification_status = 'verified'
       and domain.property_id = app_private.current_actor_property_id()
   )
@@ -255,10 +268,11 @@ begin
     select domain.tenant_id, domain.property_id
     from public.property_domains domain
     join public.properties property on property.id = domain.property_id and property.tenant_id = domain.tenant_id
-    join public.tenants tenant on tenant.id = domain.tenant_id
-    where pg_catalog.lower(domain.hostname) = pg_catalog.lower(pg_catalog.btrim(p_hostname))
+    where pg_catalog.lower(domain.hostname) = pg_catalog.lower(
+      pg_catalog.split_part(pg_catalog.btrim(coalesce(p_hostname,'')),':',1)
+    )
       and domain.is_active and domain.verification_status = 'verified'
-      and property.status = 'active' and tenant.status = 'active';
+      and property.status = 'active';
 end
 $function$;
 

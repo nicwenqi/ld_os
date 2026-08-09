@@ -11,6 +11,21 @@ const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../a
 const neonLibRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../app/lib/neon");
 const canonicalRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../neon/canonical");
 
+async function canonicalSql(name) {
+  return (await readFile(join(canonicalRoot, name), "utf8"))
+    .replace(/\s+/g, " ")
+    .replace(/\s*([(),=])\s*/g, "$1")
+    .toLowerCase();
+}
+
+function routineSource(source, qualifiedName) {
+  const marker = `create function ${qualifiedName.toLowerCase()}(`;
+  const start = source.indexOf(marker);
+  assert.notEqual(start, -1, `missing ${qualifiedName}`);
+  const next = source.indexOf(" create function ", start + marker.length);
+  return source.slice(start, next === -1 ? source.length : next);
+}
+
 const requiredAuditSurface = {
   tables: [
     "app_private.employee_write_audit_events",
@@ -138,6 +153,107 @@ test("repository query signatures exactly match the canonical manifest", async (
   }
 
   assert.deepEqual([...signatures].sort(), [...manifest.entrypointSignatures].sort());
+});
+
+test("every relationship carrying tenant and property scope uses a composite foreign key", async () => {
+  const source = `${await canonicalSql("030_people.sql")} ${await canonicalSql("040_organization.sql")} ${await canonicalSql("050_position.sql")} ${await canonicalSql("060_employee_write.sql")}`;
+  const required = [
+    "foreign key(tenant_id,property_id,role_id)references public.roles(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,role_assignment_id)references public.role_assignments(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,parent_id)references public.departments(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,target_department_id)references public.departments(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,parent_operational_unit_id)references public.operational_units(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,position_family_id)references public.position_families(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,position_id)references public.positions(tenant_id,property_id,id)",
+    "foreign key(tenant_id,property_id,employee_id)references public.employees(tenant_id,property_id,id)",
+  ];
+  for (const contract of required) assert.equal(source.includes(contract), true, contract);
+});
+
+test("employee save locks deterministically and validates every authoritative target", async () => {
+  const source = routineSource(await canonicalSql("060_employee_write.sql"), "public.save_neon_employee_with_identifiers");
+  const guards = [
+    "pg_advisory_xact_lock",
+    "order by identifier.source_system,identifier.identifier_type,identifier.identifier_value,identifier.id for update",
+    "for key share",
+    "position.position_family_id",
+    "position_department_assignments",
+    "active_targets_required",
+    "identifier_count > 100",
+    "identifier_conflict",
+    "v_authoritative_family_id",
+  ];
+  for (const guard of guards) assert.equal(source.includes(guard), true, guard);
+});
+
+test("department rename and nullable-root moves rebuild the complete authoritative subtree", async () => {
+  const source = await canonicalSql("040_organization.sql");
+  const update = routineSource(source, "public.update_neon_organization_department");
+  const preview = routineSource(source, "public.preview_neon_organization_department_move");
+  const move = routineSource(source, "public.move_neon_organization_department");
+  assert.equal(update.includes("with recursive"), true);
+  assert.equal(update.includes("path_names_zh"), true);
+  assert.equal(update.includes("path_names_en"), true);
+  assert.equal(preview.includes("if p_parent is not null"), true);
+  assert.equal(preview.includes("ancestor_department_id=d.id"), true);
+  assert.equal(move.includes("p_parent is null"), true);
+  assert.equal(move.includes("path_names_zh"), true);
+  assert.equal(move.includes("path_names_en"), true);
+});
+
+test("operational-unit parent changes reject cycles and rebuild descendant paths", async () => {
+  const source = routineSource(await canonicalSql("040_organization.sql"), "public.update_neon_organization_operational_unit");
+  assert.equal(source.includes("p_parent=p_id"), true);
+  assert.equal(source.includes("with recursive"), true);
+  assert.equal(source.includes("operational_unit_cycle"), true);
+  assert.equal(source.includes("path_ids"), true);
+  assert.equal(source.includes("depth"), true);
+});
+
+test("alias resolution accepts only active same-scope targets and coherent actions", async () => {
+  const organization = await canonicalSql("040_organization.sql");
+  const position = routineSource(await canonicalSql("050_position.sql"), "public.resolve_neon_position_alias");
+  for (const name of [
+    "public.resolve_neon_organization_department_alias",
+    "public.merge_neon_organization_department_alias",
+    "public.resolve_neon_organization_department_alias_to_operational_unit",
+  ]) {
+    const routine = routineSource(organization, name);
+    assert.equal(routine.includes("tenant_id"), true, name);
+    assert.equal(routine.includes("is_active"), true, name);
+  }
+  assert.equal(position.includes("position.position_family_id"), true);
+  assert.equal(position.includes("target_position_family_id"), true);
+  assert.equal(position.includes("external_role_code_required"), true);
+  assert.equal(position.includes("external_role_name_required"), true);
+  assert.equal(position.includes("is_active"), true);
+});
+
+test("authorization RLS limits tenant, profile, membership, and global-role rows to the actor", async () => {
+  const source = await canonicalSql("070_security_postflight.sql");
+  const peopleResolver = routineSource(await canonicalSql("030_people.sql"), "public.resolve_neon_people_property");
+  const organizationResolver = routineSource(await canonicalSql("040_organization.sql"), "public.resolve_neon_organization_property");
+  const tenantPolicy = source.slice(source.indexOf("create policy canonical_tenant_scope on public.tenants"), source.indexOf("create policy canonical_tenant_scope on public.properties"));
+  const profilePolicy = source.slice(source.indexOf("create policy canonical_actor_context_scope on public.profiles"), source.indexOf("create policy canonical_tenant_scope on public.user_accounts"));
+  const membershipPolicy = source.slice(source.indexOf("create policy canonical_tenant_scope on public.tenant_memberships"), source.indexOf("create policy canonical_tenant_scope on public.property_memberships"));
+  const rolePolicy = source.slice(source.indexOf("create policy canonical_tenant_scope on public.roles"), source.indexOf("create policy canonical_tenant_scope on public.role_assignments"));
+  assert.equal(tenantPolicy.includes("select tenant_id from public.properties"), true);
+  assert.equal(profilePolicy.includes("select user_id from public.user_accounts"), true);
+  assert.equal(membershipPolicy.includes("user_id=app_private.current_neon_organization_actor_user_id()"), true);
+  assert.equal(rolePolicy.includes("tenant_id=(select tenant_id from public.properties"), true);
+  assert.equal(peopleResolver.includes("join public.tenants"), false);
+  assert.equal(organizationResolver.includes("join public.tenants"), false);
+});
+
+test("hostname evidence is canonicalized case-insensitively and ignores a request port", async () => {
+  const people = await canonicalSql("030_people.sql");
+  assert.equal(people.includes("unique index canonical_property_domain_hostname on public.property_domains(pg_catalog.lower(hostname))"), true);
+  const resolver = routineSource(people, "public.resolve_neon_people_property");
+  const matcher = routineSource(people, "app_private.neon_people_hostname_matches");
+  for (const routine of [resolver, matcher]) {
+    assert.equal(routine.includes("split_part(pg_catalog.btrim(coalesce(p_hostname,'')),':',1)"), true);
+    assert.equal(routine.includes("pg_catalog.lower"), true);
+  }
 });
 
 test("runtime actor checks require only the canonical roles and schemas", async () => {

@@ -112,3 +112,60 @@ dry run/apply authoritative, with special attention to PostgreSQL 18 role
 membership-option syntax, `LIKE ... INCLUDING ALL` audit identities, trigger
 behavior, FORCE RLS policy interaction, hierarchy moves, and atomic employee
 identifier conflicts. No known source-level blocker remains.
+
+## Review fix round 1/5 — scope and authority hardening
+
+The first review identified seven connection-free gaps. Contract mutations were
+added before the fixes; the aggregate RED run was 6/13 pass with one intended
+failure for each review category. A further focused RED mutation (0/1 pass)
+caught a pre-Actor-Context tenant-policy dependency in property resolution.
+
+The minimal canonical SQL corrections now:
+
+- enforce composite tenant/property foreign keys for authorization,
+  organization, position, employee, alias, identifier, and hierarchy links;
+- restore the historical E5A property advisory lock, stable related-row locks,
+  target activity/scope checks, position-family derivation, assignment checks,
+  active-target requirement, identifier count/shape/conflict checks, and atomic
+  scoped identifier replacement;
+- rebuild descendant department names/IDs/depth and authoritative closure after
+  rename or move, including moves to a nullable root;
+- reject operational-unit self/descendant cycles and rebuild descendant paths
+  and depth after parent changes;
+- calculate move-preview impact from the same authoritative closure subtree
+  used by commit;
+- require active same-scope alias targets and mutually coherent actions, derive
+  the family for a mapped position, and require nonblank external code/name;
+- scope tenants, profiles, tenant/property memberships, and property-null roles
+  to the current actor tenant without recursive policy dependencies; the public
+  property resolvers no longer read the actor-scoped tenant table before Actor
+  Context exists; and
+- canonicalize stored hostnames and case-insensitive uniqueness while matching
+  normalized request hostnames with ports removed.
+
+Fresh connection-free verification after the review fixes:
+
+```text
+node scripts/neon/validate-canonical-neon-baseline.mjs source
+GREEN — 7 modules; 31 tables; 82 routines; 10 policy names; 14 triggers; 6 types
+
+node --test scripts/neon/validate-canonical-neon-baseline.test.mjs
+56/56 pass
+
+node --experimental-strip-types --test scripts/neon/canonical-neon-bootstrap-contract.test.mjs
+13/13 pass
+
+npm test
+201/201 primary tests pass; embedded build passes; rendered HTML 1/1 passes
+
+npm run build
+exit 0; all five vinext build phases pass
+
+git diff --check
+exit 0
+```
+
+No database or network connection was made. The remaining Task 3 concern is
+runtime-only verification of PostgreSQL grammar, composite-FK creation order,
+row-lock behavior, FORCE RLS interactions, and hierarchy/alias/employee
+transactions on a disposable empty PostgreSQL 18 cluster.

@@ -7,30 +7,39 @@ create table public.position_families (
   id uuid primary key default pg_catalog.gen_random_uuid(), tenant_id uuid not null, property_id uuid not null,
   code text not null, name_zh text not null, name_en text, description text, sort_order integer not null default 0,
   is_active boolean not null default true, version bigint not null default 1 check (version > 0),
-  foreign key (tenant_id,property_id) references public.properties(tenant_id,id), unique(property_id,id), unique(property_id,code)
+  foreign key (tenant_id,property_id) references public.properties(tenant_id,id),
+  unique(property_id,id), unique(tenant_id,property_id,id), unique(property_id,code)
 );
 create table public.positions (
   id uuid primary key default pg_catalog.gen_random_uuid(), tenant_id uuid not null, property_id uuid not null,
-  position_family_id uuid references public.position_families(id), code text not null, name_zh text not null,
+  position_family_id uuid, code text not null, name_zh text not null,
   name_en text, grade_or_band text, is_active boolean not null default true, version bigint not null default 1 check(version>0),
-  foreign key (tenant_id,property_id) references public.properties(tenant_id,id), unique(property_id,id), unique(property_id,code)
+  foreign key (tenant_id,property_id) references public.properties(tenant_id,id),
+  foreign key (tenant_id,property_id,position_family_id) references public.position_families(tenant_id,property_id,id),
+  unique(property_id,id), unique(tenant_id,property_id,id), unique(property_id,code)
 );
 create table public.position_department_assignments (
   id uuid primary key default pg_catalog.gen_random_uuid(), tenant_id uuid not null, property_id uuid not null,
-  position_id uuid not null references public.positions(id), department_id uuid not null references public.departments(id),
+  position_id uuid not null, department_id uuid not null,
   is_active boolean not null default true, foreign key (tenant_id,property_id) references public.properties(tenant_id,id),
+  foreign key (tenant_id,property_id,position_id) references public.positions(tenant_id,property_id,id),
+  foreign key (tenant_id,property_id,department_id) references public.departments(tenant_id,property_id,id),
   unique(position_id,department_id)
 );
 create table public.position_aliases (
   id uuid primary key default pg_catalog.gen_random_uuid(), tenant_id uuid not null, property_id uuid not null,
   source_system text not null, source_sheet text not null, source_value text not null, normalized_source_value text not null,
-  source_row_count integer not null default 0 check(source_row_count>=0), suggested_position_id uuid references public.positions(id),
-  suggested_family_id uuid references public.position_families(id), confidence integer not null default 0 check(confidence between 0 and 100),
-  suggestion_reason text not null default '', target_position_id uuid references public.positions(id),
-  target_position_family_id uuid references public.position_families(id), external_role_code text, external_role_name text,
+  source_row_count integer not null default 0 check(source_row_count>=0), suggested_position_id uuid,
+  suggested_family_id uuid, confidence integer not null default 0 check(confidence between 0 and 100),
+  suggestion_reason text not null default '', target_position_id uuid,
+  target_position_family_id uuid, external_role_code text, external_role_name text,
   resolution_status public.position_resolution_status not null default 'deferred', is_active boolean not null default true,
   resolved_by uuid, resolved_at timestamptz, version bigint not null default 1,
   foreign key (tenant_id,property_id) references public.properties(tenant_id,id),
+  foreign key (tenant_id,property_id,suggested_position_id) references public.positions(tenant_id,property_id,id),
+  foreign key (tenant_id,property_id,suggested_family_id) references public.position_families(tenant_id,property_id,id),
+  foreign key (tenant_id,property_id,target_position_id) references public.positions(tenant_id,property_id,id),
+  foreign key (tenant_id,property_id,target_position_family_id) references public.position_families(tenant_id,property_id,id),
   unique(property_id,source_system,source_sheet,normalized_source_value)
 );
 
@@ -70,7 +79,29 @@ declare i uuid:=coalesce(p_id,pg_catalog.gen_random_uuid()); v bigint; before_co
 create function public.read_neon_position_source_labels(p_hostname text) returns jsonb language plpgsql volatile security definer set search_path='' as $f$ declare r jsonb; begin perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager(); select coalesce(pg_catalog.jsonb_agg(app_private.neon_position_alias_payload(id) order by source_value),'[]'::jsonb) into r from public.position_aliases where property_id=app_private.current_actor_property_id() and is_active; perform app_private.append_neon_position_read_audit('position_source_labels',pg_catalog.jsonb_array_length(r)); return pg_catalog.jsonb_build_object('rows',r); end $f$;
 create function public.preview_neon_position_source_impact(p_hostname text,p_id uuid) returns jsonb language plpgsql stable security definer set search_path='' as $f$ declare a public.position_aliases; begin perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager(); select * into strict a from public.position_aliases where id=p_id and property_id=app_private.current_actor_property_id(); return pg_catalog.jsonb_build_object('source_label_id',a.id,'source_evidence',pg_catalog.jsonb_build_object('source_system',a.source_system,'source_sheet',a.source_sheet,'source_row_count',a.source_row_count),'employee_impact',pg_catalog.jsonb_build_object('state','unavailable','reason','import_source_rows_not_migrated'),'department_impact',pg_catalog.jsonb_build_object('state','unavailable','reason','import_source_rows_not_migrated')); end $f$;
 create function public.resolve_neon_position_alias(p_hostname text,p_id uuid,p_action text,p_target uuid,p_external_code text,p_external_name text) returns jsonb language plpgsql volatile security definer set search_path='' as $f$
-declare s public.position_resolution_status; t uuid; pr uuid; begin perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager(); s:=case p_action when 'position' then 'mapped'::public.position_resolution_status when 'family' then 'family_only'::public.position_resolution_status when 'external' then 'external_only'::public.position_resolution_status when 'ignore' then 'ignored'::public.position_resolution_status when 'defer' then 'deferred'::public.position_resolution_status else null end; if s is null or ((p_action in ('position','family'))<>(p_target is not null)) then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_TARGET_INVALID'; end if; update public.position_aliases set target_position_id=case when p_action='position' then p_target else null end,target_position_family_id=case when p_action='family' then p_target else null end,external_role_code=case when p_action='external' then nullif(pg_catalog.btrim(p_external_code),'') else null end,external_role_name=case when p_action='external' then nullif(pg_catalog.btrim(p_external_name),'') else null end,resolution_status=s,resolved_by=app_private.current_neon_organization_actor_user_id(),resolved_at=pg_catalog.transaction_timestamp(),version=version+1 where id=p_id and property_id=app_private.current_actor_property_id() returning tenant_id,property_id into t,pr; if not found then raise exception using errcode='P0002',message='NEON_POSITION_ALIAS_NOT_FOUND'; end if; insert into app_private.position_mapping_audit_events(request_id,auth_user_id,actor_user_id,tenant_id,property_id,operation,target_id,details) values(app_private.current_actor_request_id(),app_private.current_actor_auth_user_id(),app_private.current_neon_organization_actor_user_id(),t,pr,p_action,p_id,pg_catalog.jsonb_build_object('target',p_target,'external_code',p_external_code,'external_name',p_external_name)); return app_private.neon_position_alias_payload(p_id); end $f$;
+declare alias_row public.position_aliases; position public.positions; family public.position_families; status public.position_resolution_status; authoritative_family uuid;
+begin
+  perform app_private.assert_neon_organization_hostname(p_hostname); perform app_private.assert_neon_organization_manager();
+  select * into strict alias_row from public.position_aliases where id=p_id and property_id=app_private.current_actor_property_id() and is_active for update;
+  status:=case p_action when 'position' then 'mapped'::public.position_resolution_status when 'family' then 'family_only'::public.position_resolution_status when 'external' then 'external_only'::public.position_resolution_status when 'ignore' then 'ignored'::public.position_resolution_status when 'defer' then 'deferred'::public.position_resolution_status else null end;
+  if status is null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_ACTION_INVALID'; end if;
+  if p_action='position' then
+    if p_target is null or p_external_code is not null or p_external_name is not null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_TARGET_INVALID'; end if;
+    select * into strict position from public.positions where id=p_target and tenant_id=alias_row.tenant_id and property_id=alias_row.property_id and is_active for key share;
+    authoritative_family:=position.position_family_id;
+    if authoritative_family is not null then select * into strict family from public.position_families where id=authoritative_family and tenant_id=alias_row.tenant_id and property_id=alias_row.property_id and is_active for key share; end if;
+  elsif p_action='family' then
+    if p_target is null or p_external_code is not null or p_external_name is not null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_TARGET_INVALID'; end if;
+    select * into strict family from public.position_families where id=p_target and tenant_id=alias_row.tenant_id and property_id=alias_row.property_id and is_active for key share; authoritative_family:=family.id;
+  elsif p_action='external' then
+    if p_target is not null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_TARGET_INVALID'; end if;
+    if nullif(pg_catalog.btrim(coalesce(p_external_code,'')),'') is null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_EXTERNAL_ROLE_CODE_REQUIRED'; end if;
+    if nullif(pg_catalog.btrim(coalesce(p_external_name,'')),'') is null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_EXTERNAL_ROLE_NAME_REQUIRED'; end if;
+  elsif p_target is not null or p_external_code is not null or p_external_name is not null then raise exception using errcode='22023',message='NEON_POSITION_ALIAS_TARGET_INVALID';
+  end if;
+  update public.position_aliases set target_position_id=case when p_action='position' then p_target else null end,target_position_family_id=case when p_action in ('position','family') then authoritative_family else null end,external_role_code=case when p_action='external' then pg_catalog.lower(pg_catalog.btrim(p_external_code)) else null end,external_role_name=case when p_action='external' then pg_catalog.btrim(p_external_name) else null end,resolution_status=status,resolved_by=app_private.current_neon_organization_actor_user_id(),resolved_at=pg_catalog.transaction_timestamp(),version=version+1 where id=p_id and tenant_id=alias_row.tenant_id and property_id=alias_row.property_id;
+  insert into app_private.position_mapping_audit_events(request_id,auth_user_id,actor_user_id,tenant_id,property_id,operation,target_id,details) values(app_private.current_actor_request_id(),app_private.current_actor_auth_user_id(),app_private.current_neon_organization_actor_user_id(),alias_row.tenant_id,alias_row.property_id,p_action,p_id,pg_catalog.jsonb_build_object('target',p_target,'family',authoritative_family,'external_code',p_external_code,'external_name',p_external_name)); return app_private.neon_position_alias_payload(p_id);
+end $f$;
 
 revoke all on function app_private.reject_position_read_audit_mutation() from public;
 revoke all on function app_private.reject_position_write_audit_mutation() from public;

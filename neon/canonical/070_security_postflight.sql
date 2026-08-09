@@ -66,7 +66,8 @@ alter table app_private.employee_write_audit_events enable row level security;
 alter table app_private.employee_write_audit_events force row level security;
 
 create policy canonical_tenant_scope on public.tenants for all to hotel_ld_migration_owner
-  using (session_user='hotel_ld_application') with check (session_user='hotel_ld_application');
+  using (session_user='hotel_ld_application' and id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()))
+  with check (session_user='hotel_ld_application' and id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()));
 create policy canonical_tenant_scope on public.properties for all to hotel_ld_migration_owner
   using (session_user='hotel_ld_application' and (app_private.actor_uuid_setting_or_null('app.actor_property_id') is null or id=app_private.actor_uuid_setting_or_null('app.actor_property_id')))
   with check (session_user='hotel_ld_application' and id=app_private.current_actor_property_id());
@@ -74,18 +75,20 @@ create policy canonical_tenant_scope on public.property_domains for all to hotel
   using (session_user='hotel_ld_application' and (app_private.actor_uuid_setting_or_null('app.actor_property_id') is null or property_id=app_private.actor_uuid_setting_or_null('app.actor_property_id')))
   with check (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id());
 create policy canonical_actor_context_scope on public.profiles for all to hotel_ld_migration_owner
-  using (session_user='hotel_ld_application') with check (session_user='hotel_ld_application');
+  using (session_user='hotel_ld_application' and id=(select user_id from public.user_accounts where auth_user_id=app_private.current_actor_auth_user_id() and property_id=app_private.current_actor_property_id()))
+  with check (session_user='hotel_ld_application' and id=app_private.current_neon_organization_actor_user_id());
 create policy canonical_tenant_scope on public.user_accounts for all to hotel_ld_migration_owner
   using (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id())
   with check (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id());
 create policy canonical_tenant_scope on public.tenant_memberships for all to hotel_ld_migration_owner
-  using (session_user='hotel_ld_application') with check (session_user='hotel_ld_application');
+  using (session_user='hotel_ld_application' and user_id=app_private.current_neon_organization_actor_user_id() and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()))
+  with check (session_user='hotel_ld_application' and user_id=app_private.current_neon_organization_actor_user_id() and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()));
 create policy canonical_tenant_scope on public.property_memberships for all to hotel_ld_migration_owner
-  using (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id())
-  with check (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id());
+  using (session_user='hotel_ld_application' and user_id=app_private.current_neon_organization_actor_user_id() and property_id=app_private.current_actor_property_id())
+  with check (session_user='hotel_ld_application' and user_id=app_private.current_neon_organization_actor_user_id() and property_id=app_private.current_actor_property_id());
 create policy canonical_tenant_scope on public.roles for all to hotel_ld_migration_owner
-  using (session_user='hotel_ld_application' and (property_id is null or property_id=app_private.current_actor_property_id()))
-  with check (session_user='hotel_ld_application' and (property_id is null or property_id=app_private.current_actor_property_id()));
+  using (session_user='hotel_ld_application' and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()) and (property_id is null or property_id=app_private.current_actor_property_id()))
+  with check (session_user='hotel_ld_application' and tenant_id=(select tenant_id from public.properties where id=app_private.current_actor_property_id()) and (property_id is null or property_id=app_private.current_actor_property_id()));
 create policy canonical_tenant_scope on public.role_assignments for all to hotel_ld_migration_owner
   using (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id())
   with check (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id());
