@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { registerHooks } from "node:module";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
@@ -209,6 +210,55 @@ test("staging sends deterministic bounded chunks in mapping-before-row order", a
   assert.ok(new TextEncoder().encode(calls[3].values[2]).byteLength <= 1024 * 1024);
 });
 
+test("finalize manifest hashes only the 092 authoritative evidence projections", async () => {
+  const calls = [];
+  await repository(createDatabase(calls)).stageVerifiedWorkbook({
+    batchId: ids.batch,
+    expectedVersion: 7,
+    evidence: evidence(),
+  });
+
+  const manifest = JSON.parse(calls.at(-1).values[3]);
+  const mapping = JSON.parse(calls[2].values[2])[0];
+  const issue = JSON.parse(calls[4].values[2])[0];
+  const label = JSON.parse(calls[5].values[2])[0];
+  assert.equal(
+    manifest.fieldMappings[0],
+    postgresProjectionHash({
+      sheetId: mapping.sheetId,
+      sourceColumnName: mapping.sourceColumnName,
+      sourceColumnIndex: mapping.sourceColumnIndex,
+      targetField: mapping.targetField,
+      transformationRule: mapping.transformationRule,
+      isRequired: mapping.isRequired,
+      mappingStatus: "suggested",
+    }),
+  );
+  assert.equal(
+    manifest.issues[0],
+    postgresProjectionHash({
+      sourceRowId: issue.sourceRowId,
+      issueType: issue.issueType,
+      severity: issue.severity,
+      sourceField: null,
+      sourceValueProjection: null,
+      message: issue.message,
+      resolutionStatus: "open",
+    }),
+  );
+  assert.equal(
+    manifest.sourceLabels[0],
+    postgresProjectionHash({
+      sheetId: ids.selectedSheet,
+      resolutionType: label.resolutionType,
+      sourceLabel: label.sourceLabel,
+      normalizedSourceLabel: label.normalizedSourceLabel,
+      affectedRowCount: label.affectedRowCount,
+      resolutionStatus: "pending",
+    }),
+  );
+});
+
 test("staging splits issue evidence at the fixed record and byte budgets", async () => {
   const calls = [];
   const input = evidence();
@@ -228,6 +278,27 @@ test("staging splits issue evidence at the fixed record and byte budgets", async
   const issueChunks = calls.filter(call => call.text.includes("append_neon_import_issues"));
   assert.deepEqual(issueChunks.map(call => JSON.parse(call.values[2]).length), [250, 1]);
   assert.equal(issueChunks.every(call => new TextEncoder().encode(call.values[2]).byteLength <= 512 * 1024), true);
+});
+
+test("staging deterministically splits byte-heavy issue evidence without trusting JSON text length", async () => {
+  const calls = [];
+  const input = evidence();
+  input.issues = Array.from({ length: 250 }, (_, index) => ({
+    sourceRowId: ids.firstRow,
+    issueType: `emoji_${index}`,
+    severity: "warning",
+    message: "🙂".repeat(1_000),
+  }));
+
+  await repository(createDatabase(calls)).stageVerifiedWorkbook({
+    batchId: ids.batch,
+    expectedVersion: 7,
+    evidence: input,
+  });
+
+  const issueChunks = calls.filter(call => call.text.includes("append_neon_import_issues"));
+  assert.ok(issueChunks.length > 1);
+  assert.equal(issueChunks.every(call => postgresJsonbUpperBound(JSON.parse(call.values[2])) <= 512 * 1024), true);
 });
 
 test("staging rejects a single oversize source record before SQL", async () => {
@@ -293,6 +364,33 @@ test("staging query surface is an explicit entrypoint allowlist", () => {
   );
 });
 
+test("cleanup claims retain batch-set semantics while operation IDs stay server-only", async () => {
+  const claimId = "88888888-8888-4888-8888-888888888888";
+  const operationId = "99999999-9999-4999-8999-999999999999";
+  const calls = [];
+  const database = createDatabase(calls);
+  database.query = async (text, values) => {
+    calls.push({ text: String(text).replace(/\s+/g, " ").trim(), values });
+    return {
+      rows: [{ payload: {
+        claims: [{
+          batch_id: ids.batch,
+          operation_id: operationId,
+          bucket: "property-import-files",
+          object_path: `${ids.tenant}/${ids.property}/imports/${ids.batch}/workbook.xlsx`,
+          claim_id: claimId,
+          attempt_count: 1,
+          lease_expires_at: "2026-08-10T00:05:00.000Z",
+        }],
+      } }],
+    };
+  };
+  const claims = await repository(database).claimDueCleanup({ limit: 2, claimId });
+  assert.equal(Array.isArray(claims), true);
+  assert.equal(claims[0].operationId, operationId);
+  assert.deepEqual(calls[0].values, ["hotel.example.test", null, 2, claimId]);
+});
+
 test("repository source validation rejects raw table access and dynamic entrypoints", async () => {
   const source = await readFile(
     new URL("../../app/repositories/neon/import-staging-repository.ts", import.meta.url),
@@ -308,4 +406,83 @@ test("repository source validation rejects raw table access and dynamic entrypoi
     ),
     /E5B_IMPORT_STAGING_REPOSITORY_ENTRYPOINT_MISSING|E5B_IMPORT_STAGING_REPOSITORY_BOUNDARY_VIOLATION/,
   );
+  assert.throws(
+    () => validateE5bImportStagingRepositorySource(
+      `${source}\nconst { query } = database;`,
+    ),
+    /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
+  );
+  assert.throws(
+    () => validateE5bImportStagingRepositorySource(
+      `${source}\nawait database.query("select public.get_neon_import_workflow($1::text,$2::uuid) as payload; select 1", []);`,
+    ),
+    /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
+  );
 });
+
+test("source label normalization matches PostgreSQL btrim U+0020 ordering", async () => {
+  const calls = [];
+  const input = evidence();
+  input.sourceLabels[0] = {
+    ...input.sourceLabels[0],
+    sourceLabel: "\u00a0Front Desk\u00a0",
+    normalizedSourceLabel: " front desk ",
+  };
+  input.sourceRows = input.sourceRows.map(row => ({
+    ...row,
+    normalizedValues: { ...row.normalizedValues, department_source_label: "\u00a0Front Desk\u00a0" },
+  }));
+
+  await repository(createDatabase(calls)).stageVerifiedWorkbook({
+    batchId: ids.batch,
+    expectedVersion: 7,
+    evidence: input,
+  });
+  const label = JSON.parse(calls[5].values[2])[0];
+  assert.equal(label.normalizedSourceLabel, " front desk ");
+});
+
+function postgresProjectionHash(value) {
+  const text = postgresJsonbText(value);
+  return (awaitableHash(text));
+}
+
+function awaitableHash(value) {
+  // This fixed fixture invokes the same byte-frame SHA-256 logic as 092.
+  return createHashForTest(`e5b-utf8-frame-v1:${new TextEncoder().encode(value).byteLength}:${value}`);
+}
+
+function createHashForTest(value) {
+  // Node's WebCrypto keeps this test independent from repository internals.
+  return createHashForTestSync(value);
+}
+
+function createHashForTestSync(value) {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
+
+function postgresJsonbText(value) {
+  if (value === null || typeof value === "boolean" || typeof value === "number") return JSON.stringify(value);
+  if (typeof value === "string") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(postgresJsonbText).join(", ")}]`;
+  const bytes = new TextEncoder();
+  const compare = (left, right) => left.length - right.length || compareBytes(bytes.encode(left), bytes.encode(right));
+  return `{${Object.keys(value).sort(compare).map(key => `${JSON.stringify(key)}: ${postgresJsonbText(value[key])}`).join(", ")}}`;
+}
+
+function compareBytes(left, right) {
+  for (let index = 0; index < Math.min(left.length, right.length); index += 1) {
+    if (left[index] !== right[index]) return left[index] - right[index];
+  }
+  return left.length - right.length;
+}
+
+function postgresJsonbUpperBound(value) {
+  return new TextEncoder().encode(postgresJsonbText(value)).byteLength + countJsonNodes(value) * 16 + 64;
+}
+
+function countJsonNodes(value) {
+  if (value === null || typeof value !== "object") return 1;
+  if (Array.isArray(value)) return 1 + value.reduce((total, child) => total + countJsonNodes(child), 0);
+  return 1 + Object.values(value).reduce((total, child) => total + countJsonNodes(child), 0);
+}

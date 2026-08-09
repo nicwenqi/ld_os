@@ -233,6 +233,24 @@ export function validateE5bImportStagingRepositorySource(source) {
   const approvedEntrypoints = E5B_ENTRYPOINT_SIGNATURES.map(signature => (
     signature.slice("public.".length, signature.indexOf("("))
   ));
+  const approvedQueries = new Set([
+    "select public.create_neon_import_upload_intent($1::text,$2::uuid,$3::text,$4::text,$5::text,$6::bigint,$7::text,$8::text) as payload",
+    "select public.record_neon_import_object_uploaded($1::text,$2::uuid,$3::bigint) as payload",
+    "select public.record_neon_import_object_verification($1::text,$2::uuid,$3::bigint,$4::text,$5::bigint,$6::text,$7::text,$8::text) as payload",
+    "select public.begin_neon_import_staging($1::text,$2::uuid,$3::bigint,$4::jsonb) as payload",
+    "select public.append_neon_import_sheets($1::text,$2::uuid,$3::jsonb)",
+    "select public.append_neon_import_field_mappings($1::text,$2::uuid,$3::jsonb)",
+    "select public.append_neon_import_source_rows($1::text,$2::uuid,$3::jsonb)",
+    "select public.append_neon_import_issues($1::text,$2::uuid,$3::jsonb)",
+    "select public.append_neon_import_source_labels($1::text,$2::uuid,$3::jsonb)",
+    "select public.finalize_neon_import_staging($1::text,$2::uuid,$3::bigint,$4::jsonb,$5::text) as payload",
+    "select public.mark_neon_import_cleanup_pending($1::text,$2::uuid,$3::bigint,$4::text) as payload",
+    "select public.claim_neon_import_cleanup($1::text,$2::uuid,$3::integer,$4::uuid) as payload",
+    "select public.complete_neon_import_cleanup($1::text,$2::uuid,$3::uuid,$4::uuid) as payload",
+    "select public.fail_neon_import_cleanup($1::text,$2::uuid,$3::uuid,$4::uuid,$5::text,$6::timestamptz) as payload",
+    "select public.get_neon_import_workflow($1::text,$2::uuid) as payload",
+    "select public.list_neon_import_history($1::text) as payload",
+  ]);
   if (!value.startsWith('import "server-only";')) {
     failSource("E5B_IMPORT_STAGING_REPOSITORY_SERVER_ONLY_MISSING");
   }
@@ -255,6 +273,14 @@ export function validateE5bImportStagingRepositorySource(source) {
     if (!value.includes(`public.${entrypoint}(`)) {
       failSource("E5B_IMPORT_STAGING_REPOSITORY_ENTRYPOINT_MISSING", entrypoint);
     }
+  }
+  const queryCalls = [...value.matchAll(/database\.query(?:<PayloadRow>)?\(\s*(["'])([\s\S]*?)\1/g)];
+  const normalizedQueries = queryCalls.map(match => match[2].replace(/\s+/g, " ").trim());
+  if (queryCalls.length !== approvedQueries.size
+    || new Set(normalizedQueries).size !== approvedQueries.size
+    || normalizedQueries.some(query => !approvedQueries.has(query))
+    || /\b(?:Reflect|Proxy)\b|(?:const|let|var)\s*\{\s*query\s*\}\s*=|database\s*\[\s*["']query["']\s*\]|database\.query\.bind\s*\(/.test(value)) {
+    failSource("E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION");
   }
   if (/public\.\$\{|from\s+public\.import_|join\s+public\.import_|insert\s+into\s+public\.import_|update\s+public\.import_|delete\s+from\s+public\.import_/i.test(value)
     || /\b(?:commitBatch|revertBatch|save_neon_employee|storage\.objects)\b/i.test(value)) {

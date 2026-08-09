@@ -247,7 +247,7 @@ export interface ImportStagingRepository {
   recordObjectVerification(input: RecordImportObjectVerificationInput): Promise<ImportSagaState>;
   stageVerifiedWorkbook(input: StageVerifiedWorkbookInput): Promise<ImportStagingResult>;
   markCleanupPending(input: MarkCleanupPendingInput): Promise<ImportSagaState>;
-  claimDueCleanup(input: ClaimDueCleanupInput): Promise<ImportCleanupClaim | null>;
+  claimDueCleanup(input: ClaimDueCleanupInput): Promise<readonly ImportCleanupClaim[]>;
   completeCleanup(input: CompleteCleanupInput): Promise<ImportSagaState>;
   failCleanup(input: FailCleanupInput): Promise<ImportSagaState>;
   getWorkflow(batchId: string): Promise<ImportWorkflowProjection | null>;

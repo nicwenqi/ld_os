@@ -329,10 +329,10 @@ function mapIssue(value: unknown, field: string): JsonRecord {
 
 function mapSourceLabel(value: unknown, field: string): JsonRecord {
   const row = exactRecord(value, ["resolutionType", "sourceLabel", "normalizedSourceLabel", "sourceSheet", "affectedRowCount"], field);
-  const sourceLabel = boundedString(row.sourceLabel, `${field}.sourceLabel`, 255);
+  const sourceLabel = boundedAsciiBtrimString(row.sourceLabel, `${field}.sourceLabel`, 255);
   const normalized = normalizeImportSourceLabel(sourceLabel);
   if (normalized !== stringValue(row.normalizedSourceLabel, `${field}.normalizedSourceLabel`)) invalid(`${field}.normalizedSourceLabel`);
-  return { resolutionType: enumValue(row.resolutionType, new Set(["department", "position"]), `${field}.resolutionType`), sourceLabel, normalizedSourceLabel: normalized, sourceSheet: boundedString(row.sourceSheet, `${field}.sourceSheet`, 255), affectedRowCount: boundedInteger(row.affectedRowCount, `${field}.affectedRowCount`, 0, 2_147_483_647) };
+  return { resolutionType: enumValue(row.resolutionType, new Set(["department", "position"]), `${field}.resolutionType`), sourceLabel, normalizedSourceLabel: normalized, sourceSheet: boundedAsciiBtrimString(row.sourceSheet, `${field}.sourceSheet`, 255), affectedRowCount: boundedInteger(row.affectedRowCount, `${field}.affectedRowCount`, 0, 2_147_483_647) };
 }
 
 function validateEvidenceRelations(batch: JsonRecord, sheets: readonly JsonRecord[], mappings: readonly JsonRecord[], rows: readonly JsonRecord[], issues: readonly JsonRecord[], labels: readonly JsonRecord[]) {
@@ -359,7 +359,7 @@ function validateEvidenceRelations(batch: JsonRecord, sheets: readonly JsonRecor
     for (const kind of ["department", "position"] as const) {
       const field = kind === "department" ? "department_source_label" : "position_source_label";
       const value = row.normalizedValues as JsonRecord;
-      if (typeof value[field] === "string" && value[field].trim().length > 0) {
+      if (typeof value[field] === "string" && trimAsciiSpace(value[field] as string).length > 0) {
         const key = `${kind}:${selectedSheet.name}:${normalizeImportSourceLabel(value[field] as string)}`;
         labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
       }
@@ -382,16 +382,15 @@ function prepareCollection(records: readonly JsonRecord[], maxRecords: number, m
   const chunks: string[] = [];
   let chunk: JsonRecord[] = [];
   for (const record of ordered) {
-    const single = JSON.stringify([record]);
-    if (utf8ByteLength(single) > maxBytes) recordTooLarge();
+    if (postgresJsonbByteUpperBound([record]) > maxBytes) recordTooLarge();
     const candidate = [...chunk, record];
-    if (chunk.length > 0 && (candidate.length > maxRecords || utf8ByteLength(JSON.stringify(candidate)) > maxBytes)) {
+    if (chunk.length > 0 && (candidate.length > maxRecords || postgresJsonbByteUpperBound(candidate) > maxBytes)) {
       chunks.push(JSON.stringify(chunk));
       chunk = [record];
     } else chunk = candidate;
   }
   if (chunk.length > 0) chunks.push(JSON.stringify(chunk));
-  if (chunks.some(chunkValue => utf8ByteLength(chunkValue) > maxBytes)) invalid(`${field}.chunkBytes`);
+  if (chunks.some(chunkValue => postgresJsonbByteUpperBound(JSON.parse(chunkValue)) > maxBytes)) invalid(`${field}.chunkBytes`);
   return { records: ordered, chunks };
 }
 
@@ -411,10 +410,45 @@ function buildDatabaseManifest(batchId: string, batch: JsonRecord, sheets: reado
     algorithm: "e5b-canonical-json-sha256-v1",
     batch: { id: batchId, detectedSheetCount: batch.detectedSheetCount, totalSourceRows: batch.totalSourceRows, validRows: batch.validRows, warningRows: batch.warningRows, errorRows: batch.errorRows, selectedSheetId: batch.selectedSheetId },
     sheets: [...sheets].sort((left, right) => Number(left.index) - Number(right.index) || compareUtf8(String(left.id), String(right.id))).map(sheet => e5bSha256(postgresJsonbText(sheet))),
-    fieldMappings: [...mappings].sort((left, right) => compareUtf8(String(left.sheetId), String(right.sheetId)) || Number(left.sourceColumnIndex) - Number(right.sourceColumnIndex) || compareUtf8(String(left.id), String(right.id))).map(mapping => e5bSha256(postgresJsonbText(mapping))),
+    fieldMappings: [...mappings].sort((left, right) => compareUtf8(String(left.sheetId), String(right.sheetId)) || Number(left.sourceColumnIndex) - Number(right.sourceColumnIndex) || compareUtf8(String(left.id), String(right.id))).map(mapping => e5bSha256(postgresJsonbText(fieldMappingManifestProjection(mapping)))),
     sourceRows: [...rows].sort((left, right) => compareUtf8(String(left.sheetId), String(right.sheetId)) || Number(left.sourceRowNumber) - Number(right.sourceRowNumber) || compareUtf8(String(left.id), String(right.id))).map(row => e5bSha256(postgresJsonbText(row))),
-    issues: [...issues].sort((left, right) => compareUtf8(String(left.sourceRowId), String(right.sourceRowId)) || compareUtf8(String(left.issueType), String(right.issueType)) || compareUtf8(String(left.id), String(right.id))).map(issue => e5bSha256(postgresJsonbText(issue))),
-    sourceLabels: [...labels].sort((left, right) => compareUtf8(String(left.resolutionType), String(right.resolutionType)) || compareUtf8(String(batch.selectedSheetId), String(batch.selectedSheetId)) || compareUtf8(String(left.normalizedSourceLabel), String(right.normalizedSourceLabel))).map(label => e5bSha256(postgresJsonbText(label))),
+    issues: [...issues].sort((left, right) => compareUtf8(String(left.sourceRowId), String(right.sourceRowId)) || compareUtf8(String(left.issueType), String(right.issueType)) || compareUtf8(String(left.id), String(right.id))).map(issue => e5bSha256(postgresJsonbText(issueManifestProjection(issue)))),
+    sourceLabels: [...labels].sort((left, right) => compareUtf8(String(left.resolutionType), String(right.resolutionType)) || compareUtf8(String(batch.selectedSheetId), String(batch.selectedSheetId)) || compareUtf8(String(left.normalizedSourceLabel), String(right.normalizedSourceLabel))).map(label => e5bSha256(postgresJsonbText(sourceLabelManifestProjection(label, String(batch.selectedSheetId))))),
+  };
+}
+
+function fieldMappingManifestProjection(mapping: JsonRecord): JsonRecord {
+  return {
+    sheetId: mapping.sheetId,
+    sourceColumnName: mapping.sourceColumnName,
+    sourceColumnIndex: mapping.sourceColumnIndex,
+    targetField: mapping.targetField,
+    transformationRule: mapping.transformationRule,
+    isRequired: mapping.isRequired,
+    mappingStatus: mapping.mappingStatus,
+  };
+}
+
+function issueManifestProjection(issue: JsonRecord): JsonRecord {
+  return {
+    sourceRowId: issue.sourceRowId,
+    issueType: issue.issueType,
+    severity: issue.severity,
+    sourceField: null,
+    sourceValueProjection: null,
+    message: issue.message,
+    resolutionStatus: "open",
+  };
+}
+
+function sourceLabelManifestProjection(label: JsonRecord, selectedSheetId: string): JsonRecord {
+  return {
+    sheetId: selectedSheetId,
+    resolutionType: label.resolutionType,
+    sourceLabel: label.sourceLabel,
+    normalizedSourceLabel: label.normalizedSourceLabel,
+    affectedRowCount: label.affectedRowCount,
+    resolutionStatus: "pending",
   };
 }
 
@@ -430,6 +464,16 @@ function postgresJsonbText(value: JsonValue): string {
 function e5bSha256(value: string): string {
   const bytes = UTF8.encode(value).byteLength;
   return createHash("sha256").update(`e5b-utf8-frame-v1:${bytes}:${value}`, "utf8").digest("hex");
+}
+
+function postgresJsonbByteUpperBound(value: JsonValue): number {
+  return utf8ByteLength(postgresJsonbText(value)) + jsonNodeCount(value) * 16 + 64;
+}
+
+function jsonNodeCount(value: JsonValue): number {
+  if (value === null || typeof value !== "object") return 1;
+  if (Array.isArray(value)) return 1 + value.reduce((total, child) => total + jsonNodeCount(child), 0);
+  return 1 + Object.values(value).reduce((total, child) => total + jsonNodeCount(child), 0);
 }
 
 function sourceRowFingerprint(rawValues: readonly JsonRecord[]): string {
@@ -504,6 +548,7 @@ function stringArray(value: unknown, field: string): string[] { return array(val
 function stringValue(value: unknown, field: string): string { if (typeof value !== "string" || value.trim().length === 0) invalid(field); return value; }
 function nonemptyString(value: unknown, field: string): string { return stringValue(value, field).trim(); }
 function boundedString(value: unknown, field: string, max: number): string { const text = nonemptyString(value, field); if ([...text].length > max) invalid(field); return text; }
+function boundedAsciiBtrimString(value: unknown, field: string, max: number): string { const raw = stringValue(value, field); const text = trimAsciiSpace(raw); if (text.length === 0 || [...text].length > max) invalid(field); return text; }
 function nullableBoundedString(value: unknown, field: string, max: number): string | null { return value === null ? null : boundedString(value, field, max); }
 function sanitizedFilename(value: unknown, field: string): string { const text = boundedString(value, field, 181); if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/.test(text) || text.includes("..")) invalid(field); return text; }
 function importMime(value: unknown, field: string): string { const text = boundedString(value, field, 100); if (!new Set(["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"]).has(text)) invalid(field); return text; }
@@ -516,6 +561,7 @@ function booleanValue(value: unknown, field: string): boolean { if (typeof value
 function enumValue<T extends string>(value: unknown, allowed: ReadonlySet<T>, field: string): T { if (typeof value !== "string" || !allowed.has(value as T)) invalid(field); return value as T; }
 function compareUtf8(left: string, right: string): number { const a = UTF8.encode(left); const b = UTF8.encode(right); for (let index = 0; index < Math.min(a.length, b.length); index += 1) if (a[index] !== b[index]) return a[index] - b[index]; return a.length - b.length; }
 function utf8ByteLength(value: string): number { return UTF8.encode(value).byteLength; }
-function normalizeImportSourceLabel(value: string): string { return value.trim().normalize("NFKC").toLowerCase(); }
+function normalizeImportSourceLabel(value: string): string { return trimAsciiSpace(value).normalize("NFKC").toLowerCase(); }
+function trimAsciiSpace(value: string): string { return value.replace(/^ +| +$/g, ""); }
 function recordTooLarge(): never { throw new Error("E5B_IMPORT_STAGING_RECORD_TOO_LARGE"); }
 function invalid(field: string): never { throw new Error(`NEON_IMPORT_STAGING_PAYLOAD_INVALID:${field}`); }

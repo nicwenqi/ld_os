@@ -10,15 +10,26 @@
   source-row fingerprints, selected-sheet/mapping/issue/label relationships,
   deterministic IDs for evidence types that intentionally have no parser ID,
   and deterministic ordering.
+- The finalize manifest now mirrors 092’s authoritative projections exactly:
+  field-mapping transport IDs are excluded; issue defaults are represented as
+  `sourceField: null`, `sourceValueProjection: null`, and
+  `resolutionStatus: "open"`; label projections derive `sheetId` and use
+  `resolutionStatus: "pending"`.
 - Added fixed transport bounds: 250 records / 1 MiB for source rows and 250
-  records / 512 KiB for the other evidence collections. A single oversized
-  record fails before any staging SQL.
+  records / 512 KiB for the other evidence collections. Bounds use a
+  conservative PostgreSQL-JSONB textual/structural upper bound rather than
+  JSON transport text alone. A single oversized record fails before any
+  staging SQL.
+- Source-label normalization follows PostgreSQL ordering precisely: U+0020
+  `btrim`, then NFKC normalization, then lowercase. It deliberately does not
+  pre-trim non-breaking spaces.
 - Added the minimal server-only cleanup `operationId` correction. It matches
-  the frozen 091 cleanup entrypoint signatures and remains absent from all
-  browser-safe projections.
+  the frozen 091 cleanup entrypoint signatures. Cleanup claim remains an
+  array because 091 claims a bounded batch; operation IDs remain absent from
+  all browser-safe projections.
 - Added a source audit for the repository’s server-only boundary, exact
-  entrypoint allowlist, preflight order, canonical evidence functions,
-  chunk limits, and raw-table/employee-mutation rejection.
+  16-query allowlist, preflight order, canonical evidence functions, chunk
+  limits, and raw-table/employee-mutation/query-alias/reflection rejection.
 
 ## Verification
 
@@ -28,7 +39,7 @@ node --experimental-strip-types --test \
   scripts/neon/validate-e5b-import-staging-schema.test.mjs \
   scripts/neon/validate-e5b-import-staging-entrypoints.test.mjs \
   scripts/neon/validate-e5b-import-staging-repository.test.mjs
-# 41 passed, 0 failed
+# 45 passed, 0 failed
 
 npm run build
 # passed
