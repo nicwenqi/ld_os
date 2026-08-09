@@ -64,6 +64,64 @@ function asStringArray(manifest, key) {
   return manifest[key].map(normalizeIdentifier);
 }
 
+function normalizePolicyExpression(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/::[a-z_][a-z0-9_.]*(?:\[\])?/g, "")
+    .replace(/[\s()\"]/g, "");
+}
+
+function policyDescriptorValue(descriptor) {
+  const roles = orderedUnique(descriptor.roles.map(normalizeIdentifier));
+  return [
+    `${normalizeIdentifier(descriptor.schema)}.${normalizeIdentifier(descriptor.table)}:${normalizeIdentifier(descriptor.name)}`,
+    normalizeIdentifier(descriptor.command),
+    roles.join(","),
+    descriptor.permissive ? "permissive" : "restrictive",
+    normalizePolicyExpression(descriptor.using),
+    normalizePolicyExpression(descriptor.withCheck),
+  ].join("|");
+}
+
+function triggerDescriptorValue(descriptor) {
+  return [
+    `${normalizeIdentifier(descriptor.schema)}.${normalizeIdentifier(descriptor.table)}:${normalizeIdentifier(descriptor.name)}`,
+    normalizeIdentifier(descriptor.enabled),
+    normalizeIdentifier(descriptor.timing),
+    orderedUnique(descriptor.events.map(normalizeIdentifier)).join(","),
+    normalizeIdentifier(descriptor.level),
+    orderedUnique(descriptor.updateColumns.map(normalizeIdentifier)).join(","),
+    normalizeIdentifier(descriptor.function).replace(/\s+/g, ""),
+  ].join("|");
+}
+
+function securityDescriptorInventory(manifest, kind) {
+  const key = kind === "policy" ? "policyDescriptors" : "triggerDescriptors";
+  const descriptors = manifest.security?.[key];
+  if (!Array.isArray(descriptors) || descriptors.length === 0) {
+    fail("CANONICAL_NEON_INVALID_MANIFEST", `manifest.security.${key} must be a non-empty array`);
+  }
+  const expectedKeys = kind === "policy"
+    ? ["command", "name", "permissive", "roles", "schema", "table", "using", "withCheck"]
+    : ["enabled", "events", "function", "level", "name", "schema", "table", "timing", "updateColumns"];
+  for (const descriptor of descriptors) {
+    if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)
+      || Object.keys(descriptor).sort().join("|") !== expectedKeys.sort().join("|")) {
+      fail("CANONICAL_NEON_INVALID_MANIFEST", `manifest.security.${key} contains an incomplete descriptor`);
+    }
+    const arrayKeys = kind === "policy" ? ["roles"] : ["events", "updateColumns"];
+    if (arrayKeys.some((name) => !Array.isArray(descriptor[name]) || descriptor[name].some((value) => typeof value !== "string"))) {
+      fail("CANONICAL_NEON_INVALID_MANIFEST", `manifest.security.${key} descriptor arrays must contain strings`);
+    }
+    const scalarKeys = expectedKeys.filter((name) => !arrayKeys.includes(name) && name !== "permissive");
+    if (scalarKeys.some((name) => typeof descriptor[name] !== "string")
+      || (kind === "policy" && typeof descriptor.permissive !== "boolean")) {
+      fail("CANONICAL_NEON_INVALID_MANIFEST", `manifest.security.${key} descriptor fields have invalid types`);
+    }
+  }
+  return orderedUnique(descriptors.map(kind === "policy" ? policyDescriptorValue : triggerDescriptorValue));
+}
+
 async function exists(path) {
   try {
     await access(path);
@@ -108,6 +166,22 @@ function validateManifest(manifest) {
   if (!Array.isArray(manifest.exclusions.schemas) || !Array.isArray(manifest.exclusions.objects) || !Array.isArray(manifest.exclusions.capabilities)) {
     fail("CANONICAL_NEON_INVALID_MANIFEST", "manifest.exclusions must include schemas, objects, and capabilities");
   }
+  securityDescriptorInventory(manifest, "policy");
+  securityDescriptorInventory(manifest, "trigger");
+  const smokeRejections = manifest.security?.runtimeSmokeExpectedRejections;
+  if (!smokeRejections || typeof smokeRejections !== "object" || Array.isArray(smokeRejections)) {
+    fail("CANONICAL_NEON_INVALID_MANIFEST", "manifest.security.runtimeSmokeExpectedRejections must be an exact-signature map");
+  }
+  const signatures = new Set(asStringArray(manifest, "entrypointSignatures").map((signature) => signature.replace(/\s+/g, "")));
+  for (const [signature, rejections] of Object.entries(smokeRejections)) {
+    const normalized = normalizeIdentifier(signature).replace(/\s+/g, "");
+    if (!signatures.has(normalized) || !Array.isArray(rejections) || rejections.length === 0
+      || rejections.some((rejection) => !rejection || typeof rejection !== "object" || Array.isArray(rejection)
+        || Object.keys(rejection).sort().join("|") !== "code|message"
+        || typeof rejection.code !== "string" || typeof rejection.message !== "string")) {
+      fail("CANONICAL_NEON_INVALID_MANIFEST", "runtime smoke rejections require declared exact signatures and exact code/message pairs");
+    }
+  }
   return modules;
 }
 
@@ -125,6 +199,56 @@ function objectInventory(source) {
     policies: collect(source, new RegExp(`\\bcreate\\s+policy\\s+(${IDENTIFIER})`, "gi")),
     triggers: collect(source, new RegExp(`\\bcreate\\s+(?:constraint\\s+)?trigger\\s+(${IDENTIFIER})`, "gi")),
   };
+}
+
+function parenthesizedSqlClause(statement, words) {
+  const tokens = tokenizeSql(statement);
+  for (let index = 0; index <= tokens.length - words.length; index += 1) {
+    if (!words.every((word, offset) => tokens[index + offset]?.value === word)) continue;
+    const openingIndex = index + words.length;
+    if (tokens[openingIndex]?.value !== "(") continue;
+    let depth = 0;
+    for (let cursor = openingIndex; cursor < tokens.length; cursor += 1) {
+      if (tokens[cursor].value === "(") depth += 1;
+      if (tokens[cursor].value === ")") depth -= 1;
+      if (depth === 0) {
+        return statement.slice(tokens[openingIndex].end, tokens[cursor].start);
+      }
+    }
+  }
+  return "";
+}
+
+export function canonicalPolicyDescriptors(source) {
+  return orderedUnique([...source.matchAll(/\bcreate\s+policy\b[\s\S]*?;/gi)].map(({ 0: statement }) => {
+    const header = statement.slice(0, [statement.search(/\busing\s*\(/i), statement.search(/\bwith\s+check\s*\(/i), statement.length]
+      .filter((index) => index >= 0).sort((left, right) => left - right)[0]).replace(/\s+/g, " ").trim();
+    const match = header.match(/^create\s+policy\s+([a-z_][a-z0-9_]*)\s+on\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)(?:\s+as\s+(permissive|restrictive))?(?:\s+for\s+(all|select|insert|update|delete))?(?:\s+to\s+(.+?))?$/i);
+    if (!match) fail("CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT", "cannot parse canonical policy descriptor");
+    const roles = (match[6] ?? "public").split(",").map((role) => role.trim()).filter(Boolean);
+    return policyDescriptorValue({
+      schema: match[2], table: match[3], name: match[1], command: match[5] ?? "all",
+      roles, permissive: (match[4] ?? "permissive").toLowerCase() === "permissive",
+      using: parenthesizedSqlClause(statement, ["using"]),
+      withCheck: parenthesizedSqlClause(statement, ["with", "check"]),
+    });
+  }));
+}
+
+export function canonicalTriggerDescriptors(source) {
+  return orderedUnique([...source.matchAll(/\bcreate\s+(?:constraint\s+)?trigger\b[\s\S]*?;/gi)].map(({ 0: statement }) => {
+    const normalized = statement.replace(/\s+/g, " ").trim();
+    const match = normalized.match(/^create\s+(?:constraint\s+)?trigger\s+([a-z_][a-z0-9_]*)\s+(before|after|instead\s+of)\s+(.+?)\s+on\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\s+for\s+each\s+(row|statement)\s+execute\s+function\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s*\(([^)]*)\)\s*;$/i);
+    if (!match) fail("CANONICAL_NEON_TRIGGER_DESCRIPTOR_DRIFT", "cannot parse canonical trigger descriptor");
+    const eventClause = match[3].toLowerCase();
+    const events = [...eventClause.matchAll(/(?:^|\bor\s+)(insert|update|delete|truncate)\b/g)].map((event) => event[1]);
+    const updateColumns = eventClause.match(/\bupdate\s+of\s+(.+?)(?:\s+or\s+(?:insert|delete|truncate)\b|$)/)?.[1]
+      ?.split(",").map((column) => column.trim()).filter(Boolean) ?? [];
+    return triggerDescriptorValue({
+      schema: match[4], table: match[5], name: match[1], enabled: "origin", timing: match[2],
+      events, level: match[6], updateColumns, function: `${match[7]}(${match[8].replace(/\s+/g, "")})`,
+    });
+  }));
 }
 
 function compareInventory(kind, actual, expected) {
@@ -578,6 +702,18 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
   for (const kind of ["roles", "types", "tables", "routines", "policies", "triggers"]) {
     compareInventory(kind, actual[kind], asStringArray(manifest, kind));
   }
+  try {
+    compareInventory("policy descriptors", canonicalPolicyDescriptors(source), securityDescriptorInventory(manifest, "policy"));
+  } catch (error) {
+    if (error?.code === "CANONICAL_NEON_MANIFEST_DRIFT") fail("CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT", error.message);
+    throw error;
+  }
+  try {
+    compareInventory("trigger descriptors", canonicalTriggerDescriptors(source), securityDescriptorInventory(manifest, "trigger"));
+  } catch (error) {
+    if (error?.code === "CANONICAL_NEON_MANIFEST_DRIFT") fail("CANONICAL_NEON_TRIGGER_DESCRIPTOR_DRIFT", error.message);
+    throw error;
+  }
   const routines = asStringArray(manifest, "routines");
   const entrypoints = asStringArray(manifest, "entrypoints");
   const entrypointSignatures = asStringArray(manifest, "entrypointSignatures").map((signature) => signature.replace(/\s+/g, ""));
@@ -771,13 +907,39 @@ const CATALOG_MATRIX_SQL = `
           order by namespace.nspname,routine.proname,pg_catalog.oidvectortypes(routine.proargtypes))
         from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
         where namespace.nspname='public'), '{}'::text[]) as entrypoints,
-      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||relation.relname||':'||policy.polname order by namespace.nspname,relation.relname,policy.polname)
+      coalesce((select pg_catalog.array_agg(
+          namespace.nspname||'.'||relation.relname||':'||policy.polname||'|'||
+          case policy.polcmd when 'r' then 'select' when 'a' then 'insert' when 'w' then 'update' when 'd' then 'delete' else 'all' end||'|'||
+          coalesce((select pg_catalog.string_agg(coalesce(role_record.rolname,'public'),',' order by coalesce(role_record.rolname,'public'))
+            from pg_catalog.unnest(policy.polroles) as policy_role(role_oid)
+            left join pg_catalog.pg_roles as role_record on role_record.oid=policy_role.role_oid),'')||'|'||
+          case when policy.polpermissive then 'permissive' else 'restrictive' end||'|'||
+          pg_catalog.regexp_replace(pg_catalog.regexp_replace(pg_catalog.lower(coalesce(pg_catalog.pg_get_expr(policy.polqual,policy.polrelid),'')),'::[a-z_][a-z0-9_.]*','','g'),'[[:space:]()\"]','','g')||'|'||
+          pg_catalog.regexp_replace(pg_catalog.regexp_replace(pg_catalog.lower(coalesce(pg_catalog.pg_get_expr(policy.polwithcheck,policy.polrelid),'')),'::[a-z_][a-z0-9_.]*','','g'),'[[:space:]()\"]','','g')
+          order by namespace.nspname,relation.relname,policy.polname)
         from pg_catalog.pg_policy as policy join pg_catalog.pg_class as relation on relation.oid=policy.polrelid
         join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
         where namespace.nspname in ('public','app_private')), '{}'::text[]) as policies,
-      coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||relation.relname||':'||trigger.tgname order by namespace.nspname,relation.relname,trigger.tgname)
+      coalesce((select pg_catalog.array_agg(
+          namespace.nspname||'.'||relation.relname||':'||trigger.tgname||'|'||
+          case trigger.tgenabled when 'O' then 'origin' when 'D' then 'disabled' when 'R' then 'replica' else 'always' end||'|'||
+          case when (trigger.tgtype & 64)=64 then 'instead of' when (trigger.tgtype & 2)=2 then 'before' else 'after' end||'|'||
+          pg_catalog.array_to_string(pg_catalog.array_remove(array[
+            case when (trigger.tgtype & 8)=8 then 'delete' end,
+            case when (trigger.tgtype & 4)=4 then 'insert' end,
+            case when (trigger.tgtype & 32)=32 then 'truncate' end,
+            case when (trigger.tgtype & 16)=16 then 'update' end
+          ],null),',')||'|'||
+          case when (trigger.tgtype & 1)=1 then 'row' else 'statement' end||'|'||
+          coalesce((select pg_catalog.string_agg(attribute.attname,',' order by attribute.attname)
+            from pg_catalog.unnest(trigger.tgattr::smallint[]) as trigger_attribute(attnum)
+            join pg_catalog.pg_attribute as attribute on attribute.attrelid=trigger.tgrelid and attribute.attnum=trigger_attribute.attnum),'')||'|'||
+          routine_namespace.nspname||'.'||routine.proname||'('||pg_catalog.replace(pg_catalog.pg_get_function_identity_arguments(routine.oid),' ','')||')'
+          order by namespace.nspname,relation.relname,trigger.tgname)
         from pg_catalog.pg_trigger as trigger join pg_catalog.pg_class as relation on relation.oid=trigger.tgrelid
         join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+        join pg_catalog.pg_proc as routine on routine.oid=trigger.tgfoid
+        join pg_catalog.pg_namespace as routine_namespace on routine_namespace.oid=routine.pronamespace
         where namespace.nspname in ('public','app_private') and not trigger.tgisinternal), '{}'::text[]) as triggers
   )
   select
@@ -858,10 +1020,12 @@ const CATALOG_MATRIX_SQL = `
       as definers_hardened,
     not exists(select 1 from pg_catalog.unnest(expected.audit_tables) as item(value)
       where not exists(select 1 from pg_catalog.pg_trigger as trigger
+        join pg_catalog.pg_proc as trigger_routine on trigger_routine.oid=trigger.tgfoid
+        join pg_catalog.pg_namespace as trigger_routine_namespace on trigger_routine_namespace.oid=trigger_routine.pronamespace
         where trigger.tgrelid=pg_catalog.to_regclass(item.value) and not trigger.tgisinternal
-          and pg_catalog.pg_get_triggerdef(trigger.oid) ilike '% BEFORE %'
-          and pg_catalog.pg_get_triggerdef(trigger.oid) ilike '% UPDATE %'
-          and pg_catalog.pg_get_triggerdef(trigger.oid) ilike '% DELETE %')) as audit_append_only,
+          and trigger.tgenabled='O' and trigger.tgtype=27
+          and trigger_routine_namespace.nspname='app_private'
+          and trigger_routine.proname like 'reject_%_audit_mutation')) as audit_append_only,
     not exists(select 1 from pg_catalog.pg_namespace where nspname in ('auth','storage'))
       and not exists(select 1 from pg_catalog.pg_roles where rolname in ('authenticated','anon','service_role','supabase_admin','dashboard_user','hotel_ld_people_read','hotel_ld_readonly'))
       and not exists(select 1 from pg_catalog.pg_class as relation join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
@@ -874,18 +1038,14 @@ const CATALOG_MATRIX_SQL = `
 `;
 
 function catalogInventories(bundle) {
-  const source = bundle.modules.map(({ source }) => source).join("\n");
-  const descriptorInventory = (expression) => orderedUnique(
-    [...source.matchAll(expression)].map((match) => `${normalizeIdentifier(match[2])}:${normalizeIdentifier(match[1])}`),
-  );
   return [
     asStringArray(bundle.manifest, "schemas").sort(),
     asStringArray(bundle.manifest, "types").sort(),
     asStringArray(bundle.manifest, "tables").sort(),
     asStringArray(bundle.manifest, "routines").sort(),
     asStringArray(bundle.manifest, "entrypointSignatures").map((value) => value.replace(/\s+/g, "")).sort(),
-    descriptorInventory(/\bcreate\s+policy\s+([a-z_][a-z0-9_]*)\s+on\s+((?:[a-z_][a-z0-9_]*\.)[a-z_][a-z0-9_]*)/gi),
-    descriptorInventory(/\bcreate\s+(?:constraint\s+)?trigger\s+([a-z_][a-z0-9_]*)[\s\S]*?\bon\s+((?:[a-z_][a-z0-9_]*\.)[a-z_][a-z0-9_]*)\s+for\s+each\s+row/gi),
+    securityDescriptorInventory(bundle.manifest, "policy"),
+    securityDescriptorInventory(bundle.manifest, "trigger"),
     asStringArray(bundle.manifest, "tables").filter((value) => value.startsWith("app_private.")).sort(),
   ];
 }
@@ -978,7 +1138,8 @@ function validationSeed() {
     adminProfile: id(), adminAuth: id(), adminAccount: id(),
     managerRole: id(), adminRole: id(), managerAssignment: id(), adminAssignment: id(),
     rootDepartment: id(), childDepartment: id(), otherDepartment: id(), trainerScope: id(),
-    positionFamily: id(), position: id(), positionAssignment: id(),
+    operationalUnit: id(), departmentAlias: id(),
+    positionFamily: id(), position: id(), positionAssignment: id(), positionAlias: id(),
     childEmployee: id(), otherEmployee: id(), childIdentifier: id(), otherIdentifier: id(),
     hostnameA: `${suffix}.validation.invalid`,
     hostnameB: `${id()}.validation.invalid`,
@@ -1031,9 +1192,12 @@ async function createRuntimeSeed(bootstrapPool, bundle) {
     await database.query(`insert into public.role_assignments(id,tenant_id,property_id,user_id,role_id) values ($1,$2,$3,$4,$5),($6,$2,$3,$7,$8)`, [seed.managerAssignment, seed.tenantA, seed.propertyA, seed.managerProfile, seed.managerRole, seed.adminAssignment, seed.adminProfile, seed.adminRole]);
     await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,null,'department','root','Validation Root','Validation Root',1)`, [seed.rootDepartment, seed.tenantA, seed.propertyA]);
     await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,$4,'team','child','Validation Child','Validation Child',2),($5,$2,$3,null,'department','other','Validation Other','Validation Other',3)`, [seed.childDepartment, seed.tenantA, seed.propertyA, seed.rootDepartment, seed.otherDepartment]);
+    await database.query(`insert into public.operational_units(id,tenant_id,property_id,department_id,unit_type,code,name_zh,name_en) values ($1,$2,$3,$4,'other','validation-unit','Validation Unit','Validation Unit')`, [seed.operationalUnit, seed.tenantA, seed.propertyA, seed.rootDepartment]);
+    await database.query(`insert into public.department_aliases(id,tenant_id,property_id,source_system,source_sheet,source_value,normalized_source_value,suggested_target_id) values ($1,$2,$3,'validation','fixture','Validation Department Alias','validation department alias',$4)`, [seed.departmentAlias, seed.tenantA, seed.propertyA, seed.childDepartment]);
     await database.query(`insert into public.trainer_scopes(id,tenant_id,property_id,role_assignment_id,department_id,include_descendants) values ($1,$2,$3,$4,$5,true)`, [seed.trainerScope, seed.tenantA, seed.propertyA, seed.adminAssignment, seed.rootDepartment]);
     await database.query(`insert into public.position_families(id,tenant_id,property_id,code,name_zh,name_en) values ($1,$2,$3,'validation-family','Validation Family','Validation Family')`, [seed.positionFamily, seed.tenantA, seed.propertyA]);
     await database.query(`insert into public.positions(id,tenant_id,property_id,position_family_id,code,name_zh,name_en) values ($1,$2,$3,$4,'validation-position','Validation Position','Validation Position')`, [seed.position, seed.tenantA, seed.propertyA, seed.positionFamily]);
+    await database.query(`insert into public.position_aliases(id,tenant_id,property_id,source_system,source_sheet,source_value,normalized_source_value,suggested_position_id,suggested_family_id) values ($1,$2,$3,'validation','fixture','Validation Position Alias','validation position alias',$4,$5)`, [seed.positionAlias, seed.tenantA, seed.propertyA, seed.position, seed.positionFamily]);
     await database.query(`insert into public.position_department_assignments(id,tenant_id,property_id,position_id,department_id) values ($1,$2,$3,$4,$5)`, [seed.positionAssignment, seed.tenantA, seed.propertyA, seed.position, seed.childDepartment]);
     await database.query(`insert into public.employees(id,tenant_id,property_id,employee_number,name_zh,department_id,position_id,position_family_id,employment_status) values ($1,$2,$3,'validation-child','Validation Child Employee',$4,$5,$6,'active'),($7,$2,$3,'validation-other','Validation Other Employee',$8,$5,$6,'active')`, [seed.childEmployee, seed.tenantA, seed.propertyA, seed.childDepartment, seed.position, seed.positionFamily, seed.otherEmployee, seed.otherDepartment]);
     await database.query(`insert into public.employee_external_identifiers(id,tenant_id,property_id,employee_id,source_system,identifier_type,identifier_value,is_primary) values ($1,$2,$3,$4,'validation','other','validation-child',true),($5,$2,$3,$6,'validation','other','validation-other',true)`, [seed.childIdentifier, seed.tenantA, seed.propertyA, seed.childEmployee, seed.otherIdentifier, seed.otherEmployee]);
@@ -1090,15 +1254,56 @@ function actor(seed, kind = "manager", propertyId = seed.propertyA) {
   };
 }
 
-function smokeValue(type, index, seed) {
-  if (type === "text") return index === 0 ? seed.hostnameA : "validation";
-  if (type === "uuid") return randomUUID();
-  if (type === "uuid[]") return [];
-  if (type === "bigint" || type === "integer") return 0;
-  if (type === "boolean") return false;
-  if (type === "date") return null;
-  if (type === "jsonb") return [];
-  fail("CANONICAL_NEON_RUNTIME_MATRIX_FAILED", `UNSUPPORTED_SMOKE_TYPE_${type}`);
+export function runtimeSmokeValues(signature, seed) {
+  const unique = () => `validation-${randomUUID()}`;
+  const fixtures = {
+    "public.create_neon_organization_department(text,uuid,uuid,uuid,text,text,text,text,integer)":
+      () => [seed.hostnameA, seed.tenantA, seed.propertyA, seed.rootDepartment, "team", unique(), "Validation Smoke", "Validation Smoke", 10],
+    "public.create_neon_organization_department_from_alias(text,uuid,text,uuid,text,text,text,text,integer)":
+      () => [seed.hostnameA, seed.departmentAlias, "created_top_level", null, "department", unique(), "Validation Smoke", "Validation Smoke", 10],
+    "public.create_neon_organization_operational_unit(text,uuid,uuid,uuid,uuid,text,text,text,text,integer,boolean)":
+      () => [seed.hostnameA, seed.tenantA, seed.propertyA, seed.rootDepartment, null, "other", unique(), "Validation Smoke", "Validation Smoke", 10, true],
+    "public.merge_neon_organization_department_alias(text,uuid,uuid)":
+      () => [seed.hostnameA, seed.departmentAlias, seed.childDepartment],
+    "public.move_neon_organization_department(text,uuid,uuid,bigint)":
+      () => [seed.hostnameA, seed.childDepartment, seed.rootDepartment, 1],
+    "public.preview_neon_organization_department_move(text,uuid,uuid)":
+      () => [seed.hostnameA, seed.childDepartment, seed.rootDepartment],
+    "public.preview_neon_position_source_impact(text,uuid)": () => [seed.hostnameA, seed.positionAlias],
+    "public.read_neon_organization_department_aliases(text)": () => [seed.hostnameA],
+    "public.read_neon_organization_department_tree(text)": () => [seed.hostnameA],
+    "public.read_neon_organization_operational_units(text)": () => [seed.hostnameA],
+    "public.read_neon_people_department_directory(text,text,integer,integer)": () => [seed.hostnameA, null, 100, 0],
+    "public.read_neon_people_manager_directory(text,text,uuid,uuid,uuid,text,boolean,integer,integer)":
+      () => [seed.hostnameA, null, null, null, null, null, null, 100, 0],
+    "public.read_neon_people_manager_employee(text,uuid)": () => [seed.hostnameA, seed.childEmployee],
+    "public.read_neon_people_manager_facets(text)": () => [seed.hostnameA],
+    "public.read_neon_position_families(text)": () => [seed.hostnameA],
+    "public.read_neon_position_source_labels(text)": () => [seed.hostnameA],
+    "public.read_neon_positions(text)": () => [seed.hostnameA],
+    "public.resolve_neon_organization_department_alias(text,uuid,text,uuid)":
+      () => [seed.hostnameA, seed.departmentAlias, "department", seed.childDepartment],
+    "public.resolve_neon_organization_department_alias_to_operational_unit(text,uuid,uuid)":
+      () => [seed.hostnameA, seed.departmentAlias, seed.operationalUnit],
+    "public.resolve_neon_organization_property(text)": () => [seed.hostnameA],
+    "public.resolve_neon_people_property(text)": () => [seed.hostnameA],
+    "public.resolve_neon_position_alias(text,uuid,text,uuid,text,text)":
+      () => [seed.hostnameA, seed.positionAlias, "position", seed.position, null, null],
+    "public.save_neon_employee_with_identifiers(text,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid,uuid,text,date,date,text,boolean,jsonb)":
+      () => [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, unique(), "Validation Smoke", "Validation Smoke", seed.childDepartment, seed.operationalUnit, seed.position, seed.positionFamily, null, null, null, "active", true, JSON.stringify([])],
+    "public.save_neon_position_family(text,uuid,uuid,uuid,bigint,text,text,text,text,integer,boolean)":
+      () => [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, unique(), "Validation Smoke", "Validation Smoke", "Validation Smoke", 10, true],
+    "public.save_neon_position_with_departments(text,uuid,uuid,uuid,bigint,uuid,text,text,text,text,boolean,uuid[])":
+      () => [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, seed.positionFamily, unique(), "Validation Smoke", "Validation Smoke", null, true, [seed.childDepartment]],
+    "public.update_neon_organization_department(text,uuid,bigint,text,text,integer,boolean)":
+      () => [seed.hostnameA, seed.childDepartment, 1, "Validation Child", "Validation Child", 2, true],
+    "public.update_neon_organization_operational_unit(text,uuid,bigint,uuid,uuid,text,text,text,text,integer,boolean)":
+      () => [seed.hostnameA, seed.operationalUnit, 1, seed.rootDepartment, null, "other", "validation-unit", "Validation Unit", "Validation Unit", 10, true],
+  };
+  const normalized = normalizeIdentifier(signature).replace(/\s+/g, "");
+  const fixture = fixtures[normalized];
+  if (!fixture) fail("CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT", "runtime smoke has no exact-signature fixture");
+  return fixture();
 }
 
 export function runtimeEntrypointQuery(manifest, signature, values) {
@@ -1119,18 +1324,29 @@ export function runtimeEntrypointQuery(manifest, signature, values) {
   };
 }
 
+export function assertExpectedSmokeRejection(manifest, signature, error) {
+  const code = typeof error?.code === "string" ? error.code : "";
+  const message = typeof error?.message === "string" ? error.message : "";
+  if (/^(?:42|3F|XX)/.test(code) || code === "42501" || /permission denied/i.test(message)) throw error;
+  const normalized = normalizeIdentifier(signature).replace(/\s+/g, "");
+  const allowed = manifest.security?.runtimeSmokeExpectedRejections?.[normalized] ?? [];
+  if (allowed.some((rejection) => rejection.code === code && rejection.message === message)) return;
+  throw error;
+}
+
 async function smokeAllEntrypoints(withActor, runtimePool, seed, bundle) {
   const smoked = new Set();
   for (const signature of asStringArray(bundle.manifest, "entrypointSignatures")) {
     const match = signature.match(/^([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\((.*)\)$/);
     runtimeAssert(match, "ENTRYPOINT_SIGNATURE_INVALID");
     const types = match[2] ? match[2].split(",") : [];
-    const parameters = types.map((type, index) => `$${index + 1}::${type}`).join(",");
-    const values = types.map((type, index) => smokeValue(type, index, seed));
+    const values = runtimeSmokeValues(signature, seed);
     try {
-      await rolledBackActor(withActor, actor(seed), runtimePool, (database) => database.query(`select ${match[1]}(${parameters}) as payload`, values));
+      await rolledBackActor(withActor, actor(seed), runtimePool, (database) => database.query(
+        runtimeEntrypointQuery(bundle.manifest, signature, values),
+      ));
     } catch (error) {
-      if (["42883", "42P01", "3F000"].includes(error?.code) || /permission denied for function/i.test(error?.message ?? "")) throw error;
+      assertExpectedSmokeRejection(bundle.manifest, signature, error);
     }
     smoked.add(signature);
   }

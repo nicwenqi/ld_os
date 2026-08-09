@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -171,6 +171,16 @@ test("modules with forward relation references disable body checks only for thei
   }
 });
 
+test("the final module re-enables body checks and recompiles every canonical routine", async () => {
+  const source = await canonicalSql("070_security_postflight.sql");
+  const enable = source.lastIndexOf("set local check_function_bodies=on");
+  const definitions = source.lastIndexOf("pg_catalog.pg_get_functiondef");
+
+  assert.ok(enable >= 0, "final module never re-enables function-body validation");
+  assert.ok(definitions > enable, "canonical routines are not recreated with validation enabled");
+  assert.equal(source.slice(enable).includes("nspname in('public','app_private')"), true);
+});
+
 test("canonical modules never schema-qualify PostgreSQL special expression forms", async () => {
   const specialForms = [
     "cast", "coalesce", "collation_for", "current_catalog", "current_date",
@@ -197,6 +207,48 @@ test("the canonical manifest retains final append-only E2-E5A audit capability",
     assert.deepEqual(expected.filter((name) => !actual.has(name)), [], `missing ${kind}`);
   }
   assert.equal(manifest.exclusions.objects.includes("audit_events"), false);
+});
+
+test("the security contract freezes every policy and trigger descriptor", async () => {
+  const manifest = JSON.parse(await readFile(join(canonicalRoot, "manifest.json"), "utf8"));
+
+  assert.equal(manifest.security.policyDescriptors.length, 31);
+  assert.equal(manifest.security.triggerDescriptors.length, 15);
+  for (const descriptor of manifest.security.policyDescriptors) {
+    assert.deepEqual(Object.keys(descriptor).sort(), ["command", "name", "permissive", "roles", "schema", "table", "using", "withCheck"].sort());
+  }
+  for (const descriptor of manifest.security.triggerDescriptors) {
+    assert.deepEqual(Object.keys(descriptor).sort(), ["enabled", "events", "function", "level", "name", "schema", "table", "timing", "updateColumns"].sort());
+  }
+});
+
+test("source validation fails closed when a policy or trigger descriptor drifts", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "canonical-descriptor-drift-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(canonicalRoot, root, { recursive: true });
+
+  const securityPath = join(root, "070_security_postflight.sql");
+  const security = await readFile(securityPath, "utf8");
+  await writeFile(securityPath, security.replace(
+    "using (session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id())",
+    "using (false)",
+  ));
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT",
+  );
+
+  const positionPath = join(root, "050_position.sql");
+  const position = await readFile(positionPath, "utf8");
+  await writeFile(securityPath, security);
+  await writeFile(positionPath, position.replace(
+    "before update or delete on app_private.position_write_audit_events",
+    "after update or delete on app_private.position_write_audit_events",
+  ));
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_TRIGGER_DESCRIPTOR_DRIFT",
+  );
 });
 
 test("repository query signatures exactly match the canonical manifest", async () => {

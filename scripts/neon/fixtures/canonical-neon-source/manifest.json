@@ -19,5 +19,34 @@
     "objects": ["import", "history", "compatibility", "bridge", "reset"],
     "capabilities": ["seed data"]
   },
-  "security": { "requireForceRls": true, "runtimeRole": "hotel_ld_application" }
+  "security": {
+    "requireForceRls": true,
+    "runtimeRole": "hotel_ld_application",
+    "policyDescriptors": [
+      {
+        "schema": "public",
+        "table": "properties",
+        "name": "properties_tenant_scope",
+        "command": "select",
+        "roles": ["hotel_ld_migration_owner"],
+        "permissive": true,
+        "using": "true",
+        "withCheck": ""
+      }
+    ],
+    "triggerDescriptors": [
+      {
+        "schema": "public",
+        "table": "properties",
+        "name": "properties_touch",
+        "enabled": "origin",
+        "timing": "before",
+        "events": ["update"],
+        "level": "row",
+        "updateColumns": [],
+        "function": "app_private.touch_properties()"
+      }
+    ],
+    "runtimeSmokeExpectedRejections": {}
+  }
 }

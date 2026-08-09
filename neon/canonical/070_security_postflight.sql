@@ -148,4 +148,23 @@ revoke all on all sequences in schema app_private from public,hotel_ld_applicati
 revoke all on schema app_private from public,hotel_ld_application;
 revoke create on schema public from public,hotel_ld_application;
 
+-- Forward references are permitted only while ordered modules are incomplete.
+-- Recreate every canonical routine with body checking enabled after the full graph exists.
+set local check_function_bodies = on;
+do $canonical_compile$
+declare
+  routine_definition text;
+begin
+  for routine_definition in
+    select pg_catalog.pg_get_functiondef(routine.oid)
+    from pg_catalog.pg_proc as routine
+    join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
+    where namespace.nspname in ('public','app_private')
+    order by namespace.nspname,routine.proname,pg_catalog.pg_get_function_identity_arguments(routine.oid)
+  loop
+    execute routine_definition;
+  end loop;
+end
+$canonical_compile$;
+
 commit;

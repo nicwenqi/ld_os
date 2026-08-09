@@ -5,6 +5,8 @@ import test from "node:test";
 
 import {
   EXPECTED_NEON_TARGET,
+  assertExpectedSmokeRejection,
+  runtimeSmokeValues,
   validateCanonicalNeon,
 } from "./validate-canonical-neon-baseline.mjs";
 
@@ -209,6 +211,89 @@ test("catalog fails closed when one exact security verdict drifts", async () => 
       dependencies: dependenciesFor(pool),
     }),
     (error) => error?.code === "CANONICAL_NEON_CATALOG_DRIFT",
+  );
+});
+
+test("catalog binds every policy and trigger security descriptor, not names alone", async () => {
+  let catalogQuery;
+  const pool = fakePool((text, values) => {
+    if (text.includes("canonical_target_identity")) return { rows: [identityRow()] };
+    if (text.includes("canonical_catalog_matrix")) {
+      catalogQuery = { text, values };
+      return { rows: [catalogRow] };
+    }
+    if (text.includes("canonical_row_counts")) return { rows: [] };
+    return { rows: [] };
+  });
+
+  await validateCanonicalNeon({
+    mode: "catalog",
+    root: fixtureRoot,
+    target: EXPECTED_NEON_TARGET,
+    bootstrapConnectionString: bootstrapUrl,
+    dependencies: dependenciesFor(pool),
+  });
+
+  assert.equal(catalogQuery.values[5].length, 31);
+  assert.equal(catalogQuery.values[6].length, 15);
+  for (const field of ["polcmd", "polroles", "polpermissive", "pg_get_expr(policy.polqual", "pg_get_expr(policy.polwithcheck"]) {
+    assert.equal(catalogQuery.text.includes(field), true, field);
+  }
+  for (const field of ["tgenabled", "tgtype", "tgattr", "tgfoid", "routine_namespace.nspname"]) {
+    assert.equal(catalogQuery.text.includes(field), true, field);
+  }
+  assert.equal(catalogQuery.values[5].every((descriptor) => descriptor.split("|").length === 6), true);
+  assert.equal(catalogQuery.values[6].every((descriptor) => descriptor.split("|").length === 7), true);
+});
+
+test("entrypoint smoke rejects structural, catalog, internal, and permission errors unconditionally", () => {
+  const manifest = {
+    entrypointSignatures: ["public.fixture(text)"],
+    security: {
+      runtimeSmokeExpectedRejections: {
+        "public.fixture(text)": [{ code: "P0002", message: "fixture business rejection" }],
+      },
+    },
+  };
+
+  assert.doesNotThrow(() => assertExpectedSmokeRejection(
+    manifest,
+    "public.fixture(text)",
+    Object.assign(new Error("fixture business rejection"), { code: "P0002" }),
+  ));
+  for (const [code, message] of [
+    ["42883", "undefined function"],
+    ["3F000", "invalid schema"],
+    ["XX001", "internal error"],
+    ["42501", "permission denied for function fixture"],
+    ["P0002", "not the exact allowed business rejection"],
+  ]) {
+    assert.throws(
+      () => assertExpectedSmokeRejection(manifest, "public.fixture(text)", Object.assign(new Error(message), { code })),
+      (error) => error?.code === code,
+    );
+  }
+  assert.throws(
+    () => assertExpectedSmokeRejection(manifest, "public.not_declared(text)", Object.assign(new Error("fixture business rejection"), { code: "P0002" })),
+    (error) => error?.code === "P0002",
+  );
+});
+
+test("entrypoint smoke supplies scoped fixtures for every exact signature", async () => {
+  const manifest = JSON.parse(await readFile(new URL("../../neon/canonical/manifest.json", import.meta.url), "utf8"));
+  const seed = Object.fromEntries([
+    "tenantA", "propertyA", "rootDepartment", "childDepartment", "operationalUnit",
+    "departmentAlias", "positionAlias", "position", "positionFamily", "childEmployee",
+  ].map((key, index) => [key, `00000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`]));
+  seed.hostnameA = "fixture.validation.invalid";
+
+  for (const signature of manifest.entrypointSignatures) {
+    const values = runtimeSmokeValues(signature, seed);
+    assert.equal(values.length, signature.slice(signature.indexOf("(") + 1, -1).split(",").length, signature);
+  }
+  assert.deepEqual(
+    runtimeSmokeValues("public.create_neon_organization_department(text,uuid,uuid,uuid,text,text,text,text,integer)", seed).slice(1, 3),
+    [seed.tenantA, seed.propertyA],
   );
 });
 

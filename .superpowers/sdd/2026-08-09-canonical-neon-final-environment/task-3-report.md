@@ -11,9 +11,13 @@ Date: 2026-08-09
 - Bootstrap role: `neondb_owner`
 - PostgreSQL: `18.4` (major-version gate: 18)
 
-No live connection string, live host URL, or password is recorded in this
-report or in Git. Connector-obtained credentials were passed through one-line JSON stdin
-with terminal echo disabled. Target metadata and connection shape were checked
+No valid live connection string, live host URL, or password is recorded in this
+report or in Git. During the first live attempt, a temporary tool output exposed
+the then-current owner credential. Both the owner and runtime passwords were
+immediately rotated; the exposed value and the other pre-rotation credential
+are invalid. No valid secret was persisted to Git or to this report. Subsequent
+credentials were passed through one-line JSON stdin with terminal echo disabled.
+Target metadata and connection shape were checked
 before pool construction. The bootstrap credential was required to use the
 direct endpoint and the runtime credential was required to use the pooled
 endpoint as `hotel_ld_application`.
@@ -78,8 +82,9 @@ canonical objects or roles persisted.
 state, proved both restored zero objects/roles/rows, then applied the canonical
 bundle atomically. The runtime role credential was provisioned through a
 parameterized owner transaction. Both the bootstrap-owner and runtime-role
-credentials were rotated immediately afterward; neither the original nor
-rotated credential was persisted or emitted.
+credentials were rotated immediately after the temporary-output incident. The
+old values are invalid, and no valid credential was persisted in Git or this
+report.
 
 The persistent `catalog` result was exact and empty of business data:
 
@@ -131,6 +136,58 @@ connection was used only for synthetic seed creation and FK-safe cleanup.
 | `catalog` | PASS | Exact persistent objects/security and zero business/audit rows. |
 | `runtime` | PASS | All real pooled runtime matrix fields passed; final rows zero. |
 
+## Connection-free review hardening
+
+After the live matrix above, a connection-free review round tightened the final
+source further. It did not connect to or modify Neon:
+
+- The manifest now freezes all 31 policy descriptors, including command, roles,
+  permissive/restrictive mode, `USING`, and `WITH CHECK`. Source validation and
+  catalog validation independently derive the same complete inventory and fail
+  closed on drift.
+- All 15 trigger descriptors now freeze enabled state, timing, events, update
+  columns, level, and exact trigger-function identity. Append-only audit checks
+  require an enabled `BEFORE UPDATE OR DELETE FOR EACH ROW` trigger and the
+  declared `app_private` rejection function.
+- Entrypoint smoke now rethrows by default. Only an exact manifest signature plus
+  exact SQLSTATE/message pair may classify a documented business rejection;
+  SQLSTATE classes `42`, `3F`, and `XX`, `42501`, and permission-denied messages
+  always fail. Scoped fixtures make every declared signature invokable without
+  relying on permission errors.
+- `070_security_postflight.sql` restores `check_function_bodies=on` and recreates
+  every canonical `public`/`app_private` routine from `pg_get_functiondef` after
+  the complete dependency graph exists. The earlier `off` setting remains local
+  only to forward-reference modules.
+
+The earlier live results therefore document the applied staging revision and
+runtime behavior, while the review-hardened final source must complete the fresh
+empty-environment workflow below before final environment acceptance.
+
+## Required fresh-empty final-source workflow
+
+Run this exact sequence on a newly created, independently targeted PG18 branch
+whose preflight proves zero provider/public routines, canonical roles, schemas,
+objects, application rows, and audit rows:
+
+1. Run `source` locally and verify the ordered seven modules plus complete
+   manifest/security descriptor contract.
+2. Run `dry-run`; require exact identity, successful final routine-body
+   recompilation, complete catalog descriptor equality, rollback, and a second
+   empty-state proof.
+3. Run `repeatability`; require two identical rollback installs, then the single
+   authorized atomic apply and parameterized runtime-password provisioning.
+4. Rotate owner and runtime credentials, retain neither in files/logs/Git, then
+   run `catalog` using the direct owner connection.
+5. Run `runtime` using the rotated pooled `hotel_ld_application` credential and
+   the distinct direct owner credential for seed/cleanup only. Require every
+   matrix field PASS, all 27 exact signatures invoked, and final application and
+   audit row counts of zero.
+6. Reject acceptance on any target mismatch, descriptor mismatch, `42*`, `3F*`,
+   `XX*`, permission error, cleanup failure, or non-zero final row count.
+
+Do not use `SET ROLE` on the pooled runtime connection and do not reuse any
+credential from the prior staging run.
+
 The validated runtime implementation uses the real
 `withNeonActorContext` and `withNeonResolvedActorContext` helpers. It includes
 all 27 manifest entrypoint signatures, manager and descendant-scoped admin
@@ -155,10 +212,10 @@ npm run build
 git diff --check
 ```
 
-Final local verdicts were 14/14 database-validator tests, 56/56 source-validator
-tests, 22/22 canonical bootstrap/runtime contract tests, 201/201 repository
-tests plus the rendered HTML test, a successful source gate, a successful
-standalone production build, and a clean diff check.
+Final connection-free verdicts were 98/98 Task 3 tests (56 source-validator
+tests plus 42 database/bootstrap contract tests), 201/201 application tests,
+1/1 rendered-HTML test, a successful source gate, a successful production
+build, and a clean diff check.
 
 The live validator command shape was the following, with the exact authorized
 metadata shown and credentials supplied only through redacted stdin:
@@ -188,6 +245,7 @@ catalog/runtime run.
 The independent staging database contains exactly the persistent canonical
 manifest and no business or audit data. The final internal catalog assertion
 after runtime cleanup passed with application and audit row counts both zero.
-The staging owner and runtime passwords were rotated after provisioning and
-were never written to Git, files, logs, or this report. No deny-listed project,
+The staging owner and runtime passwords were rotated after the temporary-output
+incident. The exposed old credential is invalid, and no valid credential was
+written to Git or this report. No deny-listed project,
 branch, endpoint, database, or host was connected to or modified.
