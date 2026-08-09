@@ -225,3 +225,42 @@ exit 0
 No database or network connection was made. Task 3 must runtime-check the
 PostgreSQL 18 `UNIQUE NULLS NOT DISTINCT` constraints, trigger/RLS interaction,
 and the advisory-plus-ordered-row-lock protocol under concurrent transactions.
+
+## Review fix round 3/5 — safe role-assignment deactivation
+
+One focused contract mutation was added first and failed 0/1 because the role
+assignment trigger unconditionally required an active membership. That made an
+active-to-inactive assignment transition impossible after its tenant or
+property membership had already been deactivated.
+
+The trigger now always resolves and locks the role and always enforces the
+tenant-vs-property scope relationship. It returns early only after those checks
+when `NEW.status = 'inactive'`. Inserts, activations, and reactivations with
+`NEW.status = 'active'` still lock and require the appropriate active tenant or
+property membership. No schema, manifest, RLS, or inventory change was needed.
+
+Fresh connection-free checks:
+
+```text
+node scripts/neon/validate-canonical-neon-baseline.mjs source
+GREEN — 7 modules; 31 tables; 83 routines; 10 policy names; 15 triggers; 6 types
+
+node --test scripts/neon/validate-canonical-neon-baseline.test.mjs
+56/56 pass
+
+node --experimental-strip-types --test scripts/neon/canonical-neon-bootstrap-contract.test.mjs
+16/16 pass
+
+npm test
+201/201 primary tests pass; embedded build passes; rendered HTML 1/1 passes
+
+npm run build
+exit 0; all five vinext build phases pass
+
+git diff --check
+exit 0
+```
+
+No database or network connection was made. Task 3 remains responsible for
+executing inactive and active assignment transitions under PostgreSQL 18 with
+FORCE RLS and concurrent membership updates.

@@ -220,6 +220,18 @@ test("tenant and property role assignments preserve scope-sensitive membership i
   assert.equal(actorRole.includes("assignment.property_id=account.property_id"), true);
 });
 
+test("role assignment deactivation preserves scope checks but skips active membership validation", async () => {
+  const validator = routineSource(await canonicalSql("030_people.sql"), "app_private.validate_neon_role_assignment_scope");
+  const inactiveGate = validator.indexOf("if new.status='inactive' then return new; end if;");
+  const finalScopeGuard = validator.lastIndexOf("message='neon_role_assignment_scope_invalid'");
+  const firstMembershipLock = validator.indexOf("perform membership.id");
+
+  assert.notEqual(inactiveGate, -1);
+  assert.equal(finalScopeGuard < inactiveGate, true, "inactive assignments bypass a role/property scope check");
+  assert.equal(inactiveGate < firstMembershipLock, true, "inactive assignments still require an active membership");
+  assert.equal(validator.includes("message='neon_role_assignment_membership_inactive'"), true);
+});
+
 test("employee save locks deterministically and validates every authoritative target", async () => {
   const source = routineSource(await canonicalSql("060_employee_write.sql"), "public.save_neon_employee_with_identifiers");
   const guards = [

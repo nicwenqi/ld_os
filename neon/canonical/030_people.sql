@@ -129,6 +129,13 @@ begin
     if new.property_id is not null then
       raise exception using errcode = '23514', message = 'NEON_ROLE_ASSIGNMENT_SCOPE_INVALID';
     end if;
+  elsif new.property_id is null or new.property_id is distinct from role_row.property_id then
+    raise exception using errcode = '23514', message = 'NEON_ROLE_ASSIGNMENT_SCOPE_INVALID';
+  end if;
+
+  if new.status = 'inactive' then return new; end if;
+
+  if role_row.scope_level = 'tenant' then
     perform membership.id
     from public.tenant_memberships membership
     where membership.tenant_id = new.tenant_id
@@ -137,9 +144,6 @@ begin
     order by membership.id
     for key share;
   else
-    if new.property_id is null or new.property_id is distinct from role_row.property_id then
-      raise exception using errcode = '23514', message = 'NEON_ROLE_ASSIGNMENT_SCOPE_INVALID';
-    end if;
     perform membership.id
     from public.property_memberships membership
     where membership.tenant_id = new.tenant_id
