@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 
 import { access, readFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { promisify } from "node:util";
 
 export const E5B_PROJECT = "delicate-wind-06430851";
 export const E5B_CHILD_BRANCH = "br-icy-scene-aukkzv69";
@@ -16,6 +18,8 @@ export const E5B_RUNTIME_ROLE = "hotel_ld_application";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CANONICAL = join(ROOT, "neon", "canonical");
 const E5B_SCHEMA_MANIFEST = "e5b-import-staging-manifest.json";
+const E5B_READBACK_VERIFICATION_FIXTURE = "scripts/neon/validate-e5b-storage-object-verification.test.mjs";
+const execFileAsync = promisify(execFile);
 const COMMANDS = new Set([
   "source",
   "dry-run",
@@ -151,6 +155,16 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   if (!(await exists(serverPaths[3]))) {
     failSource("E5B_IMPORT_STAGING_READBACK_VERIFICATION_MISSING");
   }
+  if (hasCapabilityRoot) {
+    const verificationSource = await readFile(serverPaths[3], "utf8");
+    validateE5bReadbackVerificationSource(verificationSource);
+    await validateE5bReadbackVerificationFixtures(root);
+  }
+  // Task 6 deliberately stops at the next durable saga boundary. The verifier
+  // is Storage-only; it does not open a database transaction or persist state.
+  if (!(await exists(serverPaths[4]))) {
+    failSource("E5B_IMPORT_STAGING_SAGA_COORDINATOR_MISSING");
+  }
   if (!(await everyExists(serverPaths))) failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
 
   const [migrations, serverSources, inspectRoute] = await Promise.all([
@@ -219,6 +233,52 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     inspectionRpcPreserved: true,
     storageVerification: "read-back-sha256-size-content-mime",
   };
+}
+
+/**
+ * A source-level safety audit complements the deterministic in-memory fixture
+ * process below. It is intentionally only applied to the real canonical E5B
+ * capability root, so the earlier isolated SQL-fixture tests retain their
+ * minimal Task 1 contracts.
+ */
+export function validateE5bReadbackVerificationSource(source) {
+  const value = String(source);
+  if (!value.startsWith('import "server-only";')
+    || !/reader\.download\s*\(/.test(value)
+    || !/createHash\(["']sha256["']\)/.test(value)
+    || !/timingSafeEqual\s*\(/.test(value)
+    || !/new\s+TextDecoder\(\s*["']utf-8["']\s*,\s*\{\s*fatal\s*:\s*true\s*\}\s*\)/.test(value)
+    || !/inspectWorkbook\s*\(/.test(value)
+    || !/contentDerivedMimeType/.test(value)
+    || !/new\s+Uint8Array\(value\)/.test(value)) {
+    failSource("E5B_IMPORT_STAGING_READBACK_VERIFICATION_MISSING");
+  }
+  if (/\b(?:DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|neondb_owner|hotel_ld_application|from\s+["']pg["'])\b/.test(value)
+    || /storage\.objects/i.test(value)
+    || /\b(?:commitBatch|revertBatch|save_neon_employee)\b/.test(value)) {
+    failSource("E5B_IMPORT_STAGING_READBACK_VERIFICATION_BOUNDARY_VIOLATION");
+  }
+  return {
+    storageIo: "outside-neon-transaction",
+    verification: "read-back-sha256-size-content-mime",
+  };
+}
+
+async function validateE5bReadbackVerificationFixtures(root) {
+  const fixture = join(root, E5B_READBACK_VERIFICATION_FIXTURE);
+  if (!(await exists(fixture))) failSource("E5B_IMPORT_STAGING_READBACK_FIXTURE_MISSING");
+  try {
+    await execFileAsync(process.execPath, ["--experimental-strip-types", "--test", fixture], {
+      cwd: root,
+      timeout: 30_000,
+      maxBuffer: 1024 * 1024,
+    });
+  } catch {
+    // Fixture output can include byte-derived data. Preserve the fail-closed
+    // signal but do not relay it through the source validator's browser-safe
+    // output or command error.
+    failSource("E5B_IMPORT_STAGING_READBACK_FIXTURE_FAILED");
+  }
 }
 
 /**
