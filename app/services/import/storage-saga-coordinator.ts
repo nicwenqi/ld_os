@@ -48,8 +48,20 @@ export function createStorageSagaCoordinator(dependencies: StorageSagaDependenci
         uploaded = true;
 
         state = await repository.recordObjectUploaded(input.batchId, state.version);
+        // Read the persisted object once and keep that immutable server-side
+        // snapshot for both verification and parser handoff. A second Storage
+        // download here would introduce a TOCTOU window between verification
+        // and staging.
+        const readBackBytes = new Uint8Array(
+          await storage.download("property-import-files", intent.objectPath),
+        );
         const reader: StorageObjectReader = {
-          download: (bucket, objectPath) => storage.download(bucket, objectPath),
+          async download(bucket, objectPath) {
+            if (bucket !== "property-import-files" || objectPath !== intent.objectPath) {
+              throw new Error("IMPORT_STORAGE_READBACK_SCOPE_INVALID");
+            }
+            return new Uint8Array(readBackBytes);
+          },
         };
         // The verifier downloads the persisted object and derives all evidence.
         const verified = await verifyWorkbookStorageObject({
@@ -72,10 +84,9 @@ export function createStorageSagaCoordinator(dependencies: StorageSagaDependenci
         });
         verificationStateRecorded = true;
 
-        // Parser input is a second server read, after verification, rather than
-        // the untrusted upload buffer supplied by the browser.
-        const verifiedBytes = await storage.download("property-import-files", intent.objectPath);
-        const evidence = await input.prepareEvidence(verifiedBytes, verified);
+        // Parser input is the verified server-side snapshot, never the
+        // untrusted upload buffer supplied by the browser.
+        const evidence = await input.prepareEvidence(readBackBytes, verified);
         return await repository.stageVerifiedWorkbook({
           batchId: input.batchId,
           expectedVersion: state.version,

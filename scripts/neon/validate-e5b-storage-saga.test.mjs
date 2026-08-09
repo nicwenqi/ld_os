@@ -97,7 +97,7 @@ test("saga observes upload before verification and stages only after read-back",
     prepareEvidence: async (bytes) => { assert.deepEqual(bytes, csv); return { batch: { detectedSheetCount: 1, totalSourceRows: 1, validRows: 1, warningRows: 0, errorRows: 0, selectedSheetName: "Employees" }, sheets: [], fieldMappings: [], sourceRows: [], issues: [], sourceLabels: [] }; },
   });
   assert.equal(result.storageLifecycle, "linked");
-  assert.deepEqual(calls, ["intent", "upload", "uploaded", "download", "verified", "download", "stage"]);
+  assert.deepEqual(calls, ["intent", "upload", "uploaded", "download", "verified", "stage"]);
 });
 
 test("saga Storage I/O never overlaps a repository transaction", async () => {
@@ -132,7 +132,7 @@ test("saga Storage I/O never overlaps a repository transaction", async () => {
     bytes: csv,
     prepareEvidence: async () => ({ batch: { detectedSheetCount: 1, totalSourceRows: 1, validRows: 1, warningRows: 0, errorRows: 0, selectedSheetName: "Employees" }, sheets: [], fieldMappings: [], sourceRows: [], issues: [], sourceLabels: [] }),
   });
-  assert.deepEqual(calls, ["intent", "upload", "uploaded", "download", "verified", "download", "stage"]);
+  assert.deepEqual(calls, ["intent", "upload", "uploaded", "download", "verified", "stage"]);
 });
 
 test("failed staging persists cleanup pending before compensation", async () => {
@@ -162,7 +162,7 @@ test("failed staging persists cleanup pending before compensation", async () => 
     }),
     /PARSER_FAILED/,
   );
-  assert.deepEqual(calls, ["intent", "upload", "uploaded", "download", "verified", "download", "cleanup_pending", "cleanup_claim", "remove"]);
+  assert.deepEqual(calls, ["intent", "upload", "uploaded", "download", "verified", "cleanup_pending", "cleanup_claim", "remove"]);
 });
 
 test("corrupted read-back records verification_failed before cleanup pending", async () => {
