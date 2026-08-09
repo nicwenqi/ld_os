@@ -261,7 +261,7 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
     || !/p_verified_size_bytes\s*=\s*v_batch\.declared_size_bytes/i.test(verification)
     || !/pg_catalog\.btrim\(p_verified_mime_type\)\s*=\s*v_batch\.declared_mime_type/i.test(verification)
     || !/storage_lifecycle\s*=\s*'verification_failed'/i.test(verification)
-    || !/insert\s+into\s+app_private\.import_storage_operations/i.test(verification)) {
+    || !/update\s+app_private\.import_storage_operations\s+operation/i.test(verification)) {
     failSource("E5B_IMPORT_STAGING_SAGA_VERIFICATION_INVARIANT_MISSING");
   }
   if (!/storage_lifecycle\s*=\s*'verification_failed'[\s\S]*?workbook_lifecycle\s*=\s*'failed'/i.test(verification)) {
@@ -272,8 +272,19 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
   if (!/storage_lifecycle\s*=\s*'linked'/i.test(cleanupPending)
     || !/storage_lifecycle\s*=\s*'cleanup_pending'/i.test(cleanupPending)
     || !/workbook_lifecycle\s*=\s*'failed'/i.test(cleanupPending)
-    || !/on\s+conflict\s*\(batch_id\)\s+do\s+update/i.test(cleanupPending)) {
+    || !/update\s+app_private\.import_storage_operations\s+operation/i.test(cleanupPending)) {
     failSource("E5B_IMPORT_STAGING_SAGA_CLEANUP_PENDING_INVARIANT_MISSING");
+  }
+
+  const completion = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[5]);
+  const failure = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[6]);
+  const operationThenBatchLock = (routine) => {
+    const operationLock = routine.search(/select\s+operation\.\*\s+into\s+v_operation\s+from\s+app_private\.import_storage_operations\s+operation[\s\S]*?for\s+update\s*;/i);
+    const batchLock = routine.search(/select\s+batch\.\*\s+into\s+v_batch\s+from\s+public\.import_batches\s+batch[\s\S]*?for\s+update\s*;/i);
+    return operationLock >= 0 && batchLock >= 0 && operationLock < batchLock;
+  };
+  if (![verification, cleanupPending, completion, failure].every(operationThenBatchLock)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_LEDGER_FIRST_LOCK_ORDER_MISSING");
   }
 
   const claim = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[4]);
@@ -284,10 +295,13 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
     || !/v_lease_expires_at\s*:=\s*v_now\s*\+\s*interval\s*'5 minutes'/i.test(claim)) {
     failSource("E5B_IMPORT_STAGING_SAGA_CURRENT_TIME_LEASE_GUARD_MISSING");
   }
-  if (/from\s+public\.import_batches\s+batch[\s\S]*?for\s+update\s*;[\s\S]*?for\s+update(?:\s+of\s+operation\s*,\s*batch)?\s+skip\s+locked/i.test(claim)
+  if (/from\s+public\.import_batches\s+batch[\s\S]*?for\s+update\s*;[\s\S]*?(?:for\s+update(?:\s+of\s+operation\s*,\s*batch)?\s+skip\s+locked|with\s+claimable_operations\s+as\s+materialized)/i.test(claim)
     || !/limit\s+p_limit/i.test(claim)
     || !/p_batch_id\s+is\s+null\s+or\s+operation\.batch_id\s*=\s*p_batch_id/i.test(claim)) {
     failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_LIMIT_OR_NONBLOCKING_MISSING");
+  }
+  if (!/with\s+claimable_operations\s+as\s+materialized\s*\([\s\S]*?from\s+app_private\.import_storage_operations\s+operation[\s\S]*?for\s+update\s+skip\s+locked[\s\S]*?\)[\s\S]*?join\s+public\.import_batches\s+batch[\s\S]*?for\s+update\s+of\s+batch\s+skip\s+locked/i.test(claim)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_LEDGER_FIRST_LOCK_ORDER_MISSING");
   }
   if (!/operation\.batch_id\s*=\s*p_batch_id/i.test(claim)
     || !/operation\.property_id\s*=\s*app_private\.current_actor_property_id\s*\(\s*\)/i.test(claim)
@@ -297,27 +311,30 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
     failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_SCOPE_MISSING");
   }
 
-  for (const routine of [verification, cleanupPending, claim,
-    routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[5]),
-    routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[6])]) {
+  for (const routine of [verification, cleanupPending, claim, completion, failure]) {
     if (!/updated_at\s*=\s*pg_catalog\.transaction_timestamp\s*\(\s*\)/i.test(routine)) {
       failSource("E5B_IMPORT_STAGING_SAGA_LEDGER_UPDATED_AT_MISSING");
     }
   }
 
-  for (const signature of E5B_SAGA_ENTRYPOINT_SIGNATURES.slice(5, 7)) {
-    const routine = routineSource(sql, signature);
+  for (const [signature, routine] of [
+    [E5B_SAGA_ENTRYPOINT_SIGNATURES[5], completion],
+    [E5B_SAGA_ENTRYPOINT_SIGNATURES[6], failure],
+  ]) {
     if (!/operation\.claim_id\s*=\s*p_claim_id/i.test(routine)
       || !/operation\.lease_expires_at\s*>\s*v_now/i.test(routine)
       || !/batch\.storage_lifecycle\s*=\s*'cleanup_in_progress'/i.test(routine)) {
       failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_MATCH_MISSING", signature);
     }
   }
-  const failedCleanup = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[6]);
+  const failedCleanup = failure;
   if (!/pg_catalog\.left[\s\S]*?500/i.test(failedCleanup)
     || !/p_next_attempt_at\s*>\s*v_now/i.test(failedCleanup)
     || !/p_next_attempt_at\s*>\s*v_now\s*\+\s*interval\s*'24 hours'/i.test(failedCleanup)) {
     failSource("E5B_IMPORT_STAGING_SAGA_RETRY_BOUND_MISSING");
+  }
+  if (!/v_previous_storage_lifecycle\s*:=\s*v_candidate\.storage_lifecycle[\s\S]*?set\s+storage_lifecycle\s*=\s*'cleanup_pending'[\s\S]*?append_neon_import_activity\s*\(\s*v_candidate\.batch_id\s*,\s*'cleanup_requeued'\s*,\s*v_previous_storage_lifecycle[\s\S]*?set\s+storage_lifecycle\s*=\s*'cleanup_in_progress'[\s\S]*?append_neon_import_activity\s*\(\s*v_candidate\.batch_id\s*,\s*'cleanup_claimed'/i.test(claim)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_RECONCILIATION_AUDIT_MISSING");
   }
 
   for (const signature of E5B_SAGA_ENTRYPOINT_SIGNATURES.slice(7)) {

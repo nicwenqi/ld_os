@@ -230,6 +230,7 @@ create function public.record_neon_import_object_verification(
 returns jsonb language plpgsql volatile security definer set search_path = ''
 as $function$
 declare
+  v_operation app_private.import_storage_operations%rowtype;
   v_batch public.import_batches%rowtype;
   v_passed boolean;
   v_failure_reason text;
@@ -260,6 +261,15 @@ begin
     ))
   ) then
     raise exception using errcode = '22023', message = 'NEON_IMPORT_VERIFICATION_INPUT_INVALID';
+  end if;
+
+  select operation.* into v_operation
+  from app_private.import_storage_operations operation
+  where operation.batch_id = p_batch_id
+    and operation.property_id = app_private.current_actor_property_id()
+  for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NEON_IMPORT_BATCH_NOT_FOUND';
   end if;
 
   select batch.* into v_batch
@@ -312,25 +322,19 @@ begin
         version = version + 1
     where id = p_batch_id and property_id = app_private.current_actor_property_id();
 
-    insert into app_private.import_storage_operations (
-      tenant_id, property_id, batch_id, object_path, cleanup_state,
-      next_attempt_at, last_error_code, last_error_message, originating_request_id, last_request_id
-    ) values (
-      v_batch.tenant_id, v_batch.property_id, v_batch.id, v_batch.object_path,
-      'cleanup_pending', pg_catalog.transaction_timestamp(), 'verification_failed',
-      v_failure_reason, v_batch.created_request_id, app_private.current_actor_request_id()
-    )
-    on conflict (batch_id) do update
+    update app_private.import_storage_operations operation
     set cleanup_state = 'cleanup_pending',
         next_attempt_at = pg_catalog.transaction_timestamp(),
         claim_id = null,
         lease_expires_at = null,
         last_error_code = 'verification_failed',
-        last_error_message = excluded.last_error_message,
+        last_error_message = v_failure_reason,
         last_request_id = app_private.current_actor_request_id(),
         completed_at = null,
         updated_at = pg_catalog.transaction_timestamp(),
-        version = app_private.import_storage_operations.version + 1;
+        version = operation.version + 1
+    where operation.id = v_operation.id
+      and operation.property_id = app_private.current_actor_property_id();
   end if;
 
   perform app_private.append_neon_import_activity(
@@ -355,6 +359,7 @@ create function public.mark_neon_import_cleanup_pending(
 returns jsonb language plpgsql volatile security definer set search_path = ''
 as $function$
 declare
+  v_operation app_private.import_storage_operations%rowtype;
   v_batch public.import_batches%rowtype;
   v_reason text;
 begin
@@ -362,6 +367,15 @@ begin
   v_reason := pg_catalog.left(pg_catalog.coalesce(
     pg_catalog.nullif(pg_catalog.btrim(p_reason), ''), 'cleanup_requested'
   ), 500);
+
+  select operation.* into v_operation
+  from app_private.import_storage_operations operation
+  where operation.batch_id = p_batch_id
+    and operation.property_id = app_private.current_actor_property_id()
+  for update;
+  if not found then
+    raise exception using errcode = 'P0002', message = 'NEON_IMPORT_BATCH_NOT_FOUND';
+  end if;
 
   select batch.* into v_batch
   from public.import_batches batch
@@ -393,25 +407,19 @@ begin
       version = version + 1
   where id = p_batch_id and property_id = app_private.current_actor_property_id();
 
-  insert into app_private.import_storage_operations (
-    tenant_id, property_id, batch_id, object_path, cleanup_state,
-    next_attempt_at, last_error_code, last_error_message, originating_request_id, last_request_id
-  ) values (
-    v_batch.tenant_id, v_batch.property_id, v_batch.id, v_batch.object_path,
-    'cleanup_pending', pg_catalog.transaction_timestamp(), 'cleanup_requested',
-    v_reason, v_batch.created_request_id, app_private.current_actor_request_id()
-  )
-  on conflict (batch_id) do update
+  update app_private.import_storage_operations operation
   set cleanup_state = 'cleanup_pending',
       next_attempt_at = pg_catalog.transaction_timestamp(),
       claim_id = null,
       lease_expires_at = null,
       last_error_code = 'cleanup_requested',
-      last_error_message = excluded.last_error_message,
+      last_error_message = v_reason,
       last_request_id = app_private.current_actor_request_id(),
       completed_at = null,
       updated_at = pg_catalog.transaction_timestamp(),
-      version = app_private.import_storage_operations.version + 1;
+      version = operation.version + 1
+  where operation.id = v_operation.id
+    and operation.property_id = app_private.current_actor_property_id();
 
   perform app_private.append_neon_import_activity(
     p_batch_id, 'cleanup_pending', v_batch.storage_lifecycle,
@@ -435,6 +443,7 @@ declare
   v_now timestamptz;
   v_lease_expires_at timestamptz;
   v_attempt_count integer;
+  v_previous_storage_lifecycle public.import_storage_lifecycle;
 begin
   perform 1 from app_private.assert_neon_import_manager(p_hostname);
   if p_claim_id is null or p_limit not between 1 and 50 then
@@ -442,6 +451,23 @@ begin
   end if;
 
   for v_candidate in
+    with claimable_operations as materialized (
+      select operation.id
+      from app_private.import_storage_operations operation
+      where operation.property_id = app_private.current_actor_property_id()
+        and (p_batch_id is null or operation.batch_id = p_batch_id)
+        and (
+          (operation.cleanup_state in ('cleanup_pending', 'cleanup_failed')
+            and operation.next_attempt_at is not null
+            and operation.next_attempt_at <= pg_catalog.clock_timestamp())
+          or (operation.cleanup_state = 'cleanup_in_progress'
+            and operation.lease_expires_at is not null
+            and operation.lease_expires_at <= pg_catalog.clock_timestamp())
+        )
+      order by pg_catalog.coalesce(operation.next_attempt_at, operation.lease_expires_at), operation.id
+      limit p_limit
+      for update skip locked
+    )
     select operation.id as operation_id,
            operation.batch_id,
            operation.object_path,
@@ -452,25 +478,16 @@ begin
            batch.storage_bucket,
            batch.storage_lifecycle,
            batch.workbook_lifecycle
-    from app_private.import_storage_operations operation
+    from claimable_operations claimable
+    join app_private.import_storage_operations operation
+      on operation.id = claimable.id
     join public.import_batches batch
       on batch.id = operation.batch_id
      and batch.tenant_id = operation.tenant_id
      and batch.property_id = operation.property_id
-    where operation.property_id = app_private.current_actor_property_id()
-      and (p_batch_id is null or operation.batch_id = p_batch_id)
-      and batch.storage_lifecycle <> 'linked'
-      and (
-        (operation.cleanup_state in ('cleanup_pending', 'cleanup_failed')
-          and operation.next_attempt_at is not null
-          and operation.next_attempt_at <= pg_catalog.clock_timestamp())
-        or (operation.cleanup_state = 'cleanup_in_progress'
-          and operation.lease_expires_at is not null
-          and operation.lease_expires_at <= pg_catalog.clock_timestamp())
-      )
+    where batch.storage_lifecycle <> 'linked'
     order by pg_catalog.coalesce(operation.next_attempt_at, operation.lease_expires_at), operation.id
-    limit p_limit
-    for update of operation, batch skip locked
+    for update of batch skip locked
   loop
     -- Recheck a current lease after the ledger+batch rows have been claimed.
     v_now := pg_catalog.clock_timestamp();
@@ -484,9 +501,15 @@ begin
     end if;
 
     if v_candidate.storage_lifecycle in ('verification_failed', 'cleanup_failed') then
+      v_previous_storage_lifecycle := v_candidate.storage_lifecycle;
       update public.import_batches
       set storage_lifecycle = 'cleanup_pending', version = version + 1
       where id = v_candidate.batch_id and property_id = app_private.current_actor_property_id();
+      perform app_private.append_neon_import_activity(
+        v_candidate.batch_id, 'cleanup_requeued', v_previous_storage_lifecycle,
+        v_candidate.workbook_lifecycle,
+        pg_catalog.jsonb_build_object('reason', 'cleanup_claim_reconciliation')
+      );
       v_candidate.storage_lifecycle := 'cleanup_pending';
     end if;
     if v_candidate.storage_lifecycle not in ('cleanup_pending', 'cleanup_in_progress') then
@@ -556,15 +579,6 @@ begin
   end if;
 
   v_now := pg_catalog.clock_timestamp();
-  select batch.* into v_batch
-  from public.import_batches batch
-  where batch.id = p_batch_id
-    and batch.property_id = app_private.current_actor_property_id()
-    and batch.storage_lifecycle = 'cleanup_in_progress'
-  for update;
-  if not found then
-    raise exception using errcode = '40001', message = 'NEON_IMPORT_CLEANUP_CLAIM_STALE';
-  end if;
   select operation.* into v_operation
   from app_private.import_storage_operations operation
   where operation.id = p_operation_id
@@ -573,6 +587,15 @@ begin
     and operation.cleanup_state = 'cleanup_in_progress'
     and operation.claim_id = p_claim_id
     and operation.lease_expires_at > v_now
+  for update;
+  if not found then
+    raise exception using errcode = '40001', message = 'NEON_IMPORT_CLEANUP_CLAIM_STALE';
+  end if;
+  select batch.* into v_batch
+  from public.import_batches batch
+  where batch.id = p_batch_id
+    and batch.property_id = app_private.current_actor_property_id()
+    and batch.storage_lifecycle = 'cleanup_in_progress'
   for update;
   if not found then
     raise exception using errcode = '40001', message = 'NEON_IMPORT_CLEANUP_CLAIM_STALE';
@@ -631,15 +654,6 @@ begin
     raise exception using errcode = '22023', message = 'NEON_IMPORT_CLEANUP_RETRY_INVALID';
   end if;
 
-  select batch.* into v_batch
-  from public.import_batches batch
-  where batch.id = p_batch_id
-    and batch.property_id = app_private.current_actor_property_id()
-    and batch.storage_lifecycle = 'cleanup_in_progress'
-  for update;
-  if not found then
-    raise exception using errcode = '40001', message = 'NEON_IMPORT_CLEANUP_CLAIM_STALE';
-  end if;
   select operation.* into v_operation
   from app_private.import_storage_operations operation
   where operation.id = p_operation_id
@@ -648,6 +662,15 @@ begin
     and operation.cleanup_state = 'cleanup_in_progress'
     and operation.claim_id = p_claim_id
     and operation.lease_expires_at > v_now
+  for update;
+  if not found then
+    raise exception using errcode = '40001', message = 'NEON_IMPORT_CLEANUP_CLAIM_STALE';
+  end if;
+  select batch.* into v_batch
+  from public.import_batches batch
+  where batch.id = p_batch_id
+    and batch.property_id = app_private.current_actor_property_id()
+    and batch.storage_lifecycle = 'cleanup_in_progress'
   for update;
   if not found then
     raise exception using errcode = '40001', message = 'NEON_IMPORT_CLEANUP_CLAIM_STALE';

@@ -125,7 +125,7 @@ test("E5B saga rejects a claim that ignores its requested limit", async () => {
 
   assert.throws(
     () => validateE5bImportSagaEntrypoints(
-      saga.replace("limit p_limit\n    for update of operation, batch skip locked", "limit 1\n    for update of operation, batch skip locked"),
+      saga.replace("limit p_limit\n      for update skip locked", "limit 1\n      for update skip locked"),
       JSON.parse(manifestSource),
     ),
     /E5B_IMPORT_STAGING_SAGA_CLAIM_LIMIT_OR_NONBLOCKING_MISSING/,
@@ -141,11 +141,44 @@ test("E5B saga rejects a cleanup claim that blocks on a batch before using SKIP 
   assert.throws(
     () => validateE5bImportSagaEntrypoints(
       saga.replace(
-        "for v_candidate in\n    select operation.id as operation_id,",
-        "select batch.id from public.import_batches batch where batch.id = p_batch_id for update;\n\n  for v_candidate in\n    select operation.id as operation_id,",
+        "for v_candidate in\n    with claimable_operations as materialized (",
+        "select batch.id from public.import_batches batch where batch.id = p_batch_id for update;\n\n  for v_candidate in\n    with claimable_operations as materialized (",
       ),
       JSON.parse(manifestSource),
     ),
     /E5B_IMPORT_STAGING_SAGA_CLAIM_LIMIT_OR_NONBLOCKING_MISSING/,
+  );
+});
+
+test("E5B saga rejects completion that locks the batch before its cleanup ledger", async () => {
+  const [saga, manifestSource] = await Promise.all([
+    readFile(join(repositoryRoot, "neon/canonical/e5b/091_import_saga_entrypoints.sql"), "utf8"),
+    readFile(join(repositoryRoot, "neon/canonical/e5b/e5b-import-staging-manifest.json"), "utf8"),
+  ]);
+
+  assert.throws(
+    () => validateE5bImportSagaEntrypoints(
+      saga.replace(
+        "v_now := pg_catalog.clock_timestamp();\n  select operation.* into v_operation\n  from app_private.import_storage_operations operation",
+        "v_now := pg_catalog.clock_timestamp();\n  select batch.* into v_batch\n  from public.import_batches batch",
+      ),
+      JSON.parse(manifestSource),
+    ),
+    /E5B_IMPORT_STAGING_SAGA_LEDGER_FIRST_LOCK_ORDER_MISSING/,
+  );
+});
+
+test("E5B saga rejects a claim that skips its failed-to-pending reconciliation audit", async () => {
+  const [saga, manifestSource] = await Promise.all([
+    readFile(join(repositoryRoot, "neon/canonical/e5b/091_import_saga_entrypoints.sql"), "utf8"),
+    readFile(join(repositoryRoot, "neon/canonical/e5b/e5b-import-staging-manifest.json"), "utf8"),
+  ]);
+
+  assert.throws(
+    () => validateE5bImportSagaEntrypoints(
+      saga.replace("'cleanup_requeued'", "'cleanup_reconciliation_omitted'"),
+      JSON.parse(manifestSource),
+    ),
+    /E5B_IMPORT_STAGING_SAGA_CLAIM_RECONCILIATION_AUDIT_MISSING/,
   );
 });

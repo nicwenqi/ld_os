@@ -47,7 +47,7 @@ expected before the saga validator was implemented, then passed after GREEN.
 
 ## Validation
 
-- `node --test scripts/neon/validate-e5b-import-saga-entrypoints.test.mjs scripts/neon/validate-e5b-import-staging-schema.test.mjs scripts/neon/validate-e5b-import-staging.test.mjs` — 30/30 passed.
+- `node --test scripts/neon/validate-e5b-import-saga-entrypoints.test.mjs scripts/neon/validate-e5b-import-staging-schema.test.mjs scripts/neon/validate-e5b-import-staging.test.mjs` — 32/32 passed.
 - `node scripts/neon/validate-e5b-import-staging.mjs source` — correctly stops
   at `E5B_IMPORT_STAGING_WORKBOOK_ENTRYPOINT_MISSING`, the next unimplemented
   Task 4 boundary.
@@ -79,3 +79,19 @@ The correction fixtures were RED before these changes: transition removal,
 non-terminal verification/cleanup state, a missing ledger timestamp refresh,
 an ignored limit, and a blocking pre-claim batch lock each failed the static
 validator. They now pass without a database connection.
+
+## Second review correction
+
+Every saga path that touches both an import-storage ledger row and its batch
+now takes the ledger lock first, then the batch lock. Verification failure and
+explicit cleanup-pending reuse the existing per-intent ledger row; completion
+and failure validate the claim under that same ordering. Property-wide claims
+first materialize and `SKIP LOCKED` ledger candidates, then take a separate
+non-blocking lock on each matching batch. This removes the previous
+batch-first/deadlock-prone variants.
+
+When a claim requeues `verification_failed` or `cleanup_failed`, it now appends
+an explicit `cleanup_requeued` activity event with the actual failed previous
+lifecycle before appending the later `cleanup_claimed` transition. The second
+review RED fixtures cover both lock-order regression and a missing
+reconciliation audit event.
