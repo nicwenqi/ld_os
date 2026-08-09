@@ -98,6 +98,24 @@ test("source validation rejects grouped comma-separated raw grants", async () =>
   });
 });
 
+test("source validation rejects ALL TABLES and ALL SEQUENCES schema grants", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql(`
+        grant select on all tables in schema "public" to "hotel_ld_application";
+        grant usage, select on all sequences in schema app_private
+          to group hotel_ld_application;
+      `),
+    );
+
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_RAW_APPLICATION_GRANT/,
+    );
+  });
+});
+
 test("E5B staging evidence is named and allowlisted rather than an arbitrary record", async () => {
   const source = await readFile(
     new URL("../../app/repositories/contracts/import-staging-repository.ts", import.meta.url),

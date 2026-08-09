@@ -239,6 +239,7 @@ export function hasUnsafeRawApplicationPrivilege(source) {
     const [, kind = "table", objects, grantees] = match;
     if (!mentionsApplicationRole(grantees)) continue;
     if (/^\s*function\b/i.test(objects) || /^\s*all\s+functions\b/i.test(objects)) continue;
+    if (/^\s*all\s+(?:tables|sequences)\s+in\s+schema\s+"?(?:public|app_private)"?\s*$/i.test(objects)) return true;
     if (kind.toLowerCase() === "schema") {
       if (/(?:^|,)\s*"?(?:public|app_private)"?\s*(?:,|$)/i.test(objects)) return true;
       continue;
