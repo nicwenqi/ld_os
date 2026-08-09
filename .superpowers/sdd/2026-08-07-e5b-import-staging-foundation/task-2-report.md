@@ -33,7 +33,7 @@ The 090 module creates the frozen E5B evidence and saga relations:
 It also defines independent Storage/workbook lifecycle types, verification,
 cleanup, evidence and issue types; strict server-derived object-path, SHA-256,
 size and MIME checks; composite tenant/property foreign keys; immutable batch
-intent evidence; bounded cleanup leases; a durable cleanup ledger; history and
+intent evidence; structurally valid cleanup lease state; a durable cleanup ledger; history and
 reconciliation indexes; and an append-only activity trigger.
 
 Every E5B table is owned by `hotel_ld_migration_owner`, has RLS enabled and
@@ -74,7 +74,7 @@ Passed, connection-free:
 
 ```text
 node --test scripts/neon/validate-e5b-import-staging-schema.test.mjs scripts/neon/validate-e5b-import-staging.test.mjs
-# tests 16; pass 16; fail 0
+# tests 18; pass 18; fail 0
 
 node scripts/neon/validate-canonical-neon-baseline.mjs source
 # root modules 010–080; pass
@@ -86,6 +86,27 @@ node --experimental-strip-types --test scripts/neon/canonical-neon-bootstrap-con
 `git diff --check` also passed. `psql --version` confirmed the local client is
 PostgreSQL 18.4; no target URL was read and no SQL was sent to any database.
 
+## Review-fix round
+
+The review identified two Task 2 concerns. Both are resolved within the E5B
+capability layer; the E1–E5A manifest and baseline validator remain unchanged.
+
+- The cleanup-lease CHECK is now strictly structural: an in-progress cleanup
+  requires a claim, both timestamps, and `lease_expires_at > last_attempt_at`.
+  It contains no current-time function or five-minute comparison. Task 3's
+  constrained claim/complete/fail entrypoints will enforce authoritative
+  `transaction_timestamp()` and five-minute lease rules at mutation time.
+- The source validator now parses every scope policy and requires `FOR ALL TO
+  hotel_ld_migration_owner` plus the exact session-user and actor-property
+  predicates in both `USING` and `WITH CHECK`. The append-only activity policy
+  must instead be `FOR INSERT TO hotel_ld_migration_owner`, omit `USING`, and
+  contain the same predicate in `WITH CHECK`.
+
+RED was captured before this implementation: the two new negative fixtures
+failed because the missing semantic gates allowed validation to reach the
+expected future saga-entrypoint boundary. GREEN adds the policy and
+time-dependent-lease gates; the focused suite now passes 18/18.
+
 ## Deferred gates and concerns
 
 - 090 has not been parsed/applied by a PostgreSQL server. Task 9 must execute
@@ -93,5 +114,8 @@ PostgreSQL 18.4; no target URL was read and no SQL was sent to any database.
   after Tasks 3–8 complete. This task performed no network/database work.
 - Storage remains a server adapter boundary. The schema contains only provider
   evidence and a cleanup ledger; it creates no Storage schema or policy.
+- The timestamp freshness and maximum five-minute cleanup lease are
+  intentionally deferred to Task 3's constrained mutation entrypoints; static
+  table CHECKs cannot safely use a changing current-time value.
 - Employee commit/revert, mapping decisions and Import activation remain out of
   scope. E5B source rows and labels are immutable staging evidence only.

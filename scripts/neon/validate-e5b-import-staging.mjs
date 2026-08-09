@@ -241,6 +241,28 @@ export function validateE5bImportStagingSchema(source, manifest = null) {
       failSource("E5B_IMPORT_STAGING_SCHEMA_POLICY_MISSING", policy);
     }
   }
+  for (const policy of [
+    "canonical_import_batches_scope",
+    "canonical_import_sheets_scope",
+    "canonical_import_source_rows_scope",
+    "canonical_import_field_mappings_scope",
+    "canonical_import_issues_scope",
+    "canonical_import_source_label_resolutions_scope",
+    "canonical_import_storage_operations_scope",
+  ]) {
+    const statement = policyStatement(sql, policy);
+    if (!/\bfor\s+all\s+to\s+hotel_ld_migration_owner\b/i.test(statement)
+      || !hasActorPropertyScope(policyClause(statement, "using"))
+      || !hasActorPropertyScope(policyClause(statement, "with check"))) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_POLICY_SEMANTICS_MISSING", policy);
+    }
+  }
+  const auditPolicy = policyStatement(sql, "canonical_import_activity_events_insert");
+  if (!/\bon\s+app_private\.import_activity_events\s+for\s+insert\s+to\s+hotel_ld_migration_owner\b/i.test(auditPolicy)
+    || /\busing\s*\(/i.test(auditPolicy)
+    || !hasActorPropertyScope(policyClause(auditPolicy, "with check"))) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_POLICY_SEMANTICS_MISSING", "canonical_import_activity_events_insert");
+  }
   if (!/create\s+function\s+app_private\.neon_import_storage_transition_allowed\s*\(/i.test(sql)
     || !/create\s+function\s+app_private\.neon_import_workbook_transition_allowed\s*\(/i.test(sql)
     || !/create\s+trigger\s+canonical_import_batch_lifecycle_transition\b/i.test(sql)) {
@@ -260,7 +282,11 @@ export function validateE5bImportStagingSchema(source, manifest = null) {
   if (!/storage_lifecycle\s*<>\s*'linked'\s+or\s*\(\s*verification_status\s*=\s*'passed'\s+and\s*workbook_lifecycle\s*=\s*'mapping_required'/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "linked_verification_guard");
   }
-  if (!/cleanup_state\s*<>\s*'cleanup_in_progress'\s+or\s*\(\s*claim_id\s+is\s+not\s+null\s+and\s+lease_expires_at\s*>\s*pg_catalog\.transaction_timestamp\(\)/i.test(sql)) {
+  const cleanupLease = constraintSource(sql, "import_storage_operations_cleanup_lease_check");
+  if (/\b(?:transaction_timestamp|clock_timestamp|statement_timestamp|now)\s*\(/i.test(cleanupLease)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_TIME_DEPENDENT_LEASE_CHECK");
+  }
+  if (!/cleanup_state\s*<>\s*'cleanup_in_progress'\s+or\s*\(\s*claim_id\s+is\s+not\s+null\s+and\s+lease_expires_at\s+is\s+not\s+null\s+and\s+last_attempt_at\s+is\s+not\s+null\s+and\s+lease_expires_at\s*>\s*last_attempt_at/i.test(cleanupLease)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "cleanup_lease_guard");
   }
   if (!/create\s+function\s+app_private\.reject_import_activity_mutation\s*\(/i.test(sql)
@@ -312,6 +338,29 @@ function validateE5bSchemaManifest(source, manifest) {
     || !manifest.excluded.includes("compatibility objects")) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_INVALID");
   }
+}
+
+function policyStatement(source, name) {
+  return source.match(new RegExp(`\\bcreate\\s+policy\\s+${escape(name)}\\b[\\s\\S]*?;`, "i"))?.[0] ?? "";
+}
+
+function policyClause(statement, clause) {
+  const match = statement.match(new RegExp(`\\b${clause.replace(" ", "\\s+")}\\s*\\(([^;]+)`, "i"));
+  return match?.[1] ?? "";
+}
+
+function hasActorPropertyScope(value) {
+  const normalized = value.replace(/\s+/g, "").toLowerCase();
+  return normalized.includes("session_user='hotel_ld_application'")
+    && normalized.includes("property_id=app_private.current_actor_property_id()");
+}
+
+function constraintSource(source, name) {
+  const start = source.search(new RegExp(`\\bconstraint\\s+${escape(name)}\\s+check\\s*\\(`, "i"));
+  if (start < 0) return "";
+  const following = source.slice(start);
+  const end = following.search(/\n\s*\),\n\s*constraint\s+/i);
+  return end < 0 ? following : following.slice(0, end + 2);
 }
 
 function sourceInventory(source, kind) {

@@ -268,8 +268,8 @@ create table app_private.import_storage_operations (
   constraint import_storage_operations_batch_key unique (batch_id),
   constraint import_storage_operations_cleanup_lease_check check (
     cleanup_state <> 'cleanup_in_progress'
-    or (claim_id is not null and lease_expires_at > pg_catalog.transaction_timestamp()
-      and lease_expires_at <= pg_catalog.transaction_timestamp() + interval '5 minutes')
+    or (claim_id is not null and lease_expires_at is not null and last_attempt_at is not null
+      and lease_expires_at > last_attempt_at)
   ),
   constraint import_storage_operations_cleanup_completion_check check (
     cleanup_state <> 'cleanup_completed' or completed_at is not null

@@ -1,7 +1,7 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-08-07-e5b-import-staging-foundation.md
 
 Task 1: complete — establish E5B RED contract and child-connection validator (commits b07e0ff, f661517, 964b69f, 58a2ea0, 1cdd14d; review PASS).
-Task 2: complete — add E5B post-baseline canonical staging schema (commit pending).
+Task 2: complete — add E5B post-baseline canonical staging schema (commit 398bad9; review fix pending).
 Task 3: pending — add constrained storage saga/read entrypoints.
 Task 4: pending — add atomic workbook staging entrypoints.
 Task 5: pending — add server repository and chunk validation.
