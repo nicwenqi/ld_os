@@ -165,7 +165,18 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   if (!(await exists(serverPaths[4]))) {
     failSource("E5B_IMPORT_STAGING_SAGA_COORDINATOR_MISSING");
   }
-  if (!(await everyExists(serverPaths))) failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
+  if (!(await exists(serverPaths[5]))) {
+    failSource("E5B_IMPORT_STAGING_CLEANUP_EXECUTOR_MISSING");
+  }
+  if (hasCapabilityRoot) {
+    validateE5bImportStagingAuthorizationSource(await readFile(serverPaths[2], "utf8"));
+    validateE5bImportStorageSagaCoordinatorSource(await readFile(serverPaths[4], "utf8"));
+    validateE5bImportStorageCleanupExecutorSource(await readFile(serverPaths[5], "utf8"));
+  }
+  // Task 7 is a complete dark server foundation even while Task 8's API
+  // boundary remains intentionally absent and unactivated.
+  if (!(await everyExists(serverPaths.slice(0, 6)))) failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
+  if (!(await everyExists(serverPaths))) failSource("E5B_IMPORT_STAGING_DARK_BOUNDARY_MISSING");
 
   const [migrations, serverSources, inspectRoute] = await Promise.all([
     Promise.all(migrationPaths.map(path => readFile(path, "utf8"))),
@@ -262,6 +273,77 @@ export function validateE5bReadbackVerificationSource(source) {
     storageIo: "outside-neon-transaction",
     verification: "read-back-sha256-size-content-mime",
   };
+}
+
+export function validateE5bImportStagingAuthorizationSource(source) {
+  const value = stripSqlComments(String(source));
+  if (!value.startsWith('import "server-only";')
+    || !/runAuthorizedNeonImportStaging\s*</.test(value)
+    || !/resolveRequestAuthIdentity\s*\(/.test(value)
+    || !/withNeonResolvedActorContext\s*\(/.test(value)
+    || !/resolveNeonPropertyScope\s*\(/.test(value)
+    || !/createServerActorClient\s*\(/.test(value)
+    || !/actorStorage|createActorStorageGateway/.test(value)
+    || !/accessToken/.test(value)) {
+    failSource("E5B_IMPORT_STAGING_AUTHORIZATION_BOUNDARY_MISSING");
+  }
+  if (/SUPABASE_SECRET_KEY|createServerAdminClient|service_role/i.test(value)
+    || /DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|from\s+["']pg["']/.test(value)
+    || /tenantId\s*:\s*[^,}]*request|propertyId\s*:\s*[^,}]*request|role\s*:\s*[^,}]*request/i.test(value)) {
+    failSource("E5B_IMPORT_STAGING_AUTHORIZATION_BOUNDARY_VIOLATION");
+  }
+  return { auth: "supabase-auth-user", scope: "neon-live-property", storage: "actor-token" };
+}
+
+export function validateE5bImportStorageSagaCoordinatorSource(source) {
+  const value = stripSqlComments(String(source));
+  if (!value.startsWith('import "server-only";')
+    || !/createStorageSagaCoordinator\s*\(/.test(value)
+    || !/createUploadIntent\s*\(/.test(value)
+    || !/storage\.upload\s*\(/.test(value)
+    || !/recordObjectUploaded\s*\(/.test(value)
+    || !/verifyWorkbookStorageObject\s*\(/.test(value)
+    || !/recordObjectVerification\s*\(/.test(value)
+    || !/storage\.download\s*\(/.test(value)
+    || !/prepareEvidence\s*\(/.test(value)
+    || !/stageVerifiedWorkbook\s*\(/.test(value)
+    || !/markCleanupPending\s*\(/.test(value)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_COORDINATOR_BOUNDARY_MISSING");
+  }
+  const uploadOffset = value.indexOf("storage.upload(");
+  const uploadedOffset = value.indexOf("recordObjectUploaded(");
+  const verifyOffset = value.indexOf("verifyWorkbookStorageObject(");
+  const parseOffset = value.indexOf("prepareEvidence(");
+  const stageOffset = value.indexOf("stageVerifiedWorkbook(");
+  if (uploadOffset < 0 || uploadedOffset < 0 || verifyOffset < 0 || parseOffset < 0 || stageOffset < 0
+    || !(uploadOffset < uploadedOffset && uploadedOffset < verifyOffset && verifyOffset < parseOffset && parseOffset < stageOffset)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_ORDER_INVALID");
+  }
+  if (/storage\.objects|service_role|DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|import_commit|revert/i.test(value)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_BOUNDARY_VIOLATION");
+  }
+  return { order: "intent-upload-observe-verify-parse-stage", compensation: "cleanup-pending-before-delete" };
+}
+
+export function validateE5bImportStorageCleanupExecutorSource(source) {
+  const value = stripSqlComments(String(source));
+  if (!value.startsWith('import "server-only";')
+    || !/executeDueStorageCleanup\s*\(/.test(value)
+    || !/claimDueCleanup\s*\(/.test(value)
+    || !/storage\.remove\s*\(\s*["']property-import-files["']\s*,\s*claim\.objectPath/.test(value)
+    || !/completeCleanup\s*\(/.test(value)
+    || !/failCleanup\s*\(/.test(value)
+    || !/30_000/.test(value)
+    || !/120_000/.test(value)
+    || !/600_000/.test(value)
+    || !/3_600_000/.test(value)
+    || !/21_600_000/.test(value)) {
+    failSource("E5B_IMPORT_STAGING_CLEANUP_EXECUTOR_BOUNDARY_MISSING");
+  }
+  if (/storage\.objects|service_role|remove\s*\([^)]*\*|remove\s*\([^)]*prefix|system.principal|impersonat/i.test(value)) {
+    failSource("E5B_IMPORT_STAGING_CLEANUP_EXECUTOR_BOUNDARY_VIOLATION");
+  }
+  return { claim: "same-property-manager", deletion: "exact-bucket-path", retry: "30s-2m-10m-1h-6h" };
 }
 
 async function validateE5bReadbackVerificationFixtures(root) {

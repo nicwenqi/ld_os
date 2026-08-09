@@ -137,9 +137,9 @@ export type CreateImportUploadIntentInput = {
 export type RecordImportObjectVerificationInput = {
   batchId: string;
   expectedVersion: number;
-  verifiedChecksumSha256: string;
-  verifiedSizeBytes: number;
-  verifiedMimeType: string;
+  verifiedChecksumSha256: string | null;
+  verifiedSizeBytes: number | null;
+  verifiedMimeType: string | null;
   status: "passed" | "failed";
   failureReason: string | null;
 };

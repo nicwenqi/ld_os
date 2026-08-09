@@ -136,9 +136,15 @@ export function createNeonImportStagingRepository(
         "verifiedMimeType", "status", "failureReason",
       ], "recordObjectVerification");
       const status = enumValue(value.status, new Set(["passed", "failed"]), "recordObjectVerification.status");
-      const verifiedChecksum = sha256(value.verifiedChecksumSha256, "recordObjectVerification.verifiedChecksumSha256");
-      const verifiedSize = boundedInteger(value.verifiedSizeBytes, "recordObjectVerification.verifiedSizeBytes", 1, 52_428_800);
-      const verifiedMime = importMime(value.verifiedMimeType, "recordObjectVerification.verifiedMimeType");
+      const verifiedChecksum = status === "passed"
+        ? sha256(value.verifiedChecksumSha256, "recordObjectVerification.verifiedChecksumSha256")
+        : nullableSha256(value.verifiedChecksumSha256, "recordObjectVerification.verifiedChecksumSha256");
+      const verifiedSize = status === "passed"
+        ? boundedInteger(value.verifiedSizeBytes, "recordObjectVerification.verifiedSizeBytes", 1, 52_428_800)
+        : nullableBoundedInteger(value.verifiedSizeBytes, "recordObjectVerification.verifiedSizeBytes", 1, 52_428_800);
+      const verifiedMime = status === "passed"
+        ? importMime(value.verifiedMimeType, "recordObjectVerification.verifiedMimeType")
+        : nullableImportMime(value.verifiedMimeType, "recordObjectVerification.verifiedMimeType");
       const failureReason = nullableBoundedString(value.failureReason, "recordObjectVerification.failureReason", 500);
       if (status === "passed" && failureReason !== null) invalid("recordObjectVerification.failureReason");
       if (status === "failed" && failureReason === null) invalid("recordObjectVerification.failureReason");
@@ -550,6 +556,9 @@ function nonemptyString(value: unknown, field: string): string { return stringVa
 function boundedString(value: unknown, field: string, max: number): string { const text = nonemptyString(value, field); if ([...text].length > max) invalid(field); return text; }
 function boundedAsciiBtrimString(value: unknown, field: string, max: number): string { const raw = stringValue(value, field); const text = trimAsciiSpace(raw); if (text.length === 0 || [...text].length > max) invalid(field); return text; }
 function nullableBoundedString(value: unknown, field: string, max: number): string | null { return value === null ? null : boundedString(value, field, max); }
+function nullableSha256(value: unknown, field: string): string | null { return value === null ? null : sha256(value, field); }
+function nullableBoundedInteger(value: unknown, field: string, min: number, max: number): number | null { return value === null ? null : boundedInteger(value, field, min, max); }
+function nullableImportMime(value: unknown, field: string): string | null { return value === null ? null : importMime(value, field); }
 function sanitizedFilename(value: unknown, field: string): string { const text = boundedString(value, field, 181); if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/.test(text) || text.includes("..")) invalid(field); return text; }
 function importMime(value: unknown, field: string): string { const text = boundedString(value, field, 100); if (!new Set(["application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "text/csv"]).has(text)) invalid(field); return text; }
 function uuid(value: unknown, field: string): string { const text = stringValue(value, field); if (!UUID.test(text)) invalid(field); return text.toLowerCase(); }
