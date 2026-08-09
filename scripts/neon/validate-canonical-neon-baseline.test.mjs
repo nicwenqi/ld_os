@@ -134,6 +134,25 @@ test("rejects quoted application roles in raw table grants", async (t) => {
   await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE");
 });
 
+test("rejects the runtime role anywhere in raw object grant grantee lists", async (t) => {
+  const cases = [
+    ["table grantee list", "grant select on table public.properties to hotel_ld_migration_owner, hotel_ld_application;"],
+    ["table GROUP grantee", "grant select on table public.properties to group hotel_ld_application;"],
+    ["schema quoted grantee list", "grant usage on schema app_private to hotel_ld_migration_owner, \"hotel_ld_application\";"],
+    ["sequence quoted GROUP grantee", "grant usage, select on sequence public.properties_id_seq to group \"hotel_ld_application\";"],
+  ];
+
+  for (const [name, mutation] of cases) {
+    await t.test(name, async (t) => {
+      const root = await copiedFixture();
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const sql = await source(root, "002_people.sql");
+      await replace(root, "002_people.sql", `${sql}\n${mutation}\n`);
+      await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE");
+    });
+  }
+});
+
 test("requires transaction-local actor GUC writes", async (t) => {
   const root = await copiedFixture();
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -164,6 +183,37 @@ test("rejects an extra non-local actor GUC write beside a valid one", async (t) 
   const sql = await source(root, "003_actor_context.sql");
   await replace(root, "003_actor_context.sql", `${sql}\nselect set_config('app.actor_auth_user_id', p_user::text, false::boolean);\n`);
   await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL");
+});
+
+test("recognizes PostgreSQL string literal forms in the actor GUC inventory", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "003_actor_context.sql");
+  await replace(root, "003_actor_context.sql", sql
+    .replace("'app.actor_auth_user_id'", "E'app.actor_auth_user_id'")
+    .replace("'app.actor_property_id'", "U&'app.actor_property_id'")
+    .replace("'app.actor_request_id'", "$actor$app.actor_request_id$actor$"));
+
+  await validateCanonicalNeonSource({ root });
+});
+
+test("rejects non-local or unknown actor GUC writes for every PostgreSQL string form", async (t) => {
+  const cases = [
+    ["escape string", "select set_config(E'app.actor_auth_user_id', p_user::text, false);"],
+    ["Unicode string", "select set_config(U&'app.actor_property_id', p_property::text, false);"],
+    ["dollar string", "select set_config($actor$app.actor_request_id$actor$, p_request::text, false);"],
+    ["unknown target expression", "select set_config(lower('app.actor_auth_user_id'), p_user::text, true);"],
+  ];
+
+  for (const [name, mutation] of cases) {
+    await t.test(name, async (t) => {
+      const root = await copiedFixture();
+      t.after(() => rm(root, { recursive: true, force: true }));
+      const sql = await source(root, "003_actor_context.sql");
+      await replace(root, "003_actor_context.sql", `${sql}\n${mutation}\n`);
+      await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL");
+    });
+  }
 });
 
 test("does not treat commented security directives as executable", async (t) => {

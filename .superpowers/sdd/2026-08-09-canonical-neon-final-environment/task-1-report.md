@@ -120,3 +120,24 @@ surfaces exactly.
 Fresh `node --check` and `git diff --check` passed. `source` still reports
 only the expected missing-module contract and `runtime` stays fail-closed;
 no database connection was attempted.
+
+## Review round 4 evidence
+
+RED: the Round 4 mutations left all 41 prior assertions passing and added 11
+failures. They demonstrated that escape (`E'...'`), Unicode (`U&'...'`), and
+dollar-quoted Actor Context names were absent from the `set_config` inventory,
+that an unknown target expression containing an Actor Context name could evade
+fail-closed validation, and that table/schema/sequence grants could reach the
+runtime role through multi-grantee or `GROUP` syntax.
+
+GREEN: `node --test scripts/neon/validate-canonical-neon-baseline.test.mjs`
+now reports 52/52 passed. A shared PostgreSQL token/scope scanner recognizes
+ordinary, escape, Unicode, and dollar-quoted strings, parses nested
+`set_config` arguments, requires every approved Actor Context write to have a
+static target and an exact `TRUE` locality argument, and rejects unknown actor
+targets. Raw privilege validation now parses each table/schema/sequence GRANT
+statement and its complete normalized grantee list, including quoted,
+multi-grantee, and `GROUP` forms.
+
+Fresh `node --check` and `git diff --check` passed. No database connection was
+attempted.
