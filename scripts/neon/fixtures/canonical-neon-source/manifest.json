@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "modules": [
+    { "order": 1, "path": "001_roles.sql" },
+    { "order": 2, "path": "002_people.sql" }
+  ],
+  "schemas": ["app_private", "public"],
+  "roles": ["hotel_ld_application", "hotel_ld_migration_owner"],
+  "types": ["public.property_status"],
+  "tables": ["public.properties"],
+  "routines": ["app_private.touch_properties", "public.read_people"],
+  "entrypoints": ["public.read_people"],
+  "policies": ["properties_tenant_scope"],
+  "triggers": ["properties_touch"],
+  "exclusions": {
+    "schemas": ["auth", "storage"],
+    "objects": ["import", "history", "compatibility", "bridge", "reset"],
+    "capabilities": ["seed data"]
+  },
+  "security": { "requireForceRls": true }
+}
