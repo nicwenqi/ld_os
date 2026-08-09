@@ -172,6 +172,12 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     validateE5bImportStagingAuthorizationSource(await readFile(serverPaths[2], "utf8"));
     validateE5bImportStorageSagaCoordinatorSource(await readFile(serverPaths[4], "utf8"));
     validateE5bImportStorageCleanupExecutorSource(await readFile(serverPaths[5], "utf8"));
+    validateE5bImportDarkBoundarySource({
+      boundary: await readFile(serverPaths[6], "utf8"),
+      listRoute: await readFile(serverPaths[7], "utf8"),
+      detailRoute: await readFile(serverPaths[8], "utf8"),
+      input: await readFile(serverPaths[9], "utf8"),
+    });
   }
   // Task 7 is a complete dark server foundation even while Task 8's API
   // boundary remains intentionally absent and unactivated.
@@ -243,6 +249,55 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     entrypoints: E5B_ENTRYPOINT_SIGNATURES.length,
     inspectionRpcPreserved: true,
     storageVerification: "read-back-sha256-size-content-mime",
+  };
+}
+
+/**
+ * The Task 8 server boundary is deliberately dark: it can be called by a
+ * server-side rehearsal, but it does not alter registry selection or expose a
+ * browser data-source switch. Keep this audit source-level and connection-free.
+ */
+export function validateE5bImportDarkBoundarySource({ boundary, listRoute, detailRoute, input }) {
+  const boundarySource = String(boundary);
+  const listSource = String(listRoute);
+  const detailSource = String(detailRoute);
+  const inputSource = String(input);
+  if (!boundarySource.startsWith('import "server-only";')
+    || !/inspectAndStageWorkbookInNeon/.test(boundarySource)
+    || !/runAuthorizedNeonImportStaging/.test(boundarySource)
+    || !/createStorageSagaCoordinator/.test(boundarySource)
+    || !/prepareEmployeeMasterStaging/.test(boundarySource)) {
+    failSource("E5B_IMPORT_STAGING_DARK_BOUNDARY_SERVER_ONLY");
+  }
+  if (/DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|from\s+["'](?:pg|@neondatabase)/.test(boundarySource + listSource + detailSource + inputSource)
+    || /createBrowserClient|createServerPasswordClient\s*\(/.test(boundarySource + listSource + detailSource + inputSource)) {
+    failSource("E5B_IMPORT_STAGING_BROWSER_OR_API_DATABASE_CREDENTIAL");
+  }
+  if (/\b(?:tenantId|propertyId|authUserId|role)\b/.test(boundarySource + listSource + detailSource + inputSource)) {
+    failSource("E5B_IMPORT_STAGING_UNTRUSTED_SCOPE_INPUT");
+  }
+  if (!/export\s+async\s+function\s+GET/.test(listSource)
+    || /export\s+async\s+function\s+POST/.test(listSource)
+    || !/runAuthorizedNeonImportStaging/.test(listSource)
+    || !/Response\.json/.test(listSource)
+    || !/export\s+async\s+function\s+GET/.test(detailSource)
+    || /export\s+async\s+function\s+POST/.test(detailSource)
+    || !/runAuthorizedNeonImportStaging/.test(detailSource)
+    || !/Response\.json/.test(detailSource)) {
+    failSource("E5B_IMPORT_STAGING_DARK_API_CONTRACT");
+  }
+  if (!/limit/.test(inputSource) || !/offset/.test(inputSource) || !/100/.test(inputSource)
+    || !/parseBatchId/.test(inputSource)
+    || /\b(?:tenantId|propertyId|authUserId|role)\b/.test(inputSource)) {
+    failSource("E5B_IMPORT_STAGING_DARK_INPUT_CONTRACT");
+  }
+  if (!/getWorkflow\(/.test(detailSource) || !/404/.test(detailSource)) {
+    failSource("E5B_IMPORT_STAGING_CROSS_PROPERTY_HIDING");
+  }
+  return {
+    boundary: "server-only-authorized-saga",
+    listRoute: "same-origin-get-bounded",
+    detailRoute: "same-property-or-404",
   };
 }
 
