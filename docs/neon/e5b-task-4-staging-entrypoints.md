@@ -9,10 +9,13 @@ Supabase database compatibility objects, Auth changes, or Storage policies.
 ## Transaction protocol
 
 The server must call `begin`, all non-empty append chunks, and `finalize` on
-one actor-context database transaction/client. `begin` holds a batch advisory
-transaction lock and writes only a transaction-local guard. Every append and
-finalize requires the guard and a still-verified/inspecting batch, so a later
-transaction cannot continue the staging attempt.
+one actor-context database transaction/client. `begin` updates the authoritative
+batch tuple, whose `xmin` is then required to equal
+`pg_current_xact_id()::xid` by every append and finalizer. It also holds a batch
+advisory transaction lock and records both the batch ID and resulting `xmin` in
+transaction-local guards. This means a
+different transaction cannot continue staging even if it forges the local GUC:
+its current XID cannot equal the `xmin` written by `begin`.
 
 The public entrypoints are:
 
@@ -31,14 +34,23 @@ table, sequence, or schema privileges.
 
 ## Evidence sealing
 
-The database computes `e5b-canonical-json-sha256-v1`: a canonical JSON manifest
-with deterministic collection ordering and SHA-256 record hashes. Finalization
+The database computes `e5b-canonical-json-sha256-v1`: PostgreSQL `jsonb`
+canonicalization supplies unique, ordered object keys, while
+`e5b-utf8-frame-v1` prefixes every hashed payload with its UTF-8 octet length.
+The independent E5B manifest inventories the required `pgcrypto` extension and
+the catalog validator rejects a runtime catalog that lacks it. Finalization
 accepts only an identical JSON manifest and SHA-256, recomputes counts, verifies
 exactly one selected employee-master sheet, mapping/row consistency, each row
 fingerprint, and source-label coverage/counts. It then makes the one allowed
 successful lifecycle transition: `verified/inspecting` to
 `linked/mapping_required`, incrementing the batch version exactly once and
 appending an activity event.
+
+Source labels resolve only through the unique selected `employee_master` sheet
+ID. Their source values must equal the locale-independent NFKC + `C` collation
+normalization persisted by the entrypoint; same-name/excluded-sheet ambiguity is
+rejected. Every selected-sheet row has bidirectional raw-cell ↔ mapping and
+normalized-key ↔ mapping key-set validation.
 
 Chunk limits are 250 records. Source-row chunks are capped at 1 MiB; all other
 evidence chunks are capped at 512 KiB. Unknown keys, duplicate identifiers,

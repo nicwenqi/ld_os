@@ -143,7 +143,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     failSource("E5B_IMPORT_STAGING_WORKBOOK_ENTRYPOINT_MISSING");
   }
   if (hasCapabilityRoot) {
-    validateE5bImportStagingEntrypoints(await readFile(migrationPaths[2], "utf8"));
+    validateE5bImportStagingEntrypoints(await readFile(migrationPaths[2], "utf8"), manifest);
   }
   if (!(await everyExists(serverPaths))) {
     failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
@@ -370,7 +370,7 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
  * transaction-local guard is critical: a chunk routine must never be usable as
  * an independently committed mutation after `begin` has released its lock.
  */
-export function validateE5bImportStagingEntrypoints(source) {
+export function validateE5bImportStagingEntrypoints(source, manifest = null) {
   const sql = stripSqlComments(source);
   if (!/begin;[\s\S]*commit;\s*$/i.test(sql)
     || !/set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i.test(sql)) {
@@ -402,6 +402,13 @@ export function validateE5bImportStagingEntrypoints(source) {
     || !/NEON_IMPORT_STAGING_TRANSACTION_REQUIRED/i.test(guard)) {
     failSource("E5B_IMPORT_STAGING_XACT_LOCK_GUARD_MISSING");
   }
+  if (!/batch\.xmin\s*=\s*pg_catalog\.pg_current_xact_id\(\)::xid/i.test(guard)
+    || !/batch\.xmin::text\s*=\s*v_provenance/i.test(guard)
+    || !/pg_catalog\.current_setting\(\s*'app\.e5b_import_staging_xmin'\s*,\s*true\s*\)/i.test(guard)
+    || !/pg_catalog\.set_config\(\s*'app\.e5b_import_staging_batch_id'/i.test(begin)
+    || !/pg_catalog\.set_config\(\s*'app\.e5b_import_staging_xmin'/i.test(begin)) {
+    failSource("E5B_IMPORT_STAGING_TRANSACTION_PROVENANCE_MISSING");
+  }
   for (const signature of E5B_WORKBOOK_ENTRYPOINT_SIGNATURES.slice(1, 6)) {
     const append = routineSource(sql, signature);
     if (!/app_private\.assert_neon_import_staging_guard/i.test(append)
@@ -419,9 +426,16 @@ export function validateE5bImportStagingEntrypoints(source) {
     failSource("E5B_IMPORT_STAGING_MAPPING_ROW_CONSISTENCY_MISSING");
   }
   const labels = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[5]);
+  if (!/sheet\.id\s*=\s*batch\.selected_sheet_id/i.test(labels)
+    || !/same_name\.sheet_name/i.test(labels)) {
+    failSource("E5B_IMPORT_STAGING_SELECTED_SHEET_LABEL_BINDING_MISSING");
+  }
   if (!/(?:resolution_type|resolutiontype).*?not\s+in\s*\(\s*'department'\s*,\s*'position'\s*\)/i.test(labels)
     || !/resolution_status/i.test(labels)
-    || !/'pending'/i.test(labels)) {
+    || !/'pending'/i.test(labels)
+    || !/sheet\.id\s*=\s*batch\.selected_sheet_id/i.test(labels)
+    || !/sheet\.purpose\s*=\s*'employee_master'/i.test(labels)
+    || !/count\(\*\).*same_name/i.test(labels)) {
     failSource("E5B_IMPORT_STAGING_SOURCE_LABEL_SCOPE_MISSING");
   }
   const finalize = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[6]);
@@ -434,12 +448,51 @@ export function validateE5bImportStagingEntrypoints(source) {
     || !/app_private\.append_neon_import_activity/i.test(finalize)) {
     failSource("E5B_IMPORT_STAGING_CANONICAL_MANIFEST_MISSING");
   }
+  if (!/pg_catalog\.jsonb_array_elements\(row\.raw_values\).*?mapping\.source_column_name/i.test(finalize)
+    || !/mapping\.mapping_status\s*=\s*'suggested'/i.test(finalize)
+    || !/pg_catalog\.jsonb_object_keys\(row\.normalized_values\)/i.test(finalize)
+    || !/not\s+\(row\.normalized_values\s*\?\s*mapping\.target_field\)/i.test(finalize)) {
+    failSource("E5B_IMPORT_STAGING_BIDIRECTIONAL_MAPPING_MISSING");
+  }
+  const hash = functionSource(sql, "app_private.neon_import_sha256");
+  const normalization = functionSource(sql, "app_private.neon_import_normalize_source_label");
+  if (!/e5b-utf8-frame-v1/i.test(hash)
+    || !/pg_catalog\.octet_length\(pg_catalog\.convert_to/i.test(hash)
+    || !/public\.digest/i.test(hash)
+    || !/pg_catalog\.normalize\(pg_catalog\.btrim\(p_value\),\s*'NFKC'\)/i.test(normalization)
+    || !/collate\s+"C"/i.test(normalization)) {
+    failSource("E5B_IMPORT_STAGING_CANONICAL_JSON_ENCODING_MISSING");
+  }
+  if (!/create\s+extension\s+if\s+not\s+exists\s+pgcrypto\s+with\s+schema\s+public/i.test(sql)
+    || (manifest && !manifest.extensions?.includes("pgcrypto"))) {
+    failSource("E5B_IMPORT_STAGING_PGCRYPTO_MANIFEST_MISSING");
+  }
   if (/\b(?:commit_neon_import|revert_neon_import|employee_external_identifiers|insert\s+into\s+public\.employees)\b/i.test(sql)
     || hasUnsafeRawApplicationPrivilege(sql)
     || hasUnsafeDefaultApplicationPrivilege(sql)) {
     failSource("E5B_IMPORT_STAGING_BOUNDARY_VIOLATION");
   }
   return { entrypoints: E5B_WORKBOOK_ENTRYPOINT_SIGNATURES.length, atomic: true };
+}
+
+/**
+ * The live catalog command consumes this compact shape after querying
+ * pg_extension. Keeping it pure allows the extension requirement to be
+ * verified without opening a database connection in source fixtures.
+ */
+export function validateE5bImportStagingCatalog(catalog, manifest) {
+  if (!manifest || !Array.isArray(manifest.extensions)) {
+    failSource("E5B_IMPORT_STAGING_CATALOG_MANIFEST_INVALID");
+  }
+  const extensions = Array.isArray(catalog?.extensions)
+    ? new Set(catalog.extensions.map(value => String(value).toLowerCase()))
+    : new Set();
+  for (const extension of manifest.extensions) {
+    if (!extensions.has(String(extension).toLowerCase())) {
+      failSource("E5B_IMPORT_STAGING_CATALOG_EXTENSION_MISSING", extension);
+    }
+  }
+  return { extensions: [...extensions].sort() };
 }
 
 /**

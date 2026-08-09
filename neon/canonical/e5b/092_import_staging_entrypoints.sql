@@ -18,8 +18,10 @@ returns void language plpgsql volatile security invoker set search_path = ''
 as $function$
 declare
   v_guard text;
+  v_provenance text;
 begin
   v_guard := pg_catalog.current_setting('app.e5b_import_staging_batch_id', true);
+  v_provenance := pg_catalog.current_setting('app.e5b_import_staging_xmin', true);
   if v_guard is distinct from p_batch_id::text
     or not pg_catalog.pg_try_advisory_xact_lock(app_private.neon_import_staging_lock_key(p_batch_id)) then
     raise exception using errcode = '42501', message = 'NEON_IMPORT_STAGING_TRANSACTION_REQUIRED';
@@ -28,6 +30,8 @@ begin
     select 1 from public.import_batches batch
     where batch.id = p_batch_id
       and batch.property_id = app_private.current_actor_property_id()
+      and batch.xmin = pg_catalog.pg_current_xact_id()::xid
+      and batch.xmin::text = v_provenance
       and batch.workbook_lifecycle = 'inspecting'
       and batch.storage_lifecycle = 'verified'
       and batch.verification_status = 'passed'
@@ -75,7 +79,23 @@ $function$;
 create function app_private.neon_import_sha256(p_value text)
 returns text language sql immutable security invoker set search_path = ''
 as $function$
-  select pg_catalog.encode(public.digest(pg_catalog.convert_to(p_value, 'UTF8'), 'sha256'), 'hex');
+  select pg_catalog.encode(public.digest(
+    pg_catalog.convert_to(
+      'e5b-utf8-frame-v1:'
+      || pg_catalog.octet_length(pg_catalog.convert_to(p_value, 'UTF8'))::text
+      || ':' || p_value,
+      'UTF8'
+    ),
+    'sha256'
+  ), 'hex');
+$function$;
+
+create function app_private.neon_import_normalize_source_label(p_value text)
+returns text language sql immutable security invoker set search_path = ''
+as $function$
+  select pg_catalog.lower(
+    (pg_catalog.normalize(pg_catalog.btrim(p_value), 'NFKC')) collate "C"
+  );
 $function$;
 
 create function app_private.neon_import_source_row_fingerprint(p_raw_values jsonb)
@@ -180,6 +200,7 @@ as $function$
 declare
   v_batch public.import_batches%rowtype;
   v_selected_sheet_id uuid;
+  v_staging_xmin xid;
 begin
   perform 1 from app_private.assert_neon_import_manager(p_hostname);
   if p_expected_version is null
@@ -239,6 +260,12 @@ begin
       selected_sheet_id = v_selected_sheet_id,
       workbook_lifecycle = 'inspecting'
   where id = p_batch_id and property_id = app_private.current_actor_property_id();
+  select batch.xmin into v_staging_xmin from public.import_batches batch
+  where batch.id = p_batch_id and batch.property_id = app_private.current_actor_property_id();
+  perform pg_catalog.set_config('app.e5b_import_staging_xmin', v_staging_xmin::text, true);
+  -- The tuple's xmin is the authoritative staging provenance. Every later
+  -- append/finalize rechecks it against pg_current_xact_id(), so forging the
+  -- local GUC in a different transaction cannot continue this staging attempt.
   perform app_private.append_neon_import_activity(p_batch_id, 'staging_started', v_batch.storage_lifecycle, v_batch.workbook_lifecycle, pg_catalog.jsonb_build_object('expected_version', p_expected_version));
   return app_private.neon_import_saga_state(p_batch_id);
 end
@@ -312,11 +339,11 @@ as $function$
 declare v_count integer; v_distinct integer;
 begin
   perform 1 from app_private.assert_neon_import_manager(p_hostname); perform app_private.assert_neon_import_staging_guard(p_batch_id); perform app_private.assert_neon_import_json_array(p_chunk,250,524288);
-  if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value where not app_private.neon_import_json_keys_allowed(value,array['resolutionType','sourceLabel','normalizedSourceLabel','sourceSheet','affectedRowCount']) or not(value ?& array['resolutionType','sourceLabel','normalizedSourceLabel','sourceSheet','affectedRowCount']) or value->>'resolutionType' not in ('department','position')) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_CHUNK_INVALID';end if;
+  if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value where not app_private.neon_import_json_keys_allowed(value,array['resolutionType','sourceLabel','normalizedSourceLabel','sourceSheet','affectedRowCount']) or not(value ?& array['resolutionType','sourceLabel','normalizedSourceLabel','sourceSheet','affectedRowCount']) or value->>'resolutionType' not in ('department','position') or value->>'normalizedSourceLabel' <> app_private.neon_import_normalize_source_label(value->>'sourceLabel')) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_CHUNK_INVALID';end if;
   select count(*),count(distinct (value->>'resolutionType'||'|'||value->>'sourceSheet'||'|'||value->>'normalizedSourceLabel')) into v_count,v_distinct from pg_catalog.jsonb_array_elements(p_chunk)value; if v_count<>v_distinct then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_CHUNK_INVALID';end if;
-  if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value left join public.import_sheets sheet on sheet.sheet_name=value->>'sourceSheet' and sheet.batch_id=p_batch_id and sheet.property_id=app_private.current_actor_property_id() where sheet.id is null) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SHEET_SCOPE_INVALID';end if;
+  if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value left join public.import_batches batch on batch.id=p_batch_id and batch.property_id=app_private.current_actor_property_id() left join public.import_sheets sheet on sheet.id = batch.selected_sheet_id and sheet.batch_id=batch.id and sheet.property_id=batch.property_id and sheet.is_selected and sheet.purpose='employee_master' and sheet.sheet_name=value->>'sourceSheet' where sheet.id is null or (select count(*) from public.import_sheets same_name where same_name.batch_id=batch.id and same_name.sheet_name=value->>'sourceSheet') <> 1) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SELECTED_SHEET_LABEL_SCOPE_INVALID';end if;
   insert into public.import_source_label_resolutions(id,tenant_id,property_id,batch_id,sheet_id,resolution_type,source_label,normalized_source_label,affected_row_count,resolution_status)
-  select pg_catalog.gen_random_uuid(),batch.tenant_id,batch.property_id,batch.id,sheet.id,(value->>'resolutionType')::public.import_source_label_type,pg_catalog.btrim(value->>'sourceLabel'),pg_catalog.btrim(value->>'normalizedSourceLabel'),(value->>'affectedRowCount')::integer,'pending' from pg_catalog.jsonb_array_elements(p_chunk)value join public.import_batches batch on batch.id=p_batch_id and batch.property_id=app_private.current_actor_property_id() join public.import_sheets sheet on sheet.batch_id=batch.id and sheet.sheet_name=value->>'sourceSheet';
+  select pg_catalog.gen_random_uuid(),batch.tenant_id,batch.property_id,batch.id,sheet.id,(value->>'resolutionType')::public.import_source_label_type,pg_catalog.btrim(value->>'sourceLabel'),app_private.neon_import_normalize_source_label(value->>'sourceLabel'),(value->>'affectedRowCount')::integer,'pending' from pg_catalog.jsonb_array_elements(p_chunk)value join public.import_batches batch on batch.id=p_batch_id and batch.property_id=app_private.current_actor_property_id() join public.import_sheets sheet on sheet.id = batch.selected_sheet_id and sheet.batch_id=batch.id and sheet.property_id=batch.property_id and sheet.is_selected and sheet.purpose='employee_master' and sheet.sheet_name=value->>'sourceSheet';
 end
 $function$;
 
@@ -334,15 +361,19 @@ begin
   if v_total<>v_batch.total_source_rows or v_valid<>v_batch.valid_rows or v_warning<>v_batch.warning_rows or v_error<>v_batch.error_rows or (select count(*) from public.import_sheets where batch_id=p_batch_id)<>v_batch.detected_sheet_count or (select count(*) from public.import_sheets where batch_id=p_batch_id and id=v_batch.selected_sheet_id and is_selected and purpose='employee_master')<>1 then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_COUNT_OR_SELECTION_INVALID';end if;
   if exists(select 1 from public.import_source_rows row where row.batch_id=p_batch_id and row.row_fingerprint<>app_private.neon_import_source_row_fingerprint(row.raw_values)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_ROW_FINGERPRINT_INVALID';end if;
   if exists(select 1 from public.import_source_rows row left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id where row.batch_id=p_batch_id and mapping.id is null)
-    or exists(select 1 from public.import_source_rows row cross join lateral pg_catalog.jsonb_array_elements(row.raw_values) cell left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.source_column_name=cell->>'sourceColumnName' and mapping.target_field=cell->>'targetField' where row.batch_id=p_batch_id and mapping.id is null) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_MAPPING_ROW_DRIFT';end if;
+    or exists(select 1 from public.import_source_rows row cross join lateral pg_catalog.jsonb_array_elements(row.raw_values) cell left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.source_column_name=cell->>'sourceColumnName' and mapping.target_field=cell->>'targetField' where row.batch_id=p_batch_id and mapping.id is null)
+    or exists(select 1 from public.import_source_rows row join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field is not null where row.batch_id=p_batch_id and not exists(select 1 from pg_catalog.jsonb_array_elements(row.raw_values) cell where cell->>'sourceColumnName'=mapping.source_column_name and cell->>'targetField'=mapping.target_field))
+    or exists(select 1 from public.import_source_rows row cross join lateral pg_catalog.jsonb_object_keys(row.normalized_values) normalized_key left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field=normalized_key where row.batch_id=p_batch_id and mapping.id is null)
+    or exists(select 1 from public.import_source_rows row join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field is not null where row.batch_id=p_batch_id and not (row.normalized_values ? mapping.target_field)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_MAPPING_ROW_DRIFT';end if;
   if exists(select 1 from public.import_source_label_resolutions label where label.batch_id=p_batch_id and label.resolution_status<>'pending') then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SOURCE_LABEL_SCOPE_INVALID';end if;
-  if exists(select 1 from public.import_source_label_resolutions label join public.import_sheets sheet on sheet.id=label.sheet_id where label.batch_id=p_batch_id and label.affected_row_count<>(select count(*) from public.import_source_rows row where row.batch_id=p_batch_id and row.sheet_id=label.sheet_id and pg_catalog.lower(pg_catalog.btrim(row.normalized_values->>case label.resolution_type when 'department' then 'department_source_label' else 'position_source_label' end))=label.normalized_source_label)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SOURCE_LABEL_FINGERPRINT_INVALID';end if;
-  if exists(select 1 from public.import_source_rows row cross join lateral (values ('department'::public.import_source_label_type,'department_source_label'),('position'::public.import_source_label_type,'position_source_label')) expected(resolution_type,field_name) where row.batch_id=p_batch_id and nullif(pg_catalog.btrim(row.normalized_values->>expected.field_name),'') is not null and not exists(select 1 from public.import_source_label_resolutions label where label.batch_id=p_batch_id and label.sheet_id=row.sheet_id and label.resolution_type=expected.resolution_type and label.normalized_source_label=pg_catalog.lower(pg_catalog.btrim(row.normalized_values->>expected.field_name))) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SOURCE_LABEL_FINGERPRINT_INVALID';end if;
+  if exists(select 1 from public.import_source_label_resolutions label join public.import_sheets sheet on sheet.id=label.sheet_id where label.batch_id=p_batch_id and label.affected_row_count<>(select count(*) from public.import_source_rows row where row.batch_id=p_batch_id and row.sheet_id=label.sheet_id and app_private.neon_import_normalize_source_label(row.normalized_values->>case label.resolution_type when 'department' then 'department_source_label' else 'position_source_label' end)=label.normalized_source_label)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SOURCE_LABEL_FINGERPRINT_INVALID';end if;
+  if exists(select 1 from public.import_source_rows row cross join lateral (values ('department'::public.import_source_label_type,'department_source_label'),('position'::public.import_source_label_type,'position_source_label')) expected(resolution_type,field_name) where row.batch_id=p_batch_id and nullif(pg_catalog.btrim(row.normalized_values->>expected.field_name),'') is not null and not exists(select 1 from public.import_source_label_resolutions label where label.batch_id=p_batch_id and label.sheet_id=row.sheet_id and label.resolution_type=expected.resolution_type and label.normalized_source_label=app_private.neon_import_normalize_source_label(row.normalized_values->>expected.field_name))) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SOURCE_LABEL_FINGERPRINT_INVALID';end if;
   v_manifest:=app_private.neon_import_staging_manifest(p_batch_id); v_evidence_sha256:=app_private.neon_import_staging_manifest_sha256(p_batch_id);
   if p_evidence_manifest <> v_manifest or p_evidence_sha256 <> v_evidence_sha256 then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_EVIDENCE_MANIFEST_MISMATCH';end if;
   update public.import_batches set storage_lifecycle='linked',workbook_lifecycle='mapping_required',sealed_evidence_sha256=v_evidence_sha256,linked_at=pg_catalog.transaction_timestamp(),version=v_batch.version+1 where id=p_batch_id and property_id=app_private.current_actor_property_id();
   perform app_private.append_neon_import_activity(p_batch_id,'staging_finalized',v_batch.storage_lifecycle,v_batch.workbook_lifecycle,pg_catalog.jsonb_build_object('evidence_sha256',v_evidence_sha256,'total_rows',v_total));
   perform pg_catalog.set_config('app.e5b_import_staging_batch_id','',true);
+  perform pg_catalog.set_config('app.e5b_import_staging_xmin','',true);
   return app_private.neon_import_saga_state(p_batch_id);
 end
 $function$;
@@ -352,6 +383,7 @@ alter function app_private.assert_neon_import_staging_guard(uuid) owner to hotel
 alter function app_private.assert_neon_import_json_array(jsonb,integer,integer) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_json_keys_allowed(jsonb,text[]) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_sha256(text) owner to hotel_ld_migration_owner;
+alter function app_private.neon_import_normalize_source_label(text) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_source_row_fingerprint(jsonb) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_staging_manifest(uuid) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_staging_manifest_sha256(uuid) owner to hotel_ld_migration_owner;
@@ -368,6 +400,7 @@ revoke all on function app_private.assert_neon_import_staging_guard(uuid) from p
 revoke all on function app_private.assert_neon_import_json_array(jsonb,integer,integer) from public;
 revoke all on function app_private.neon_import_json_keys_allowed(jsonb,text[]) from public;
 revoke all on function app_private.neon_import_sha256(text) from public;
+revoke all on function app_private.neon_import_normalize_source_label(text) from public;
 revoke all on function app_private.neon_import_source_row_fingerprint(jsonb) from public;
 revoke all on function app_private.neon_import_staging_manifest(uuid) from public;
 revoke all on function app_private.neon_import_staging_manifest_sha256(uuid) from public;

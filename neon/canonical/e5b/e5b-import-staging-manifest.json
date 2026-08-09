@@ -5,6 +5,9 @@
     "091_import_saga_entrypoints.sql",
     "092_import_staging_entrypoints.sql"
   ],
+  "extensions": [
+    "pgcrypto"
+  ],
   "schemaTypes": [
     "public.import_cleanup_state",
     "public.import_field_mapping_status",
