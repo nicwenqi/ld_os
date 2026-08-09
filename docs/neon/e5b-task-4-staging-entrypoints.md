@@ -38,7 +38,10 @@ The database computes `e5b-canonical-json-sha256-v1`: PostgreSQL `jsonb`
 canonicalization supplies unique, ordered object keys, while
 `e5b-utf8-frame-v1` prefixes every hashed payload with its UTF-8 octet length.
 The independent E5B manifest inventories the required `pgcrypto` extension and
-the catalog validator rejects a runtime catalog that lacks it. Finalization
+the catalog validator rejects a runtime catalog that lacks it. `pgcrypto` is
+installed in the bootstrap-owner prelude before the migration changes role to
+`hotel_ld_migration_owner`; the restricted migration role receives no
+database-level CREATE authority. Finalization
 accepts only an identical JSON manifest and SHA-256, recomputes counts, verifies
 exactly one selected employee-master sheet, mapping/row consistency, each row
 fingerprint, and source-label coverage/counts. It then makes the one allowed

@@ -93,6 +93,20 @@ test("E5B catalog inventory requires pgcrypto for database-side evidence sealing
   );
 });
 
+test("E5B installs pgcrypto before dropping bootstrap owner privileges", async () => {
+  const source = await readFile(sourceUrl, "utf8");
+
+  assert.throws(
+    () => validateE5bImportStagingEntrypoints(
+      source.replace(
+        "create extension if not exists pgcrypto with schema public;\n\nset local role hotel_ld_migration_owner;",
+        "set local role hotel_ld_migration_owner;\n\ncreate extension if not exists pgcrypto with schema public;",
+      ),
+    ),
+    /E5B_IMPORT_STAGING_PGCRYPTO_BOOTSTRAP_ORDER_INVALID/,
+  );
+});
+
 test("E5B staging entrypoints reject a finalizer without canonical evidence sealing", async () => {
   const source = await readFile(sourceUrl, "utf8");
 

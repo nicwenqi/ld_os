@@ -473,9 +473,14 @@ export function validateE5bImportStagingEntrypoints(source, manifest = null) {
     || !/collate\s+"C"/i.test(normalization)) {
     failSource("E5B_IMPORT_STAGING_CANONICAL_JSON_ENCODING_MISSING");
   }
-  if (!/create\s+extension\s+if\s+not\s+exists\s+pgcrypto\s+with\s+schema\s+public/i.test(sql)
+  const pgcryptoInstall = sql.search(/create\s+extension\s+if\s+not\s+exists\s+pgcrypto\s+with\s+schema\s+public/i);
+  const migrationRole = sql.search(/set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i);
+  if (pgcryptoInstall < 0
     || (manifest && !manifest.extensions?.includes("pgcrypto"))) {
     failSource("E5B_IMPORT_STAGING_PGCRYPTO_MANIFEST_MISSING");
+  }
+  if (migrationRole < 0 || pgcryptoInstall > migrationRole) {
+    failSource("E5B_IMPORT_STAGING_PGCRYPTO_BOOTSTRAP_ORDER_INVALID");
   }
   if (/\b(?:commit_neon_import|revert_neon_import|employee_external_identifiers|insert\s+into\s+public\.employees)\b/i.test(sql)
     || hasUnsafeRawApplicationPrivilege(sql)
