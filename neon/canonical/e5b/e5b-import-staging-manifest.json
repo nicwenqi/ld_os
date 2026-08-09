@@ -51,6 +51,31 @@
     "canonical_import_selected_sheet_integrity_sheets",
     "import_activity_events_append_only"
   ],
+  "sagaRoutines": [
+    "app_private.append_neon_import_activity",
+    "app_private.assert_neon_import_manager",
+    "app_private.neon_import_saga_state",
+    "public.claim_neon_import_cleanup",
+    "public.complete_neon_import_cleanup",
+    "public.create_neon_import_upload_intent",
+    "public.fail_neon_import_cleanup",
+    "public.get_neon_import_workflow",
+    "public.list_neon_import_history",
+    "public.mark_neon_import_cleanup_pending",
+    "public.record_neon_import_object_uploaded",
+    "public.record_neon_import_object_verification"
+  ],
+  "sagaEntrypoints": [
+    "public.create_neon_import_upload_intent(text,uuid,text,text,text,bigint,text,text)",
+    "public.record_neon_import_object_uploaded(text,uuid,bigint)",
+    "public.record_neon_import_object_verification(text,uuid,bigint,text,bigint,text,text,text)",
+    "public.mark_neon_import_cleanup_pending(text,uuid,bigint,text)",
+    "public.claim_neon_import_cleanup(text,uuid,integer,uuid)",
+    "public.complete_neon_import_cleanup(text,uuid,uuid,uuid)",
+    "public.fail_neon_import_cleanup(text,uuid,uuid,uuid,text,timestamptz)",
+    "public.get_neon_import_workflow(text,uuid)",
+    "public.list_neon_import_history(text)"
+  ],
   "excluded": [
     "auth schema",
     "storage schema",

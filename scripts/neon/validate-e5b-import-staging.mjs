@@ -61,6 +61,14 @@ export const E5B_ENTRYPOINT_SIGNATURES = Object.freeze([
   "public.finalize_neon_import_staging(text,uuid,bigint,jsonb,text)",
 ]);
 
+export const E5B_SAGA_ENTRYPOINT_SIGNATURES = Object.freeze(E5B_ENTRYPOINT_SIGNATURES.slice(0, 9));
+
+const E5B_SAGA_PRIVATE_ROUTINES = Object.freeze([
+  "app_private.append_neon_import_activity",
+  "app_private.assert_neon_import_manager",
+  "app_private.neon_import_saga_state",
+]);
+
 const REQUIRED_SERVER_FILES = Object.freeze([
   "app/repositories/contracts/import-staging-repository.ts",
   "app/repositories/neon/import-staging-repository.ts",
@@ -96,7 +104,8 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   // the immutable 010–080 final-environment bootstrap inventory. The fallback
   // keeps the Task 1 minimal fixtures connection-free and backward compatible.
   const capabilityRoot = join(canonical, "e5b");
-  const migrationRoot = (await exists(capabilityRoot)) ? capabilityRoot : canonical;
+  const hasCapabilityRoot = await exists(capabilityRoot);
+  const migrationRoot = hasCapabilityRoot ? capabilityRoot : canonical;
   const migrationPaths = E5B_MIGRATIONS.map(file => join(migrationRoot, file));
   const serverPaths = REQUIRED_SERVER_FILES.map(file => join(root, file));
 
@@ -105,13 +114,13 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   }
 
   const schema = await readFile(migrationPaths[0], "utf8");
+  let manifest = null;
   // Task 1 fixtures intentionally model only the later aggregate source gate.
   // A real Task 2 module declares its batch relation and is then subject to the
   // complete schema audit before later module checks can run.
   if (/\bcreate\s+table\s+public\.import_batches\b/i.test(stripSqlComments(schema))) {
     const manifestPath = join(migrationRoot, E5B_SCHEMA_MANIFEST);
     if (!(await exists(manifestPath))) failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_MISSING");
-    let manifest;
     try { manifest = JSON.parse(await readFile(manifestPath, "utf8")); }
     catch { failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_INVALID"); }
     validateE5bImportStagingSchema(schema, manifest);
@@ -119,6 +128,15 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
 
   if (!(await exists(migrationPaths[1]))) {
     failSource("E5B_IMPORT_STAGING_SAGA_ENTRYPOINT_MISSING");
+  }
+  // Task 1 fixtures intentionally model a pre-canonical aggregate source
+  // contract. Only a real post-baseline capability root is subject to the
+  // Task 3 saga audit; this preserves their independent raw-ACL assertions.
+  if (hasCapabilityRoot) {
+    validateE5bImportSagaEntrypoints(
+      await readFile(migrationPaths[1], "utf8"),
+      manifest,
+    );
   }
   if (!(await exists(migrationPaths[2]))) {
     failSource("E5B_IMPORT_STAGING_WORKBOOK_ENTRYPOINT_MISSING");
@@ -187,6 +205,127 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     inspectionRpcPreserved: true,
     storageVerification: "read-back-sha256-size-content-mime",
   };
+}
+
+/**
+ * Task 3 independently validates the storage-saga mutation boundary before
+ * later workbook code can hide a lease, projection, or ACL regression.
+ */
+export function validateE5bImportSagaEntrypoints(source, manifest = null) {
+  const sql = stripSqlComments(source);
+  if (!/begin;[\s\S]*commit;\s*$/i.test(sql)
+    || !/set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_TRANSACTION_BOUNDARY");
+  }
+
+  for (const signature of E5B_SAGA_ENTRYPOINT_SIGNATURES) {
+    const routine = routineSource(sql, signature);
+    if (!routine) failSource("E5B_IMPORT_STAGING_SAGA_ENTRYPOINT_MISSING", signature);
+    if (!/security\s+definer/i.test(routine)
+      || !/set\s+search_path\s*=\s*''/i.test(routine)
+      || !new RegExp(`alter\\s+function\\s+${escape(signature)}\\s+owner\\s+to\\s+hotel_ld_migration_owner`, "i").test(sql)
+      || !new RegExp(`revoke\\s+all\\s+on\\s+function\\s+${escape(signature)}\\s+from\\s+public`, "i").test(sql)
+      || !new RegExp(`grant\\s+execute\\s+on\\s+function\\s+${escape(signature)}\\s+to\\s+hotel_ld_application`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_SAGA_ENTRYPOINT_SECURITY", signature);
+    }
+  }
+
+  const manager = functionSource(sql, "app_private.assert_neon_import_manager");
+  if (!manager
+    || !/app_private\.assert_actor_context\s*\(\s*\)/i.test(manager)
+    || !/app_private\.assert_neon_property_hostname\s*\(\s*p_hostname\s*\)/i.test(manager)
+    || !/app_private\.assert_neon_property_manager\s*\(\s*\)/i.test(manager)
+    || !/app_private\.current_actor_property_id\s*\(\s*\)/i.test(manager)
+    || !/app_private\.current_actor_request_id\s*\(\s*\)/i.test(manager)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_ACTOR_CONTEXT_MISSING");
+  }
+
+  const createIntent = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[0]);
+  if (!/v_object_path\s*:=\s*v_tenant_id::text\s*\|\|\s*'\/'\s*\|\|\s*v_property_id::text[\s\S]*?\/imports\/[\s\S]*?p_batch_id::text/i.test(createIntent)
+    || !/insert\s+into\s+app_private\.import_storage_operations/i.test(createIntent)
+    || !/app_private\.append_neon_import_activity/i.test(createIntent)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_UPLOAD_INTENT_INVARIANT_MISSING");
+  }
+
+  const uploaded = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[1]);
+  if (!/for\s+update/i.test(uploaded)
+    || !/v_batch\.version\s*<>\s*p_expected_version/i.test(uploaded)
+    || !/storage_lifecycle\s*<>\s*'intent_created'/i.test(uploaded)
+    || !/storage_lifecycle\s*=\s*'uploaded_unverified'/i.test(uploaded)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_UPLOAD_OBSERVATION_INVARIANT_MISSING");
+  }
+
+  const verification = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[2]);
+  if (!/for\s+update/i.test(verification)
+    || !/p_verified_checksum_sha256\s*=\s*v_batch\.declared_checksum_sha256/i.test(verification)
+    || !/p_verified_size_bytes\s*=\s*v_batch\.declared_size_bytes/i.test(verification)
+    || !/pg_catalog\.btrim\(p_verified_mime_type\)\s*=\s*v_batch\.declared_mime_type/i.test(verification)
+    || !/storage_lifecycle\s*=\s*'verification_failed'/i.test(verification)
+    || !/insert\s+into\s+app_private\.import_storage_operations/i.test(verification)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_VERIFICATION_INVARIANT_MISSING");
+  }
+
+  const cleanupPending = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[3]);
+  if (!/storage_lifecycle\s*=\s*'linked'/i.test(cleanupPending)
+    || !/storage_lifecycle\s*=\s*'cleanup_pending'/i.test(cleanupPending)
+    || !/on\s+conflict\s*\(batch_id\)\s+do\s+update/i.test(cleanupPending)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_CLEANUP_PENDING_INVARIANT_MISSING");
+  }
+
+  const claim = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[4]);
+  const lockIndex = claim.search(/for\s+update\s+skip\s+locked/i);
+  const currentTimeIndex = claim.search(/pg_catalog\.clock_timestamp\s*\(\s*\)/i);
+  if (lockIndex < 0) failSource("E5B_IMPORT_STAGING_SAGA_SKIP_LOCKED_MISSING");
+  if (currentTimeIndex < lockIndex
+    || !/lease_expires_at\s*<=\s*v_now/i.test(claim)
+    || !/v_lease_expires_at\s*:=\s*v_now\s*\+\s*interval\s*'5 minutes'/i.test(claim)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_CURRENT_TIME_LEASE_GUARD_MISSING");
+  }
+  if (!/operation\.batch_id\s*=\s*p_batch_id/i.test(claim)
+    || !/operation\.property_id\s*=\s*app_private\.current_actor_property_id\s*\(\s*\)/i.test(claim)
+    || !/attempt_count\s*=\s*operation\.attempt_count\s*\+\s*1/i.test(claim)
+    || !/last_request_id\s*=\s*app_private\.current_actor_request_id\s*\(\s*\)/i.test(claim)
+    || !/'object_path'\s*,\s*v_operation\.object_path/i.test(claim)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_SCOPE_MISSING");
+  }
+
+  for (const signature of E5B_SAGA_ENTRYPOINT_SIGNATURES.slice(5, 7)) {
+    const routine = routineSource(sql, signature);
+    if (!/operation\.claim_id\s*=\s*p_claim_id/i.test(routine)
+      || !/operation\.lease_expires_at\s*>\s*v_now/i.test(routine)
+      || !/batch\.storage_lifecycle\s*=\s*'cleanup_in_progress'/i.test(routine)) {
+      failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_MATCH_MISSING", signature);
+    }
+  }
+  const failedCleanup = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[6]);
+  if (!/pg_catalog\.left[\s\S]*?500/i.test(failedCleanup)
+    || !/p_next_attempt_at\s*>\s*v_now/i.test(failedCleanup)
+    || !/p_next_attempt_at\s*>\s*v_now\s*\+\s*interval\s*'24 hours'/i.test(failedCleanup)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_RETRY_BOUND_MISSING");
+  }
+
+  for (const signature of E5B_SAGA_ENTRYPOINT_SIGNATURES.slice(7)) {
+    const projection = routineSource(sql, signature);
+    if (/\b(?:object_path|declared_checksum_sha256|verified_checksum_sha256|last_error_message)\b/i.test(projection)
+      || !/sanitized_filename/i.test(projection)
+      || !/cleanup_attention_required/i.test(projection)) {
+      failSource("E5B_IMPORT_STAGING_SAGA_BROWSER_PROJECTION_LEAK", signature);
+    }
+  }
+
+  if (hasUnsafeRawApplicationPrivilege(sql)
+    || hasUnsafeDefaultApplicationPrivilege(sql)
+    || /\bcreate\s+schema(?:\s+if\s+not\s+exists)?\s+"?(?:auth|storage)"?\b/i.test(sql)
+    || /(?:^|[^\w"])"?(?:auth|storage)"?\s*\./i.test(sql)
+    || /(?:commit_neon_import|revert_neon_import|legacy_import)/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_BOUNDARY_VIOLATION");
+  }
+
+  if (manifest && (!sameStrings(sourceInventory(sql, "function"), manifest.sagaRoutines)
+    || JSON.stringify(E5B_SAGA_ENTRYPOINT_SIGNATURES) !== JSON.stringify(manifest.sagaEntrypoints))) {
+    failSource("E5B_IMPORT_STAGING_SAGA_MANIFEST_DRIFT");
+  }
+  return { entrypoints: E5B_SAGA_ENTRYPOINT_SIGNATURES.length, privateRoutines: E5B_SAGA_PRIVATE_ROUTINES.length };
 }
 
 /**
