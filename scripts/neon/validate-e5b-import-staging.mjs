@@ -15,6 +15,7 @@ export const E5B_RUNTIME_ROLE = "hotel_ld_application";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const CANONICAL = join(ROOT, "neon", "canonical");
+const E5B_SCHEMA_MANIFEST = "e5b-import-staging-manifest.json";
 const COMMANDS = new Set([
   "source",
   "dry-run",
@@ -28,6 +29,17 @@ export const E5B_MIGRATIONS = Object.freeze([
   "090_import_staging_schema.sql",
   "091_import_saga_entrypoints.sql",
   "092_import_staging_entrypoints.sql",
+]);
+
+export const E5B_STAGING_TABLES = Object.freeze([
+  "public.import_batches",
+  "public.import_sheets",
+  "public.import_source_rows",
+  "public.import_field_mappings",
+  "public.import_issues",
+  "public.import_source_label_resolutions",
+  "app_private.import_storage_operations",
+  "app_private.import_activity_events",
 ]);
 
 export const E5B_ENTRYPOINT_SIGNATURES = Object.freeze([
@@ -80,11 +92,39 @@ export function assertE5bRuntimeUrl(raw) {
 
 export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   const canonical = join(root, "neon", "canonical");
-  const migrationPaths = E5B_MIGRATIONS.map(file => join(canonical, file));
+  // E5B is a post-baseline capability. Its canonical modules are isolated from
+  // the immutable 010–080 final-environment bootstrap inventory. The fallback
+  // keeps the Task 1 minimal fixtures connection-free and backward compatible.
+  const capabilityRoot = join(canonical, "e5b");
+  const migrationRoot = (await exists(capabilityRoot)) ? capabilityRoot : canonical;
+  const migrationPaths = E5B_MIGRATIONS.map(file => join(migrationRoot, file));
   const serverPaths = REQUIRED_SERVER_FILES.map(file => join(root, file));
 
-  if (!(await everyExists([...migrationPaths, ...serverPaths]))) {
-    throw new Error("E5B_IMPORT_STAGING_SOURCE_CONTRACT_MISSING");
+  if (!(await exists(migrationPaths[0]))) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_MISSING");
+  }
+
+  const schema = await readFile(migrationPaths[0], "utf8");
+  // Task 1 fixtures intentionally model only the later aggregate source gate.
+  // A real Task 2 module declares its batch relation and is then subject to the
+  // complete schema audit before later module checks can run.
+  if (/\bcreate\s+table\s+public\.import_batches\b/i.test(stripSqlComments(schema))) {
+    const manifestPath = join(migrationRoot, E5B_SCHEMA_MANIFEST);
+    if (!(await exists(manifestPath))) failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_MISSING");
+    let manifest;
+    try { manifest = JSON.parse(await readFile(manifestPath, "utf8")); }
+    catch { failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_INVALID"); }
+    validateE5bImportStagingSchema(schema, manifest);
+  }
+
+  if (!(await exists(migrationPaths[1]))) {
+    failSource("E5B_IMPORT_STAGING_SAGA_ENTRYPOINT_MISSING");
+  }
+  if (!(await exists(migrationPaths[2]))) {
+    failSource("E5B_IMPORT_STAGING_WORKBOOK_ENTRYPOINT_MISSING");
+  }
+  if (!(await everyExists(serverPaths))) {
+    failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
   }
 
   const [migrations, serverSources, inspectRoute] = await Promise.all([
@@ -110,16 +150,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
       failSource("E5B_IMPORT_STAGING_ENTRYPOINT_SECURITY", signature);
     }
   }
-  for (const table of [
-    "public.import_batches",
-    "public.import_sheets",
-    "public.import_source_rows",
-    "public.import_field_mappings",
-    "public.import_issues",
-    "public.import_source_label_resolutions",
-    "app_private.import_storage_operations",
-    "app_private.import_activity_events",
-  ]) {
+  for (const table of E5B_STAGING_TABLES) {
     if (!new RegExp(`alter\\s+table\\s+${escape(table)}\\s+enable\\s+row\\s+level\\s+security`, "i").test(sql)) {
       failSource("E5B_IMPORT_STAGING_RLS_MISSING", table);
     }
@@ -156,6 +187,152 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     inspectionRpcPreserved: true,
     storageVerification: "read-back-sha256-size-content-mime",
   };
+}
+
+/**
+ * Task 2 validates the permanent schema separately from later entrypoints.
+ * This staged gate makes a schema regression visible before a missing future
+ * module masks it, while still refusing any environment or database access.
+ */
+export function validateE5bImportStagingSchema(source, manifest = null) {
+  const sql = stripSqlComments(source);
+  if (!/begin;[\s\S]*commit;\s*$/i.test(sql)
+    || !/set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_TRANSACTION_BOUNDARY");
+  }
+  for (const type of [
+    "public.import_storage_lifecycle",
+    "public.import_workbook_lifecycle",
+    "public.import_verification_status",
+    "public.import_cleanup_state",
+  ]) {
+    if (!new RegExp(`create\\s+type\\s+${escape(type)}\\s+as\\s+enum`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_TYPE_MISSING", type);
+    }
+  }
+  for (const table of E5B_STAGING_TABLES) {
+    if (!new RegExp(`create\\s+table\\s+${escape(table)}\\b`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_TABLE_MISSING", table);
+    }
+    if (!new RegExp(`alter\\s+table\\s+${escape(table)}\\s+owner\\s+to\\s+hotel_ld_migration_owner`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_OWNER_MISSING", table);
+    }
+    if (!new RegExp(`alter\\s+table\\s+${escape(table)}\\s+enable\\s+row\\s+level\\s+security`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_RLS_MISSING", table);
+    }
+    if (!new RegExp(`alter\\s+table\\s+${escape(table)}\\s+force\\s+row\\s+level\\s+security`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_FORCE_RLS_MISSING", table);
+    }
+    if (!new RegExp(`revoke\\s+all\\s+on\\s+table\\s+${escape(table)}\\s+from\\s+public\\s*,\\s*hotel_ld_application`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_ACL_REVOKE_MISSING", table);
+    }
+  }
+  for (const policy of [
+    "canonical_import_batches_scope",
+    "canonical_import_sheets_scope",
+    "canonical_import_source_rows_scope",
+    "canonical_import_field_mappings_scope",
+    "canonical_import_issues_scope",
+    "canonical_import_source_label_resolutions_scope",
+    "canonical_import_storage_operations_scope",
+    "canonical_import_activity_events_insert",
+  ]) {
+    if (!new RegExp(`create\\s+policy\\s+${escape(policy)}\\b`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_POLICY_MISSING", policy);
+    }
+  }
+  if (!/create\s+function\s+app_private\.neon_import_storage_transition_allowed\s*\(/i.test(sql)
+    || !/create\s+function\s+app_private\.neon_import_workbook_transition_allowed\s*\(/i.test(sql)
+    || !/create\s+trigger\s+canonical_import_batch_lifecycle_transition\b/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "lifecycle_transitions");
+  }
+  if (!/object_path\s*=\s*tenant_id::text\s*\|\|\s*'\/'\s*\|\|\s*property_id::text\s*\|\|\s*'\/imports\/'\s*\|\|\s*id::text\s*\|\|\s*'\/'\s*\|\|\s*sanitized_filename/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "server_generated_object_path");
+  }
+  if (!/declared_checksum_sha256\s*~\s*'\^\[0-9a-f\]\{64\}\$'/i.test(sql)
+    || !/declared_size_bytes\s+between\s+1\s+and\s+52428800/i.test(sql)
+    || !/declared_mime_type\s+in\s*\(\s*'application\/vnd\.ms-excel'/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "declared_object_evidence");
+  }
+  if (!/verified_checksum_sha256\s*=\s*declared_checksum_sha256\s+and\s+verified_size_bytes\s*=\s*declared_size_bytes\s+and\s+verified_mime_type\s*=\s*declared_mime_type/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "verification_equality");
+  }
+  if (!/storage_lifecycle\s*<>\s*'linked'\s+or\s*\(\s*verification_status\s*=\s*'passed'\s+and\s*workbook_lifecycle\s*=\s*'mapping_required'/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "linked_verification_guard");
+  }
+  if (!/cleanup_state\s*<>\s*'cleanup_in_progress'\s+or\s*\(\s*claim_id\s+is\s+not\s+null\s+and\s+lease_expires_at\s*>\s*pg_catalog\.transaction_timestamp\(\)/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "cleanup_lease_guard");
+  }
+  if (!/create\s+function\s+app_private\.reject_import_activity_mutation\s*\(/i.test(sql)
+    || !/create\s+trigger\s+import_activity_events_append_only\s+before\s+update\s+or\s+delete\s+on\s+app_private\.import_activity_events/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_AUDIT_TRIGGER_MISSING");
+  }
+  if (/\bon\s+delete\s+cascade\b/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_AUDIT_CASCADE_FORBIDDEN");
+  }
+  if (hasUnsafeRawApplicationPrivilege(sql)) {
+    failSource("E5B_IMPORT_STAGING_RAW_APPLICATION_GRANT");
+  }
+  if (hasUnsafeDefaultApplicationPrivilege(sql)) {
+    failSource("E5B_IMPORT_STAGING_DEFAULT_PRIVILEGE_GRANT");
+  }
+  if (/\bcreate\s+schema(?:\s+if\s+not\s+exists)?\s+"?(?:auth|storage)"?\b/i.test(sql)
+    || /(?:^|[^\w"])"?(?:auth|storage)"?\s*\.\s*"?[a-z_][\w$]*"?/i.test(sql)
+    || /(?:commit_neon_import|revert_neon_import|legacy_import)/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_LEGACY_COMPATIBILITY_OBJECT");
+  }
+  validateE5bSchemaManifest(sql, manifest);
+  return { tables: E5B_STAGING_TABLES.length, module: E5B_MIGRATIONS[0] };
+}
+
+function validateE5bSchemaManifest(source, manifest) {
+  if (!manifest || typeof manifest !== "object" || Array.isArray(manifest)
+    || manifest.capability !== "e5b-import-staging"
+    || JSON.stringify(manifest.modules) !== JSON.stringify(E5B_MIGRATIONS)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_INVALID");
+  }
+  const inventory = {
+    schemaTypes: sourceInventory(source, "type"),
+    schemaTables: sourceInventory(source, "table"),
+    schemaRoutines: sourceInventory(source, "function"),
+    schemaPolicies: sourceInventory(source, "policy"),
+    schemaTriggers: sourceInventory(source, "trigger"),
+  };
+  for (const [key, actual] of Object.entries(inventory)) {
+    if (!sameStrings(actual, manifest[key])) {
+      failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_DRIFT", key);
+    }
+  }
+  if (!Array.isArray(manifest.excluded)
+    || !manifest.excluded.includes("auth schema")
+    || !manifest.excluded.includes("storage schema")
+    || !manifest.excluded.includes("legacy import commit")
+    || !manifest.excluded.includes("legacy import revert")
+    || !manifest.excluded.includes("legacy provenance")
+    || !manifest.excluded.includes("compatibility objects")) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_MANIFEST_INVALID");
+  }
+}
+
+function sourceInventory(source, kind) {
+  const patterns = {
+    type: /\bcreate\s+type\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s+as\s+enum\b/gi,
+    table: /\bcreate\s+table\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\b/gi,
+    function: /\bcreate\s+function\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s*\(/gi,
+    policy: /\bcreate\s+policy\s+([a-z_][a-z0-9_]*)\b/gi,
+    trigger: /\bcreate\s+trigger\s+([a-z_][a-z0-9_]*)\b/gi,
+  };
+  return [...new Set([...source.matchAll(patterns[kind])].map(match => match[1].toLowerCase()))].sort();
+}
+
+function sameStrings(left, right) {
+  if (!Array.isArray(right) || right.some(value => typeof value !== "string")) return false;
+  return JSON.stringify(left) === JSON.stringify([...new Set(right.map(value => value.toLowerCase()))].sort());
+}
+
+async function exists(path) {
+  try { await access(path); return true; }
+  catch { return false; }
 }
 
 async function main() {

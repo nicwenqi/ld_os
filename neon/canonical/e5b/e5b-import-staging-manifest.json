@@ -1,0 +1,60 @@
+{
+  "capability": "e5b-import-staging",
+  "modules": [
+    "090_import_staging_schema.sql",
+    "091_import_saga_entrypoints.sql",
+    "092_import_staging_entrypoints.sql"
+  ],
+  "schemaTypes": [
+    "public.import_cleanup_state",
+    "public.import_field_mapping_status",
+    "public.import_issue_resolution_status",
+    "public.import_issue_severity",
+    "public.import_sheet_purpose",
+    "public.import_source_label_status",
+    "public.import_source_label_type",
+    "public.import_source_row_status",
+    "public.import_storage_lifecycle",
+    "public.import_verification_status",
+    "public.import_workbook_lifecycle"
+  ],
+  "schemaTables": [
+    "app_private.import_activity_events",
+    "app_private.import_storage_operations",
+    "public.import_batches",
+    "public.import_field_mappings",
+    "public.import_issues",
+    "public.import_sheets",
+    "public.import_source_label_resolutions",
+    "public.import_source_rows"
+  ],
+  "schemaRoutines": [
+    "app_private.enforce_neon_import_batch_lifecycle_transition",
+    "app_private.neon_import_storage_transition_allowed",
+    "app_private.neon_import_workbook_transition_allowed",
+    "app_private.reject_import_activity_mutation"
+  ],
+  "schemaPolicies": [
+    "canonical_import_activity_events_insert",
+    "canonical_import_batches_scope",
+    "canonical_import_field_mappings_scope",
+    "canonical_import_issues_scope",
+    "canonical_import_sheets_scope",
+    "canonical_import_source_label_resolutions_scope",
+    "canonical_import_source_rows_scope",
+    "canonical_import_storage_operations_scope"
+  ],
+  "schemaTriggers": [
+    "canonical_import_batch_lifecycle_transition",
+    "import_activity_events_append_only"
+  ],
+  "excluded": [
+    "auth schema",
+    "storage schema",
+    "legacy import commit",
+    "legacy import revert",
+    "legacy provenance",
+    "compatibility objects",
+    "business seed data"
+  ]
+}
