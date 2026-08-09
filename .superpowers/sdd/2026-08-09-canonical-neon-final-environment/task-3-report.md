@@ -2,14 +2,16 @@
 
 Date: 2026-08-09
 
-## Authorized target
+## Authorized targets
 
-- Project: `hotel-ld-os-neon-final-staging` (`jolly-dawn-48919555`)
-- Branch: `main` (`br-empty-star-axdyyv60`)
-- Endpoint: `ep-winter-resonance-ax340i3r`
-- Database: `neondb`
-- Bootstrap role: `neondb_owner`
-- PostgreSQL: `18.4` (major-version gate: 18)
+- Initial staging: project `hotel-ld-os-neon-final-staging`
+  (`jolly-dawn-48919555`), branch `main` (`br-empty-star-axdyyv60`), endpoint
+  `ep-winter-resonance-ax340i3r`.
+- Fresh-empty final replay: project `hotel-ld-os-neon-final-replay`
+  (`wild-tree-31942896`), branch `main` (`br-frosty-forest-awu4aprl`), endpoint
+  `ep-hidden-meadow-aweq2rfx`.
+- Both targets use database `neondb`, bootstrap role `neondb_owner`, and the
+  PostgreSQL 18 major-version gate.
 
 No valid live connection string, live host URL, or password is recorded in this
 report or in Git. During the first live attempt, a temporary tool output exposed
@@ -49,12 +51,48 @@ Real PostgreSQL 18 RED/GREEN work found and fixed these canonical module defects
   two installed People directory bodies were refreshed transactionally from
   the corrected source before the final runtime run.
 
-Preparation removed the connector-generated `public.show_db_tree()` helper
-from this new staging branch because it was outside the exact manifest. It held
-no business data and can be recreated by the connector's branch-description
-operation. No deny-listed project, branch, or endpoint was connected to.
+On the replay target, the connector's describe operation created
+`public.show_db_tree()`. The empty-baseline gate rejected that undeclared helper
+exactly as designed. The helper was then deleted precisely, after which the
+baseline again contained zero user objects. It contained no business data.
+No deny-listed project, branch, or endpoint was connected to.
 
-## Live dry-run verdict
+## Fresh-empty replay acceptance
+
+The final replay project was created independently with an empty `main` branch;
+it did not inherit the earlier staging state. Initial read-only identity and
+emptiness evidence proved PostgreSQL 18, database owner `neondb_owner`, zero
+user tables, and zero `auth`, `storage`, and `app_private` schemas/objects.
+
+The complete final-source chain then produced these results:
+
+The repeatability result reported `dryRuns=2`, `identical=true`,
+`applied=true`, and runtime credential provisioning success.
+
+| Replay gate | Verdict |
+|---|---|
+| `source` | PASS |
+| `dry-run` | PASS; outer transaction rolled back and empty state was reproved |
+| `repeatability` rollback 1 | PASS |
+| `repeatability` rollback 2 | PASS; identical to rollback 1 |
+| Atomic apply | PASS |
+| Runtime credential provisioning | PASS; parameterized and not persisted |
+| Catalog after apply | PASS; exact inventory and zero rows |
+| Final pooled runtime | PASS; 10/10 matrix fields |
+| Runtime cleanup | PASS; `finalRowsZero=true` |
+| Final catalog | PASS; `rowsEmpty=true` |
+
+The first replay runtime reached strict exact-signature smoke and failed closed
+with `42501:NEON_PEOPLE_DEPARTMENT_REQUIRED`: the department-directory probe
+was incorrectly using the manager actor. Cleanup still completed and catalog
+row counts remained zero. Commit `915bc03` changed only exact-signature actor
+routing so that the department-directory probe uses the seeded department
+trainer while the other 26 signatures retain the manager actor. It did not add
+any permission-error allowlist. The rerun passed all ten runtime matrix fields,
+proved `finalRowsZero=true`, and the final catalog again proved
+`rowsEmpty=true`.
+
+## Final replay dry-run verdict
 
 The final `dry-run` passed all identity, empty-baseline, exact catalog,
 ownership, privilege, RLS, definer, append-only audit, exclusion, and zero-row
@@ -76,15 +114,13 @@ canonical objects or roles persisted.
 | Rolled back | PASS |
 | Post-rollback empty proof | PASS |
 
-## Live apply and catalog verdict
+## Final replay apply and catalog verdict
 
-`repeatability` completed two identical full rollback dry-runs from the empty
+Replay `repeatability` completed two identical full rollback dry-runs from the empty
 state, proved both restored zero objects/roles/rows, then applied the canonical
 bundle atomically. The runtime role credential was provisioned through a
-parameterized owner transaction. Both the bootstrap-owner and runtime-role
-credentials were rotated immediately after the temporary-output incident. The
-old values are invalid, and no valid credential was persisted in Git or this
-report.
+parameterized owner transaction and was not returned by the validator. No valid
+credential was persisted in Git or this report.
 
 The persistent `catalog` result was exact and empty of business data:
 
@@ -102,7 +138,7 @@ The persistent `catalog` result was exact and empty of business data:
 | Audit rows | 0 |
 | Exact ownership/security/exclusion matrix | PASS |
 
-## Real pooled runtime matrix
+## Final replay pooled runtime matrix
 
 The final runtime run used the rotated pooled `hotel_ld_application`
 credential and the actual actor-context helpers. The direct bootstrap
@@ -167,15 +203,16 @@ source further. It did not connect to or modify Neon:
   because its ad-hoc text schema-qualified `coalesce`; the corrected unqualified
   query returned exactly 31 catalog descriptors and performed no write.
 
-The earlier live results therefore document the applied staging revision and
-runtime behavior, while the review-hardened final source must complete the fresh
-empty-environment workflow below before final environment acceptance.
+The earlier staging results document the initial applied revision and runtime
+behavior. The review-hardened final source subsequently completed the same
+workflow from a newly created empty replay project and is now accepted by the
+fresh-environment gate.
 
-## Required fresh-empty final-source workflow
+## Completed fresh-empty final-source workflow
 
-Run this exact sequence on a newly created, independently targeted PG18 branch
-whose preflight proves zero provider/public routines, canonical roles, schemas,
-objects, application rows, and audit rows:
+The accepted replay executed this exact sequence on a newly created,
+independently targeted PG18 branch whose preflight proved zero user tables and
+zero `auth`, `storage`, and `app_private` surface:
 
 1. Run `source` locally and verify the ordered seven modules plus complete
    manifest/security descriptor contract.
@@ -184,8 +221,8 @@ objects, application rows, and audit rows:
    empty-state proof.
 3. Run `repeatability`; require two identical rollback installs, then the single
    authorized atomic apply and parameterized runtime-password provisioning.
-4. Rotate owner and runtime credentials, retain neither in files/logs/Git, then
-   run `catalog` using the direct owner connection.
+4. Run `catalog` using the direct owner connection and retain neither owner nor
+   runtime credential in files, logs, or Git.
 5. Run `runtime` using the rotated pooled `hotel_ld_application` credential and
    the distinct direct owner credential for seed/cleanup only. Require every
    matrix field PASS, all 27 exact signatures invoked, and final application and
@@ -220,40 +257,40 @@ npm run build
 git diff --check
 ```
 
-Final connection-free verdicts were 100/100 Task 3 tests (56 source-validator
-tests plus 44 database/bootstrap contract tests), 201/201 application tests,
+Final connection-free verdicts were 105/105 Task 3 tests, 201/201 application tests,
 1/1 rendered-HTML test, a successful source gate, a successful production
 build, and a clean diff check.
 
-The live validator command shape was the following, with the exact authorized
-metadata shown and credentials supplied only through redacted stdin:
+The final replay validator command shape was the following, with exact
+authorized metadata shown and credentials supplied only through redacted stdin:
 
 ```text
-NEON_PROJECT_NAME=hotel-ld-os-neon-final-staging \
-NEON_PROJECT_ID=jolly-dawn-48919555 \
+NEON_PROJECT_NAME=hotel-ld-os-neon-final-replay \
+NEON_PROJECT_ID=wild-tree-31942896 \
 NEON_BRANCH_NAME=main \
-NEON_BRANCH_ID=br-empty-star-axdyyv60 \
-NEON_ENDPOINT_ID=ep-winter-resonance-ax340i3r \
+NEON_BRANCH_ID=br-frosty-forest-awu4aprl \
+NEON_ENDPOINT_ID=ep-hidden-meadow-aweq2rfx \
 PGDATABASE=neondb \
 NEON_BOOTSTRAP_ROLE=neondb_owner \
 NEON_POSTGRES_MAJOR=18 \
 node --experimental-strip-types scripts/neon/validate-canonical-neon-baseline.mjs <mode> --credentials-stdin
 ```
 
-`dry-run`, `repeatability`, `catalog`, and `runtime` were executed successfully
-in that order. An earlier `repeatability` launch was rejected before process
-creation; it made no connection or write and was not bypassed. The later
-authorized parent execution performed the persistent staging apply. After the
-deferred-body PG18 defect was reproduced, only the two corrected People
-directory function bodies were transactionally replaced before the final
-catalog/runtime run.
+On replay, `dry-run`, `repeatability`/apply, `catalog`, corrected `runtime`, and
+final `catalog` completed in that order. The first runtime attempt failed closed
+at exact-signature actor routing and still completed zero-row cleanup; the
+post-`915bc03` rerun passed. The earlier process-creation rejection,
+credential-rotation incident, and transactional refresh of two corrected People
+directory bodies belong to the initial staging history; none altered the fresh
+replay baseline outside its validated source bundle.
 
 ## Final state
 
-The independent staging database contains exactly the persistent canonical
-manifest and no business or audit data. The final internal catalog assertion
-after runtime cleanup passed with application and audit row counts both zero.
-The staging owner and runtime passwords were rotated after the temporary-output
-incident. The exposed old credential is invalid, and no valid credential was
-written to Git or this report. No deny-listed project,
-branch, endpoint, database, or host was connected to or modified.
+The independent replay database contains exactly 2 schemas, 6 enum types, 31
+tables, 83 routines, 27 public entrypoints, 31 policies, 15 triggers, and 31
+ENABLE + FORCE RLS tables. The final internal catalog assertion after runtime
+cleanup passed with application and audit row counts both zero. The earlier
+staging owner and runtime passwords were rotated after the temporary-output
+incident; the exposed old credential is invalid. No valid credential or live
+URL was written to Git or this report. No deny-listed project, branch, endpoint,
+database, or host was connected to or modified.
