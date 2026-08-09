@@ -145,9 +145,13 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   if (hasCapabilityRoot) {
     validateE5bImportStagingEntrypoints(await readFile(migrationPaths[2], "utf8"), manifest);
   }
-  if (!(await everyExists(serverPaths))) {
+  if (!(await everyExists(serverPaths.slice(0, 2)))) {
     failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
   }
+  if (!(await exists(serverPaths[3]))) {
+    failSource("E5B_IMPORT_STAGING_READBACK_VERIFICATION_MISSING");
+  }
+  if (!(await everyExists(serverPaths))) failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
 
   const [migrations, serverSources, inspectRoute] = await Promise.all([
     Promise.all(migrationPaths.map(path => readFile(path, "utf8"))),
@@ -156,6 +160,12 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   ]);
   const sql = stripSqlComments(migrations.join("\n"));
   const server = serverSources.join("\n");
+
+  // The aggregate gate retains backwards-compatible Task 1 fixtures, while
+  // the committed repository is subject to the stronger Task 5 audit.
+  if (serverSources[1].startsWith('import "server-only";')) {
+    validateE5bImportStagingRepositorySource(serverSources[1]);
+  }
 
   if (!/begin;[\s\S]*commit;\s*$/i.test(migrations[0])
     || !/begin;[\s\S]*commit;\s*$/i.test(migrations[1])
@@ -208,6 +218,57 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     entrypoints: E5B_ENTRYPOINT_SIGNATURES.length,
     inspectionRpcPreserved: true,
     storageVerification: "read-back-sha256-size-content-mime",
+  };
+}
+
+/**
+ * Task 5's adapter is intentionally audited independently while Tasks 6–8
+ * remain RED. This keeps the fail-closed aggregate source gate intact without
+ * accepting a dynamic or raw-table repository in the interim.
+ */
+export function validateE5bImportStagingRepositorySource(source) {
+  const value = String(source)
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+  const approvedEntrypoints = E5B_ENTRYPOINT_SIGNATURES.map(signature => (
+    signature.slice("public.".length, signature.indexOf("("))
+  ));
+  if (!value.startsWith('import "server-only";')) {
+    failSource("E5B_IMPORT_STAGING_REPOSITORY_SERVER_ONLY_MISSING");
+  }
+  if (!value.includes("const OTHER_MAX_RECORDS = 250;")
+    || !value.includes("const SOURCE_ROW_MAX_RECORDS = 250;")
+    || !value.includes("const OTHER_MAX_BYTES = 512 * 1024;")
+    || !value.includes("const SOURCE_ROW_MAX_BYTES = 1024 * 1024;")
+    || !value.includes("E5B_IMPORT_STAGING_RECORD_TOO_LARGE")
+    || !value.includes("prepareStagingInput(input)")
+    || !value.includes("prepareCollection")) {
+    failSource("E5B_IMPORT_STAGING_REPOSITORY_CHUNK_GUARD_MISSING");
+  }
+  if (!value.includes("createHash(\"sha256\")")
+    || !value.includes("normalize(\"NFKC\")")
+    || !value.includes("computeImportSourceRowFingerprint")
+    || !value.includes("buildDatabaseManifest")) {
+    failSource("E5B_IMPORT_STAGING_REPOSITORY_EVIDENCE_CANONICALIZATION_MISSING");
+  }
+  for (const entrypoint of approvedEntrypoints) {
+    if (!value.includes(`public.${entrypoint}(`)) {
+      failSource("E5B_IMPORT_STAGING_REPOSITORY_ENTRYPOINT_MISSING", entrypoint);
+    }
+  }
+  if (/public\.\$\{|from\s+public\.import_|join\s+public\.import_|insert\s+into\s+public\.import_|update\s+public\.import_|delete\s+from\s+public\.import_/i.test(value)
+    || /\b(?:commitBatch|revertBatch|save_neon_employee|storage\.objects)\b/i.test(value)) {
+    failSource("E5B_IMPORT_STAGING_REPOSITORY_BOUNDARY_VIOLATION");
+  }
+  const beginOffset = value.indexOf("public.begin_neon_import_staging(");
+  const preflightOffset = value.indexOf("const prepared = prepareStagingInput(input);");
+  if (beginOffset < 0 || preflightOffset < 0 || preflightOffset > beginOffset) {
+    failSource("E5B_IMPORT_STAGING_REPOSITORY_PREFLIGHT_ORDER_INVALID");
+  }
+  return {
+    entrypoints: approvedEntrypoints.length,
+    sourceRows: { maxRecords: 250, maxBytes: 1024 * 1024 },
+    otherEvidence: { maxRecords: 250, maxBytes: 512 * 1024 },
   };
 }
 

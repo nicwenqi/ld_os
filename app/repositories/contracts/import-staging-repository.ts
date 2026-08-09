@@ -191,6 +191,8 @@ export type ClaimDueCleanupInput = { limit: number; claimId: string };
 /** Server-only: exact paths are supplied only to the cleanup executor. */
 export type ImportCleanupClaim = {
   batchId: string;
+  /** Server-only ledger identity; never part of a browser projection. */
+  operationId: string;
   bucket: "property-import-files";
   objectPath: string;
   claimId: string;
@@ -198,10 +200,17 @@ export type ImportCleanupClaim = {
   leaseExpiresAt: string;
 };
 
-export type CompleteCleanupInput = { batchId: string; claimId: string };
+export type CompleteCleanupInput = {
+  batchId: string;
+  /** Server-only value returned from `claimDueCleanup`. */
+  operationId: string;
+  claimId: string;
+};
 
 export type FailCleanupInput = {
   batchId: string;
+  /** Server-only value returned from `claimDueCleanup`. */
+  operationId: string;
   claimId: string;
   error: string;
   nextAttemptAt: string;
