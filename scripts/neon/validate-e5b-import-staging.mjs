@@ -274,12 +274,23 @@ export function validateE5bImportStagingRepositorySource(source) {
       failSource("E5B_IMPORT_STAGING_REPOSITORY_ENTRYPOINT_MISSING", entrypoint);
     }
   }
-  const queryCalls = [...value.matchAll(/database\.query(?:<PayloadRow>)?\(\s*(["'])([\s\S]*?)\1/g)];
+  // This is deliberately token-level fail-closed rather than a permissive
+  // substring search. Every `database.query` token must begin one direct
+  // invocation whose first argument is an approved standalone SQL literal and
+  // whose second argument is its local parameter array. Any alias, property
+  // extraction, call/apply/bind, reflection, or dynamic invocation fails.
+  const queryReferences = [...value.matchAll(/\bdatabase\s*\.\s*query\b/g)];
+  const queryCalls = [...value.matchAll(/database\s*\.\s*query(?:\s*<\s*PayloadRow\s*>)?\s*\(\s*(["'])([\s\S]*?)\1\s*,\s*\[/g)];
   const normalizedQueries = queryCalls.map(match => match[2].replace(/\s+/g, " ").trim());
-  if (queryCalls.length !== approvedQueries.size
+  const queryAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*database\s*(?:\.\s*query\b|\[\s*["']query["']\s*\])/;
+  const databaseAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*database\b/;
+  if (queryReferences.length !== approvedQueries.size
+    || queryCalls.length !== approvedQueries.size
     || new Set(normalizedQueries).size !== approvedQueries.size
     || normalizedQueries.some(query => !approvedQueries.has(query))
-    || /\b(?:Reflect|Proxy)\b|(?:const|let|var)\s*\{\s*query\s*\}\s*=|database\s*\[\s*["']query["']\s*\]|database\.query\.bind\s*\(/.test(value)) {
+    || queryAlias.test(value)
+    || databaseAlias.test(value)
+    || /\b(?:Reflect|Proxy)\b|database\s*\[\s*["']query["']\s*\]|database\s*\.\s*query\s*\.\s*(?:call|apply|bind)\b|Object\s*\.\s*(?:assign|defineProperty|getOwnPropertyDescriptor)\s*\([^)]*\bdatabase\b/.test(value)) {
     failSource("E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION");
   }
   if (/public\.\$\{|from\s+public\.import_|join\s+public\.import_|insert\s+into\s+public\.import_|update\s+public\.import_|delete\s+from\s+public\.import_/i.test(value)

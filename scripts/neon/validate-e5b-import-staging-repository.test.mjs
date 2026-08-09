@@ -418,6 +418,18 @@ test("repository source validation rejects raw table access and dynamic entrypoi
     ),
     /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
   );
+  assert.throws(
+    () => validateE5bImportStagingRepositorySource(
+      `${source}\nconst raw = database.query; await raw("select 1", []);`,
+    ),
+    /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
+  );
+  assert.throws(
+    () => validateE5bImportStagingRepositorySource(
+      `${source}\nconst raw = database.query.call.bind(database); await raw("select 1", []);`,
+    ),
+    /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
+  );
 });
 
 test("source label normalization matches PostgreSQL btrim U+0020 ordering", async () => {

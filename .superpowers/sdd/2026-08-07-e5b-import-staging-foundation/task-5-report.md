@@ -30,6 +30,9 @@
 - Added a source audit for the repository’s server-only boundary, exact
   16-query allowlist, preflight order, canonical evidence functions, chunk
   limits, and raw-table/employee-mutation/query-alias/reflection rejection.
+  The token audit permits only direct `database.query(<approved literal>,
+  [typed values])` calls; function extraction, destructuring, database aliases,
+  bracket access, `call`/`apply`/`bind`, `Reflect`, and `Proxy` are fail-closed.
 
 ## Verification
 
