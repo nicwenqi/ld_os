@@ -120,6 +120,9 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     "app_private.import_storage_operations",
     "app_private.import_activity_events",
   ]) {
+    if (!new RegExp(`alter\\s+table\\s+${escape(table)}\\s+enable\\s+row\\s+level\\s+security`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_RLS_MISSING", table);
+    }
     if (!new RegExp(`alter\\s+table\\s+${escape(table)}\\s+force\\s+row\\s+level\\s+security`, "i").test(sql)) {
       failSource("E5B_IMPORT_STAGING_FORCE_RLS_MISSING", table);
     }
@@ -127,7 +130,11 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   if (hasUnsafeRawApplicationPrivilege(sql)) {
     failSource("E5B_IMPORT_STAGING_RAW_APPLICATION_GRANT");
   }
-  if (/create\s+schema\s+(?:auth|storage)\b|\b(?:auth|storage)\.(?:objects|users)\b/i.test(sql)
+  if (hasUnsafeDefaultApplicationPrivilege(sql)) {
+    failSource("E5B_IMPORT_STAGING_DEFAULT_PRIVILEGE_GRANT");
+  }
+  if (/\bcreate\s+schema(?:\s+if\s+not\s+exists)?\s+"?(?:auth|storage)"?\b/i.test(sql)
+    || /(?:^|[^\w"])"?(?:auth|storage)"?\s*\.\s*"?[a-z_][\w$]*"?/i.test(sql)
     || /(?:commit_neon_import|revert_neon_import|legacy_import)/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_LEGACY_COMPATIBILITY_OBJECT");
   }
@@ -245,6 +252,16 @@ export function hasUnsafeRawApplicationPrivilege(source) {
       continue;
     }
     if (objects.split(",").some(object => /^\s*"?(?:public|app_private)"?\s*\./i.test(object))) return true;
+  }
+  return false;
+}
+
+export function hasUnsafeDefaultApplicationPrivilege(source) {
+  const sql = stripSqlComments(source);
+  for (const statement of sql.match(/\balter\s+default\s+privileges\b[\s\S]*?;/gi) ?? []) {
+    if (!/\bin\s+schema\s+"?(?:public|app_private)"?(?=\s|;|$)/i.test(statement)) continue;
+    const grant = statement.match(/\bgrant\s+[\s\S]*?\bon\s+(tables|sequences)\s+to\s+([\s\S]*?);\s*$/i);
+    if (grant && mentionsApplicationRole(grant[2])) return true;
   }
   return false;
 }

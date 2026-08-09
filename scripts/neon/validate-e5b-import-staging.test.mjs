@@ -116,6 +116,67 @@ test("source validation rejects ALL TABLES and ALL SEQUENCES schema grants", asy
   });
 });
 
+test("source validation requires both ENABLE and FORCE RLS for every E5B table", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql("", { enableRls: false }),
+    );
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_RLS_MISSING/,
+    );
+  });
+});
+
+test("source validation rejects quoted Auth or Storage schema objects and schema creation", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql(`
+        create schema if not exists "storage";
+        create table "storage".buckets (id uuid);
+        create table "auth".identities (id uuid);
+      `),
+    );
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_LEGACY_COMPATIBILITY_OBJECT/,
+    );
+  });
+});
+
+test("source validation rejects quoted CREATE SCHEMA IF NOT EXISTS without a qualified object", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql('create schema if not exists "auth";'),
+    );
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_LEGACY_COMPATIBILITY_OBJECT/,
+    );
+  });
+});
+
+test("source validation rejects runtime default privileges on tables or sequences", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql(`
+        alter default privileges in schema public
+          grant select on tables to "hotel_ld_application";
+        alter default privileges in schema "app_private"
+          grant usage, select on sequences to group hotel_ld_application;
+      `),
+    );
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_DEFAULT_PRIVILEGE_GRANT/,
+    );
+  });
+});
+
 test("E5B staging evidence is named and allowlisted rather than an arbitrary record", async () => {
   const source = await readFile(
     new URL("../../app/repositories/contracts/import-staging-repository.ts", import.meta.url),
@@ -164,7 +225,7 @@ async function withSourceFixture(run) {
   }
 }
 
-function schemaSql(extra = "") {
+function schemaSql(extra = "", { enableRls = true } = {}) {
   const tables = [
     "public.import_batches",
     "public.import_sheets",
@@ -175,7 +236,11 @@ function schemaSql(extra = "") {
     "app_private.import_storage_operations",
     "app_private.import_activity_events",
   ];
-  return `begin;\n${tables.map(table => `alter table ${table} force row level security;`).join("\n")}\n${extra}\ncommit;\n`;
+  const rls = tables.flatMap(table => [
+    enableRls ? `alter table ${table} enable row level security;` : "",
+    `alter table ${table} force row level security;`,
+  ]).filter(Boolean);
+  return `begin;\n${rls.join("\n")}\n${extra}\ncommit;\n`;
 }
 
 function entrypointSql(signatures, replacement = null) {
