@@ -30,6 +30,7 @@
   ],
   "schemaRoutines": [
     "app_private.enforce_neon_import_batch_lifecycle_transition",
+    "app_private.enforce_neon_import_selected_sheet",
     "app_private.neon_import_storage_transition_allowed",
     "app_private.neon_import_workbook_transition_allowed",
     "app_private.reject_import_activity_mutation"
@@ -46,6 +47,8 @@
   ],
   "schemaTriggers": [
     "canonical_import_batch_lifecycle_transition",
+    "canonical_import_selected_sheet_integrity_batches",
+    "canonical_import_selected_sheet_integrity_sheets",
     "import_activity_events_append_only"
   ],
   "excluded": [

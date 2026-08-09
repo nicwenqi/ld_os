@@ -279,8 +279,36 @@ export function validateE5bImportStagingSchema(source, manifest = null) {
   if (!/verified_checksum_sha256\s*=\s*declared_checksum_sha256\s+and\s+verified_size_bytes\s*=\s*declared_size_bytes\s+and\s+verified_mime_type\s*=\s*declared_mime_type/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "verification_equality");
   }
-  if (!/storage_lifecycle\s*<>\s*'linked'\s+or\s*\(\s*verification_status\s*=\s*'passed'\s+and\s*workbook_lifecycle\s*=\s*'mapping_required'/i.test(sql)) {
+  const linkedEvidence = normalizedSource(constraintSource(sql, "import_batches_linked_evidence_check"));
+  if (!includesAll(linkedEvidence, [
+    "storage_lifecycle<>'linked'", "verification_status='passed'",
+    "workbook_lifecycle='mapping_required'", "sealed_evidence_sha256isnotnull", "linked_atisnotnull",
+  ])) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "linked_verification_guard");
+  }
+  if (!/unique\s*\(\s*id\s*,\s*tenant_id\s*,\s*property_id\s*,\s*object_path\s*\)/i.test(sql)
+    || !/foreign\s+key\s*\(\s*batch_id\s*,\s*tenant_id\s*,\s*property_id\s*,\s*object_path\s*\)\s*references\s+public\.import_batches\s*\(\s*id\s*,\s*tenant_id\s*,\s*property_id\s*,\s*object_path\s*\)/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "storage_operation_object_path_binding");
+  }
+  const verifiedStorage = normalizedSource(constraintSource(sql, "import_batches_storage_verification_state_check"));
+  if (!includesAll(verifiedStorage, [
+    "storage_lifecyclenotin('verified','linked')",
+    "verification_status='passed'",
+    "verified_checksum_sha256isnotnull",
+    "verified_size_bytesisnotnull",
+    "verified_mime_typeisnotnull",
+    "verified_checksum_sha256=declared_checksum_sha256",
+    "verified_size_bytes=declared_size_bytes",
+    "verified_mime_type=declared_mime_type",
+  ])) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "storage_verification_state");
+  }
+  const verificationFailure = normalizedSource(constraintSource(sql, "import_batches_verification_failure_coherence_check"));
+  if (!includesAll(verificationFailure, [
+    "storage_lifecycle<>'verification_failed'", "verification_status='failed'",
+    "verification_status<>'failed'", "storage_lifecyclein('verification_failed','cleanup_pending','cleanup_in_progress','cleanup_failed','cleanup_completed')",
+  ])) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "verification_failure_state");
   }
   const cleanupLease = constraintSource(sql, "import_storage_operations_cleanup_lease_check");
   if (/\b(?:transaction_timestamp|clock_timestamp|statement_timestamp|now)\s*\(/i.test(cleanupLease)) {
@@ -292,6 +320,17 @@ export function validateE5bImportStagingSchema(source, manifest = null) {
   if (!/create\s+function\s+app_private\.reject_import_activity_mutation\s*\(/i.test(sql)
     || !/create\s+trigger\s+import_activity_events_append_only\s+before\s+update\s+or\s+delete\s+on\s+app_private\.import_activity_events/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_AUDIT_TRIGGER_MISSING");
+  }
+  if (!/new\.source_system\s+is\s+distinct\s+from\s+old\.source_system/i.test(functionSource(sql, "app_private.enforce_neon_import_batch_lifecycle_transition"))) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "batch_immutable_source_system");
+  }
+  const selectedSheetFunction = functionSource(sql, "app_private.enforce_neon_import_selected_sheet");
+  if (!/\bcreate\s+constraint\s+trigger\s+canonical_import_selected_sheet_integrity_batches\b[\s\S]*?\bdeferrable\s+initially\s+deferred\b/i.test(sql)
+    || !/\bcreate\s+constraint\s+trigger\s+canonical_import_selected_sheet_integrity_sheets\b[\s\S]*?\bdeferrable\s+initially\s+deferred\b/i.test(sql)
+    || !/count\s*\(\s*\*\s*\)/i.test(selectedSheetFunction)
+    || !/v_selected_count\s*<>\s*1/i.test(selectedSheetFunction)
+    || !/v_matching_selected_count\s*<>\s*1/i.test(selectedSheetFunction)) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "selected_sheet_integrity");
   }
   if (/\bon\s+delete\s+cascade\b/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_AUDIT_CASCADE_FORBIDDEN");
@@ -363,13 +402,27 @@ function constraintSource(source, name) {
   return end < 0 ? following : following.slice(0, end + 2);
 }
 
+function functionSource(source, name) {
+  return source.match(new RegExp(`\\bcreate\\s+function\\s+${escape(name)}\\s*\\([\\s\\S]*?\\$function\\$;`, "i"))?.[0]
+    ?? source.match(new RegExp(`\\bcreate\\s+function\\s+${escape(name)}\\s*\\([\\s\\S]*?\\$\\$;`, "i"))?.[0]
+    ?? "";
+}
+
+function normalizedSource(value) {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function includesAll(value, required) {
+  return required.every(fragment => value.includes(fragment));
+}
+
 function sourceInventory(source, kind) {
   const patterns = {
     type: /\bcreate\s+type\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s+as\s+enum\b/gi,
     table: /\bcreate\s+table\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\b/gi,
     function: /\bcreate\s+function\s+([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\s*\(/gi,
     policy: /\bcreate\s+policy\s+([a-z_][a-z0-9_]*)\b/gi,
-    trigger: /\bcreate\s+trigger\s+([a-z_][a-z0-9_]*)\b/gi,
+    trigger: /\bcreate(?:\s+constraint)?\s+trigger\s+([a-z_][a-z0-9_]*)\b/gi,
   };
   return [...new Set([...source.matchAll(patterns[kind])].map(match => match[1].toLowerCase()))].sort();
 }

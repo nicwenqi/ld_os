@@ -107,6 +107,32 @@ failed because the missing semantic gates allowed validation to reach the
 expected future saga-entrypoint boundary. GREEN adds the policy and
 time-dependent-lease gates; the focused suite now passes 18/18.
 
+## Re-review integrity fix
+
+The Task 2 re-review added two release blockers and two hardening checks.
+They are now enforced in the 090 schema and its independent source validator:
+
+- `import_storage_operations.object_path` is a server-only ledger copy, but is
+  now bound exactly to its batch by the `(batch_id, tenant_id, property_id,
+  object_path)` composite foreign key against a matching batch unique key.
+- `verified` and `linked` storage states require `verification_status =
+  'passed'` plus non-null SHA-256, size, and MIME values exactly equal to the
+  declared evidence. A failed verification may only occupy the failed-cleanup
+  lifecycle track, while `verification_failed` itself must carry a failed
+  verification status.
+- The immutable batch-evidence trigger now includes `source_system`.
+- Deferred constraint triggers enforce that a non-null `selected_sheet_id`
+  identifies the sole selected sheet for its batch, and that a null selection
+  has no selected sheet. They run on both batch and sheet changes so a later
+  sheet update cannot invalidate a batch selection.
+
+Focused RED captured the four review gaps at the source stage (each advanced
+incorrectly to `E5B_IMPORT_STAGING_SAGA_ENTRYPOINT_MISSING`). GREEN adds
+validator fixtures for ledger path binding, verified/failed state coherence,
+source-system immutability, and selected-sheet exactness. The source suite now
+passes 23/23 and the real 090 source gate again stops only at the intentional
+Task 3 saga-entrypoint boundary.
+
 ## Deferred gates and concerns
 
 - 090 has not been parsed/applied by a PostgreSQL server. Task 9 must execute
@@ -117,5 +143,8 @@ time-dependent-lease gates; the focused suite now passes 18/18.
 - The timestamp freshness and maximum five-minute cleanup lease are
   intentionally deferred to Task 3's constrained mutation entrypoints; static
   table CHECKs cannot safely use a changing current-time value.
+- This source-only task has not parsed or applied the new deferred constraint
+  triggers in PostgreSQL. Task 9 remains the approved place for non-production
+  dry-run, apply, catalog, and runtime validation.
 - Employee commit/revert, mapping decisions and Import activation remain out of
   scope. E5B source rows and labels are immutable staging evidence only.

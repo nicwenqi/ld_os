@@ -83,6 +83,7 @@ create table public.import_batches (
     foreign key (tenant_id, property_id)
     references public.properties(tenant_id, id) on delete restrict,
   constraint import_batches_tenant_property_key unique (id, tenant_id, property_id),
+  constraint import_batches_object_path_scope_key unique (id, tenant_id, property_id, object_path),
   constraint import_batches_verification_evidence_check check (
     (verification_status = 'pending'
       and verified_checksum_sha256 is null
@@ -97,9 +98,32 @@ create table public.import_batches (
     or (verification_status = 'failed'
       and failure_reason is not null)
   ),
+  constraint import_batches_storage_verification_state_check check (
+    storage_lifecycle not in ('verified', 'linked')
+    or (verification_status = 'passed'
+      and verified_checksum_sha256 is not null
+      and verified_size_bytes is not null
+      and verified_mime_type is not null
+      and verified_checksum_sha256 = declared_checksum_sha256
+      and verified_size_bytes = declared_size_bytes
+      and verified_mime_type = declared_mime_type)
+  ),
+  constraint import_batches_verification_failure_coherence_check check (
+    (storage_lifecycle <> 'verification_failed' or verification_status = 'failed')
+    and (verification_status <> 'failed' or storage_lifecycle in (
+      'verification_failed', 'cleanup_pending', 'cleanup_in_progress', 'cleanup_failed', 'cleanup_completed'
+    ))
+  ),
   constraint import_batches_linked_evidence_check check (
     storage_lifecycle <> 'linked'
-    or (verification_status = 'passed' and workbook_lifecycle = 'mapping_required'
+    or (verification_status = 'passed'
+      and verified_checksum_sha256 is not null
+      and verified_size_bytes is not null
+      and verified_mime_type is not null
+      and verified_checksum_sha256 = declared_checksum_sha256
+      and verified_size_bytes = declared_size_bytes
+      and verified_mime_type = declared_mime_type
+      and workbook_lifecycle = 'mapping_required'
       and sealed_evidence_sha256 is not null and linked_at is not null)
   ),
   constraint import_batches_row_counts_check check (
@@ -262,9 +286,9 @@ create table app_private.import_storage_operations (
   version bigint not null default 1 check (version > 0),
   created_at timestamptz not null default pg_catalog.transaction_timestamp(),
   updated_at timestamptz not null default pg_catalog.transaction_timestamp(),
-  constraint import_storage_operations_batch_scope_fkey
-    foreign key (batch_id, tenant_id, property_id)
-    references public.import_batches(id, tenant_id, property_id) on delete restrict,
+  constraint import_storage_operations_batch_object_scope_fkey
+    foreign key (batch_id, tenant_id, property_id, object_path)
+    references public.import_batches(id, tenant_id, property_id, object_path) on delete restrict,
   constraint import_storage_operations_batch_key unique (batch_id),
   constraint import_storage_operations_cleanup_lease_check check (
     cleanup_state <> 'cleanup_in_progress'
@@ -346,6 +370,7 @@ begin
   end if;
   if new.tenant_id is distinct from old.tenant_id
     or new.property_id is distinct from old.property_id
+    or new.source_system is distinct from old.source_system
     or new.original_filename is distinct from old.original_filename
     or new.sanitized_filename is distinct from old.sanitized_filename
     or new.storage_provider is distinct from old.storage_provider
@@ -363,6 +388,53 @@ begin
 end
 $function$;
 
+create function app_private.enforce_neon_import_selected_sheet()
+returns trigger language plpgsql volatile security invoker set search_path = ''
+as $function$
+declare
+  v_batch_id uuid;
+  v_tenant_id uuid;
+  v_property_id uuid;
+  v_selected_sheet_id uuid;
+  v_selected_count bigint;
+  v_matching_selected_count bigint;
+begin
+  if tg_table_name = 'import_batches' then
+    if tg_op = 'DELETE' then return null; end if;
+    v_batch_id := new.id;
+    v_tenant_id := new.tenant_id;
+    v_property_id := new.property_id;
+  elsif tg_op = 'DELETE' then
+    v_batch_id := old.batch_id;
+    v_tenant_id := old.tenant_id;
+    v_property_id := old.property_id;
+  else
+    v_batch_id := new.batch_id;
+    v_tenant_id := new.tenant_id;
+    v_property_id := new.property_id;
+  end if;
+
+  select b.selected_sheet_id
+  into v_selected_sheet_id
+  from public.import_batches b
+  where b.id = v_batch_id and b.tenant_id = v_tenant_id and b.property_id = v_property_id;
+  if not found then return null; end if;
+
+  select count(*), count(*) filter (where s.id = v_selected_sheet_id and s.is_selected)
+  into v_selected_count, v_matching_selected_count
+  from public.import_sheets s
+  where s.batch_id = v_batch_id and s.tenant_id = v_tenant_id and s.property_id = v_property_id
+    and s.is_selected;
+
+  if (v_selected_sheet_id is null and v_selected_count <> 0)
+    or (v_selected_sheet_id is not null
+      and (v_selected_count <> 1 or v_matching_selected_count <> 1)) then
+    raise exception using errcode = '23514', message = 'NEON_IMPORT_SELECTED_SHEET_INTEGRITY_INVALID';
+  end if;
+  return null;
+end
+$function$;
+
 create function app_private.reject_import_activity_mutation()
 returns trigger language plpgsql volatile security invoker set search_path = ''
 as $function$
@@ -374,6 +446,16 @@ $function$;
 create trigger canonical_import_batch_lifecycle_transition
 before update on public.import_batches
 for each row execute function app_private.enforce_neon_import_batch_lifecycle_transition();
+
+create constraint trigger canonical_import_selected_sheet_integrity_batches
+after insert or update or delete on public.import_batches
+deferrable initially deferred
+for each row execute function app_private.enforce_neon_import_selected_sheet();
+
+create constraint trigger canonical_import_selected_sheet_integrity_sheets
+after insert or update or delete on public.import_sheets
+deferrable initially deferred
+for each row execute function app_private.enforce_neon_import_selected_sheet();
 
 create trigger import_activity_events_append_only
 before update or delete on app_private.import_activity_events
@@ -417,6 +499,7 @@ alter table app_private.import_activity_events owner to hotel_ld_migration_owner
 alter function app_private.neon_import_storage_transition_allowed(public.import_storage_lifecycle, public.import_storage_lifecycle) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_workbook_transition_allowed(public.import_workbook_lifecycle, public.import_workbook_lifecycle) owner to hotel_ld_migration_owner;
 alter function app_private.enforce_neon_import_batch_lifecycle_transition() owner to hotel_ld_migration_owner;
+alter function app_private.enforce_neon_import_selected_sheet() owner to hotel_ld_migration_owner;
 alter function app_private.reject_import_activity_mutation() owner to hotel_ld_migration_owner;
 
 alter table public.import_batches enable row level security;
@@ -472,6 +555,7 @@ revoke all on sequence app_private.import_activity_events_id_seq from public, ho
 revoke all on function app_private.neon_import_storage_transition_allowed(public.import_storage_lifecycle, public.import_storage_lifecycle) from public;
 revoke all on function app_private.neon_import_workbook_transition_allowed(public.import_workbook_lifecycle, public.import_workbook_lifecycle) from public;
 revoke all on function app_private.enforce_neon_import_batch_lifecycle_transition() from public;
+revoke all on function app_private.enforce_neon_import_selected_sheet() from public;
 revoke all on function app_private.reject_import_activity_mutation() from public;
 
 set local check_function_bodies = on;
