@@ -275,22 +275,25 @@ export function validateE5bImportStagingRepositorySource(source) {
     }
   }
   // This is deliberately token-level fail-closed rather than a permissive
-  // substring search. Every `database.query` token must begin one direct
-  // invocation whose first argument is an approved standalone SQL literal and
-  // whose second argument is its local parameter array. Any alias, property
-  // extraction, call/apply/bind, reflection, or dynamic invocation fails.
+  // substring search. Every `.query(` invocation must be one direct
+  // `database.query` call whose first argument is an approved standalone SQL
+  // literal and whose second argument is its local parameter array. Any other
+  // receiver, alias, property extraction, call/apply/bind, reflection, or
+  // dynamic invocation fails.
   const queryReferences = [...value.matchAll(/\bdatabase\s*\.\s*query\b/g)];
   const queryCalls = [...value.matchAll(/database\s*\.\s*query(?:\s*<\s*PayloadRow\s*>)?\s*\(\s*(["'])([\s\S]*?)\1\s*,\s*\[/g)];
+  const queryInvocationSurfaces = [...value.matchAll(/(?:\?\.|\.)\s*query(?:\s*<\s*PayloadRow\s*>)?\s*(?:\?\.)?\s*\(/g)];
   const normalizedQueries = queryCalls.map(match => match[2].replace(/\s+/g, " ").trim());
   const queryAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*\(*\s*database\s*\)*\s*(?:\.\s*query\b|\[\s*["']query["']\s*\])/;
-  const databaseAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*\(*\s*database\b/;
+  const databaseAlias = /(?:const|let|var)\s+(?!database\b)(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*(?::[^=;]+)?=\s*\(*\s*database\b|\b[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*|\s*\[[^\]]+\])+\s*=\s*\(*\s*database\b|\breturn\s+\(*\s*database\b|=>\s*\(*\s*database\b/;
   if (queryReferences.length !== approvedQueries.size
     || queryCalls.length !== approvedQueries.size
+    || queryInvocationSurfaces.length !== approvedQueries.size
     || new Set(normalizedQueries).size !== approvedQueries.size
     || normalizedQueries.some(query => !approvedQueries.has(query))
     || queryAlias.test(value)
     || databaseAlias.test(value)
-    || /\b(?:Reflect|Proxy)\b|database\s*\?\.\s*(?:query\b|\[)|database\s*\[|database\s*\.\s*query\s*\.\s*(?:call|apply|bind)\b|Object\s*\.\s*(?:assign|create|defineProperty|getOwnPropertyDescriptor)\s*\([^)]*\bdatabase\b/.test(value)) {
+    || /\b(?:Reflect|Proxy)\b|database\s*\?\.\s*(?:query\b|\[)|database\s*\[|database\s*\.\s*query\s*\.\s*(?:call|apply|bind)\b|Object\s*\.\s*(?:assign|create|defineProperty|getOwnPropertyDescriptor)\s*\([^)]*\bdatabase\b|\][\s\r\n]*(?:\?\.)?\s*\(/.test(value)) {
     failSource("E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION");
   }
   if (/public\.\$\{|from\s+public\.import_|join\s+public\.import_|insert\s+into\s+public\.import_|update\s+public\.import_|delete\s+from\s+public\.import_/i.test(value)

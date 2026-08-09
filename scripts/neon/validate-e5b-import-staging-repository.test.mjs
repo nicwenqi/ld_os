@@ -438,9 +438,27 @@ test("repository source validation rejects raw table access and dynamic entrypoi
     'await Object.create(database).query("select 1", []);',
     'await Reflect.get(database, "qu" + "ery")("select 1", []);',
     'await new Proxy(database, {}).query?.("select 1", []);',
+    'const db = database; await db.query("select 1", []);',
+    'await getDb().query("select 1", []);',
+    'async function indirect(db) { return db.query("select 1", []); }',
+    'await holder.db.query("select 1", []);',
+    'await [database][0].query("select 1", []);',
   ]) {
     assert.throws(
       () => validateE5bImportStagingRepositorySource(`${source}\n${indirect}`),
+      /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
+    );
+  }
+
+  for (const databaseAlias of [
+    'const db = database;',
+    'holder.db = database;',
+    'return database;',
+    'function getDb() { return database; }',
+    'const getDb = () => database;',
+  ]) {
+    assert.throws(
+      () => validateE5bImportStagingRepositorySource(`${source}\n${databaseAlias}`),
       /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
     );
   }
