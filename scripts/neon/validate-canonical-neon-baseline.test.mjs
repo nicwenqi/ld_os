@@ -216,6 +216,57 @@ test("rejects non-local or unknown actor GUC writes for every PostgreSQL string 
   }
 });
 
+test("rejects Unicode escape actor GUC targets", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "003_actor_context.sql");
+  await replace(root, "003_actor_context.sql", `${sql}\nselect set_config(U&'app.actor!005fauth!005fuser!005fid' UESCAPE '!', p_user::text, true);\n`);
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL",
+  );
+});
+
+test("rejects every non-static set_config target expression", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "003_actor_context.sql");
+  await replace(root, "003_actor_context.sql", `${sql}\nselect set_config(format('%s.%s_%s', 'app', 'actor', 'request_id'), p_request::text, true);\n`);
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL",
+  );
+});
+
+test("does not count actor setters inside nested function-body comments", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "003_actor_context.sql");
+  await replace(root, "003_actor_context.sql", sql
+    .replace("  select set_config('app.actor_auth_user_id', p_user::text, true);", "  -- select set_config('app.actor_auth_user_id', p_user::text, true);")
+    .replace("  select set_config('app.actor_property_id', p_property::text, true);", "  /* select set_config('app.actor_property_id', p_property::text, true); */")
+    .replace("  select set_config('app.actor_request_id', p_request::text, true);", "  /* outer /* inner */ select set_config('app.actor_request_id', p_request::text, true); */"));
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL",
+  );
+});
+
+test("rejects Unicode quoted grantees in raw object grants", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "002_people.sql");
+  await replace(root, "002_people.sql", `${sql}\ngrant select on table public.properties to U&"hotel!005fld!005fapplication" UESCAPE '!';\n`);
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE",
+  );
+});
+
 test("does not treat commented security directives as executable", async (t) => {
   const cases = [
     ["FORCE RLS", "alter table public.properties force row level security;", "CANONICAL_NEON_FORCE_RLS_REQUIRED"],

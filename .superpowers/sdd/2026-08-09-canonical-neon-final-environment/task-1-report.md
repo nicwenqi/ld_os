@@ -141,3 +141,23 @@ multi-grantee, and `GROUP` forms.
 
 Fresh `node --check` and `git diff --check` passed. No database connection was
 attempted.
+
+## Review round 5 evidence
+
+RED: the final four mutations preserved all 52 prior passing assertions and
+added four failures. They demonstrated acceptance of an Actor Context target
+encoded with `U&'...' UESCAPE`, a `format(...)` first argument whose decoded
+pieces could construct an actor GUC name, three required setters present only
+inside line/nested block comments in a dollar-quoted function body, and a raw
+table grant to a `U&"..." UESCAPE` runtime grantee.
+
+GREEN: `node --test scripts/neon/validate-canonical-neon-baseline.test.mjs`
+now reports 56/56 passed. Every `set_config` call must use one static approved
+Actor Context string target and a literal `TRUE` locality argument; Unicode
+escape clauses cannot bypass that single-literal rule. SQL comments are
+stripped independently in each recursively inspected dollar-quoted scope, so
+commented setters no longer satisfy required-setting counts. Unicode quoted
+grantees are rejected fail-closed for raw table, schema, and sequence grants.
+
+Fresh `node --check scripts/neon/validate-canonical-neon-baseline.mjs` passed.
+The final diff check is clean. No database connection was attempted.

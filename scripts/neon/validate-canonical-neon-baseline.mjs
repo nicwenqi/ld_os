@@ -191,6 +191,17 @@ function normalizeQuotedIdentifiers(source) {
       index = finish;
       continue;
     }
+    if (/^[uU]&"/.test(source.slice(index))) {
+      const start = index;
+      index += 3;
+      while (index < source.length) {
+        if (source[index] === '"' && source[index + 1] === '"') index += 2;
+        else if (source[index++] === '"') break;
+      }
+      if (source[index - 1] !== '"') fail("CANONICAL_NEON_INVALID_SQL_IDENTIFIER", "unterminated Unicode quoted identifier");
+      output += source.slice(start, index);
+      continue;
+    }
     if (source[index] === '"') {
       const end = source.indexOf('"', index + 1);
       if (end === -1) fail("CANONICAL_NEON_INVALID_SQL_IDENTIFIER", "unterminated quoted identifier");
@@ -311,8 +322,9 @@ function tokenizeSql(source) {
 }
 
 function inspectSqlScopes(source, interestingDollarContent, inspect) {
-  const tokens = tokenizeSql(source);
-  inspect(source, tokens);
+  const executableSource = stripSqlComments(source);
+  const tokens = tokenizeSql(executableSource);
+  inspect(executableSource, tokens);
   for (const token of tokens) {
     if (token.type === "string" && token.kind === "dollar" && interestingDollarContent.test(token.value)) {
       inspectSqlScopes(token.value, interestingDollarContent, inspect);
@@ -373,22 +385,17 @@ function runtimeRoleSourceChecks(source, manifest) {
 function requireActorContextLocality(source) {
   const actorSettings = ["app.actor_auth_user_id", "app.actor_property_id", "app.actor_request_id"];
   const counts = new Map(actorSettings.map((setting) => [setting, 0]));
-  inspectSqlScopes(source, /\bset_config\b/i, (scope, tokens) => {
+  inspectSqlScopes(source, /\bset_config\b/i, (_scope, tokens) => {
     for (let index = 0; index < tokens.length; index += 1) {
       if (tokens[index].type !== "identifier" || tokens[index].value !== "set_config") continue;
       const call = parsedCall(tokens, index);
-      const callSource = scope.slice(tokens[index].start, call?.end ?? scope.length);
       const firstArgument = call?.argumentsList[0] ?? [];
       const staticTarget = firstArgument.length === 1 && firstArgument[0].type === "string"
         ? firstArgument[0].value.toLowerCase()
         : null;
-      const decodedStrings = firstArgument.filter((token) => token.type === "string").map((token) => token.value).join("");
-      const mentionsActorSetting = /app\.actor_[a-z0-9_]+/i.test(`${callSource}\n${decodedStrings}`);
       if (!staticTarget) {
-        if (mentionsActorSetting) fail("CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL", "actor GUC set_config targets must be statically recognizable and transaction-local TRUE");
-        continue;
+        fail("CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL", "set_config targets must be static approved actor GUC string literals");
       }
-      if (!staticTarget.startsWith("app.actor_")) continue;
       if (!counts.has(staticTarget)) fail("CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL", `unapproved actor GUC set_config target: ${staticTarget}`);
       const locality = call.argumentsList[2] ?? [];
       if (call.argumentsList.length !== 3 || locality.length !== 1 || locality[0].type !== "identifier" || locality[0].value !== "true") {
@@ -429,7 +436,15 @@ function requireNoRawRuntimeGrants(source, runtimeRole) {
       let granteeEnd = statement.length;
       const withClause = statement.findIndex((token, index) => index > to && token.type === "identifier" && ["with", "granted"].includes(token.value));
       if (withClause !== -1) granteeEnd = withClause;
-      const grantees = statement.slice(to + 1, granteeEnd)
+      const granteeTokens = statement.slice(to + 1, granteeEnd);
+      const hasUnicodeQuotedGrantee = granteeTokens.some((token, index) => token.type === "identifier" && token.value === "u"
+        && granteeTokens[index + 1]?.value === "&"
+        && granteeTokens[index + 2]?.type === "identifier"
+        && granteeTokens[index + 2].raw.startsWith('"'));
+      if (hasUnicodeQuotedGrantee) {
+        fail("CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE", "Unicode quoted grantees are forbidden in raw object grants");
+      }
+      const grantees = granteeTokens
         .filter((token) => token.type === "identifier" && token.value !== "group")
         .map((token) => token.value);
       if (grantees.includes(normalizedRuntimeRole)) {
