@@ -1,9 +1,21 @@
 import { createServerAdminClient } from "../../../lib/supabase/server-admin.ts";
 import { AuthorizationError, requirePropertyManager } from "../../../services/production-authorization.ts";
+import { parseAppEnvironment } from "../../../lib/environment.ts";
+import { resolveRequestId } from "../../../lib/neon/request-id.ts";
+import { propertyErrorResponse, runAuthorizedNeonInitialization } from "../../../services/neon-property-authorization.ts";
 
 type RoleRelation = { code?: string } | Array<{ code?: string }> | null;
 
 export async function GET(request:Request){
+  if (parseAppEnvironment().dataMode === "neon") {
+    const requestId = resolveRequestId(request);
+    try {
+      const result = await runAuthorizedNeonInitialization(request, requestId, repository => repository.getAccessSummary("server"));
+      return Response.json(result.data, { headers: result.headers });
+    } catch (error) {
+      return propertyErrorResponse(error, requestId);
+    }
+  }
   try{
     const actor=await requirePropertyManager(request);
     const requested=new URL(request.url).searchParams.get("propertyId");

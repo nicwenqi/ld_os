@@ -136,6 +136,7 @@ test("the ordered canonical modules form a complete connection-free source basel
     "050_position.sql",
     "060_employee_write.sql",
     "070_security_postflight.sql",
+    "080_property_initialization.sql",
   ]);
 });
 
@@ -214,8 +215,8 @@ test("the canonical manifest retains final append-only E2-E5A audit capability",
 test("the security contract freezes every policy and trigger descriptor", async () => {
   const manifest = JSON.parse(await readFile(join(canonicalRoot, "manifest.json"), "utf8"));
 
-  assert.equal(manifest.security.policyDescriptors.length, 31);
-  assert.equal(manifest.security.triggerDescriptors.length, 15);
+  assert.equal(manifest.security.policyDescriptors.length, 36);
+  assert.equal(manifest.security.triggerDescriptors.length, 18);
   for (const descriptor of manifest.security.policyDescriptors) {
     assert.deepEqual(Object.keys(descriptor).sort(), [
       "catalogUsing", "catalogWithCheck", "command", "name", "permissive",

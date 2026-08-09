@@ -58,13 +58,13 @@ const emptyRow = {
 
 const catalogRow = {
   schema_count: 2,
-  type_count: 6,
-  table_count: 31,
-  routine_count: 83,
-  entrypoint_count: 27,
-  policy_count: 31,
-  trigger_count: 15,
-  rls_table_count: 31,
+  type_count: 9,
+  table_count: 36,
+  routine_count: 102,
+  entrypoint_count: 36,
+  policy_count: 36,
+  trigger_count: 18,
+  rls_table_count: 36,
   application_row_count: 0,
   audit_row_count: 0,
   roles_exact: true,
@@ -133,7 +133,7 @@ function bootstrapHandler(text, values) {
   if (text.includes("canonical_empty_state")) return { rows: [emptyRow] };
   if (text.includes("canonical_catalog_matrix")) {
     const exactInventory = Array.isArray(values)
-      && [2, 6, 31, 83, 27, 31, 15, 10].every((length, index) => values[index]?.length === length)
+      && [2, 9, 36, 102, 36, 36, 18, 13].every((length, index) => values[index]?.length === length)
       && text.includes("namespace.nspname::text")
       && text.includes("pg_catalog.oidvectortypes(routine.proargtypes)");
     return { rows: [{ ...catalogRow, tables_exact: exactInventory }] };
@@ -350,8 +350,8 @@ test("catalog binds every policy and trigger security descriptor, not names alon
     dependencies: dependenciesFor(pool),
   });
 
-  assert.equal(catalogQuery.values[5].length, 31);
-  assert.equal(catalogQuery.values[6].length, 15);
+  assert.equal(catalogQuery.values[5].length, 36);
+  assert.equal(catalogQuery.values[6].length, 18);
   for (const field of ["polcmd", "polroles", "polpermissive", "pg_get_expr(policy.polqual", "pg_get_expr(policy.polwithcheck"]) {
     assert.equal(catalogQuery.text.includes(field), true, field);
   }

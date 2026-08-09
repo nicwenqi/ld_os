@@ -12,5 +12,6 @@ export async function createSupabaseDomainRegistry(): Promise<RuntimeDomainRegis
     peopleFacets: registry.peopleFacets,
     position: registry.position,
     property: registry.property,
+    initialization: registry.initialization,
   };
 }

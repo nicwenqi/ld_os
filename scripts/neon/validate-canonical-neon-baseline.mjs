@@ -1207,7 +1207,7 @@ function validationSeed() {
   const id = () => randomUUID();
   const suffix = id();
   return {
-    tenantA: id(), propertyA: id(), domainA: id(),
+    tenantA: id(), propertyA: id(), domainA: id(), propertySettings: id(),
     tenantB: id(), propertyB: id(), domainB: id(),
     managerProfile: id(), managerAuth: id(), managerAccount: id(),
     adminProfile: id(), adminAuth: id(), adminAccount: id(),
@@ -1255,11 +1255,12 @@ async function withBootstrapSeedPolicies(client, tables, context, action) {
 
 async function createRuntimeSeed(bootstrapPool, bundle) {
   const seed = validationSeed();
-  const publicTables = asStringArray(bundle.manifest, "tables").filter((table) => table.startsWith("public."));
+  const seedTables = asStringArray(bundle.manifest, "tables");
   const context = { authUserId: seed.managerAuth, propertyId: seed.propertyA, requestId: randomUUID() };
-  await runWithPool(bootstrapPool, async (client) => withBootstrapSeedPolicies(client, publicTables, context, async (database) => {
+  await runWithPool(bootstrapPool, async (client) => withBootstrapSeedPolicies(client, seedTables, context, async (database) => {
     await database.query(`insert into public.tenants(id,code,name) values ($1,'validation-a','Validation A'),($2,'validation-b','Validation B')`, [seed.tenantA, seed.tenantB]);
-    await database.query(`insert into public.properties(id,tenant_id,code,name_zh,name_en) values ($1,$2,'validation-a','Validation A','Validation A'),($3,$4,'validation-b','Validation B','Validation B')`, [seed.propertyA, seed.tenantA, seed.propertyB, seed.tenantB]);
+    await database.query(`insert into public.properties(id,tenant_id,code,name_zh,name_en,short_name,brand,city,country_region,timezone,default_language,status) values ($1,$2,'validation-a','Validation A','Validation A','Validation A','Validation Brand','Validation City','CN','Asia/Shanghai','zh-CN','active'),($3,$4,'validation-b','Validation B','Validation B','Validation B','Validation Brand','Validation City','CN','Asia/Shanghai','zh-CN','active')`, [seed.propertyA, seed.tenantA, seed.propertyB, seed.tenantB]);
+    await database.query(`insert into public.property_settings(id,tenant_id,property_id) values ($1,$2,$3)`, [seed.propertySettings, seed.tenantA, seed.propertyA]);
     await database.query(`insert into public.property_domains(id,tenant_id,property_id,hostname) values ($1,$2,$3,$4),($5,$6,$7,$8)`, [seed.domainA, seed.tenantA, seed.propertyA, seed.hostnameA, seed.domainB, seed.tenantB, seed.propertyB, seed.hostnameB]);
     await database.query(`insert into public.profiles(id,display_name,email) values ($1,'Validation Manager',null),($2,'Validation Department Admin',null)`, [seed.managerProfile, seed.adminProfile]);
     await database.query(`insert into public.user_accounts(id,auth_user_id,user_id,tenant_id,property_id) values ($1,$2,$3,$4,$5),($6,$7,$8,$4,$5)`, [seed.managerAccount, seed.managerAuth, seed.managerProfile, seed.tenantA, seed.propertyA, seed.adminAccount, seed.adminAuth, seed.adminProfile]);
@@ -1283,11 +1284,14 @@ async function createRuntimeSeed(bootstrapPool, bundle) {
 }
 
 async function cleanupRuntimeSeed(bootstrapPool, bundle, seed) {
-  const publicTables = asStringArray(bundle.manifest, "tables").filter((table) => table.startsWith("public."));
+  const seedTables = asStringArray(bundle.manifest, "tables");
   const context = { authUserId: seed.managerAuth, propertyId: seed.propertyA, requestId: randomUUID() };
-  await runWithPool(bootstrapPool, async (client) => withBootstrapSeedPolicies(client, publicTables, context, async (database) => {
+  await runWithPool(bootstrapPool, async (client) => withBootstrapSeedPolicies(client, seedTables, context, async (database) => {
+    for (const table of ["app_private.initialization_audit_events", "app_private.property_write_audit_events", "app_private.property_read_audit_events"]) {
+      await database.query(`delete from ${table} where tenant_id=any($1::uuid[])`, [[seed.tenantA, seed.tenantB]]);
+    }
     const tenantTables = [
-      "public.employee_external_identifiers", "public.employees", "public.position_department_assignments",
+      "public.employee_external_identifiers", "public.employees", "public.property_initialization_steps", "public.property_settings", "public.position_department_assignments",
       "public.position_aliases", "public.positions", "public.position_families", "public.operational_unit_aliases",
       "public.operational_units", "public.department_aliases", "public.trainer_scopes", "public.department_closure",
       "public.departments", "public.role_assignments", "public.roles", "public.property_memberships",
@@ -1350,6 +1354,8 @@ export function runtimeSmokeValues(signature, seed) {
       () => [seed.hostnameA, seed.departmentAlias, "created_top_level", null, "department", unique(), "Validation Smoke", "Validation Smoke", 10],
     "public.create_neon_organization_operational_unit(text,uuid,uuid,uuid,uuid,text,text,text,text,integer,boolean)":
       () => [seed.hostnameA, seed.tenantA, seed.propertyA, seed.rootDepartment, null, "other", unique(), "Validation Smoke", "Validation Smoke", 10, true],
+    "public.complete_neon_initialization(text,bigint)": () => [seed.hostnameA, 1],
+    "public.get_neon_initialization_progress(text)": () => [seed.hostnameA],
     "public.merge_neon_organization_department_alias(text,uuid,uuid)":
       () => [seed.hostnameA, seed.departmentAlias, seed.childDepartment],
     "public.move_neon_organization_department(text,uuid,uuid,bigint)":
@@ -1365,6 +1371,8 @@ export function runtimeSmokeValues(signature, seed) {
       () => [seed.hostnameA, null, null, null, null, null, null, 100, 0],
     "public.read_neon_people_manager_employee(text,uuid)": () => [seed.hostnameA, seed.childEmployee],
     "public.read_neon_people_manager_facets(text)": () => [seed.hostnameA],
+    "public.read_neon_initialization_access_summary(text)": () => [seed.hostnameA],
+    "public.read_neon_property(text)": () => [seed.hostnameA],
     "public.read_neon_position_families(text)": () => [seed.hostnameA],
     "public.read_neon_position_source_labels(text)": () => [seed.hostnameA],
     "public.read_neon_positions(text)": () => [seed.hostnameA],
@@ -1376,12 +1384,19 @@ export function runtimeSmokeValues(signature, seed) {
     "public.resolve_neon_people_property(text)": () => [seed.hostnameA],
     "public.resolve_neon_position_alias(text,uuid,text,uuid,text,text)":
       () => [seed.hostnameA, seed.positionAlias, "position", seed.position, null, null],
+    "public.resolve_neon_property_context(text)": () => [seed.hostnameA],
+    "public.save_neon_initialization_navigation(text,smallint,bigint)": () => [seed.hostnameA, 2, 1],
+    "public.save_neon_initialization_step(text,text,smallint,boolean,text,text,bigint)": () => [seed.hostnameA, "identity", 2, true, null, null, 1],
     "public.save_neon_employee_with_identifiers(text,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid,uuid,text,date,date,text,boolean,jsonb)":
       () => [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, unique(), "Validation Smoke", "Validation Smoke", seed.childDepartment, seed.operationalUnit, seed.position, seed.positionFamily, null, null, null, "active", true, JSON.stringify([])],
     "public.save_neon_position_family(text,uuid,uuid,uuid,bigint,text,text,text,text,integer,boolean)":
       () => [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, unique(), "Validation Smoke", "Validation Smoke", "Validation Smoke", 10, true],
     "public.save_neon_position_with_departments(text,uuid,uuid,uuid,bigint,uuid,text,text,text,text,boolean,uuid[])":
       () => [seed.hostnameA, seed.tenantA, seed.propertyA, null, 0, seed.positionFamily, unique(), "Validation Smoke", "Validation Smoke", null, true, [seed.childDepartment]],
+    "public.save_neon_property_identity(text,timestamptz,text,text,text,text,text,text,text,text,text)":
+      () => [seed.hostnameA, null, unique(), "Validation Smoke", "Validation Smoke", "Validation Smoke", "Validation Brand", "Validation City", "CN", "Asia/Shanghai", "zh-CN"],
+    "public.save_neon_property_settings(text,bigint,smallint,text,text,boolean,boolean)":
+      () => [seed.hostnameA, 1, 90, "confirmation_date", "manual", true, true],
     "public.update_neon_organization_department(text,uuid,bigint,text,text,integer,boolean)":
       () => [seed.hostnameA, seed.childDepartment, 1, "Validation Child", "Validation Child", 2, true],
     "public.update_neon_organization_operational_unit(text,uuid,bigint,uuid,uuid,text,text,text,text,integer,boolean)":
@@ -1537,7 +1552,22 @@ async function runCanonicalRuntimeMatrix({ bootstrapPool, runtimePool, bundle })
         "public.read_neon_positions(text)",
         [seed.hostnameA],
       ))).rows[0].payload;
-      return { people, organization, aliases, families, positions };
+      const property = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_property(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      const progress = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.get_neon_initialization_progress(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      const access = (await database.query(runtimeEntrypointQuery(
+        bundle.manifest,
+        "public.read_neon_initialization_access_summary(text)",
+        [seed.hostnameA],
+      ))).rows[0].payload;
+      return { people, organization, aliases, families, positions, property, progress, access };
     }));
     const managerAssignedPosition = managerReads.positions.rows.find((row) => row.id === seed.position);
     runtimeAssert(
@@ -1549,6 +1579,12 @@ async function runCanonicalRuntimeMatrix({ bootstrapPool, runtimePool, bundle })
         && managerReads.positions.rows.length === 3
         && managerAssignedPosition?.department_ids.length === 2,
       "MANAGER_READ_SCOPE_FAILED",
+    );
+    runtimeAssert(
+      managerReads.property.identity.id === seed.propertyA
+        && managerReads.progress.version >= 1
+        && managerReads.access.activePropertyManagers === 1,
+      "PROPERTY_AUTHORITY_READ_FAILED",
     );
 
     const adminReads = await runCanonicalRuntimeStage("department-admin-reads", () => rolledBackActor(withNeonActorContext, actor(seed, "admin"), runtimePool, async (database) => {

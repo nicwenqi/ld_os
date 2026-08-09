@@ -3,6 +3,7 @@ import { resolveRequestHostname } from "../../../lib/request-hostname.ts";
 import { absolutePublicLogoUrl } from "../../../repositories/supabase/property-repository.ts";
 import { createServerPasswordClient } from "../../../lib/supabase/server-admin.ts";
 import { getMockPropertyContext } from "../../mock-property/store.ts";
+import { resolveNeonPublicPropertyContext } from "../../../lib/neon/property-context.ts";
 
 export async function GET(request: Request) {
   const environment = parseAppEnvironment();
@@ -24,6 +25,25 @@ export async function GET(request: Request) {
           logoUrl: context.logoUrl,
         })
       : noStore({ configured: false });
+  }
+  if (environment.dataMode === "neon") {
+    try {
+      const context = await resolveNeonPublicPropertyContext(hostname);
+      return context
+        ? noStore({
+            configured: true,
+            tenantId: context.tenant_id,
+            propertyId: context.property_id,
+            hostname: context.hostname,
+            nameZh: context.name_zh,
+            nameEn: context.name_en ?? context.name_zh,
+            shortName: context.short_name ?? context.name_zh,
+            logoUrl: null,
+          })
+        : noStore({ configured: false });
+    } catch {
+      return noStore({ configured: false });
+    }
   }
   try {
     const client = createServerPasswordClient();

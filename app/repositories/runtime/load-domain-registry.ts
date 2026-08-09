@@ -2,7 +2,7 @@ import type { RuntimeDomainRegistry } from "./neon-domain-registry.ts";
 
 type ModePayload = {
   source: "neon" | "supabase";
-  domains: { organization: "neon" | "supabase"; people: "neon" | "supabase"; position: "neon" | "supabase" };
+  domains: { organization: "neon" | "supabase"; people: "neon" | "supabase"; position: "neon" | "supabase"; property: "neon" | "supabase"; initialization: "neon" | "supabase" };
 };
 
 let pending: Promise<RuntimeDomainRegistry> | null = null;
@@ -28,7 +28,9 @@ async function load(): Promise<RuntimeDomainRegistry> {
   if (
     payload.domains.organization !== payload.source ||
     payload.domains.people !== payload.source ||
-    payload.domains.position !== payload.source
+    payload.domains.position !== payload.source ||
+    payload.domains.property !== payload.source ||
+    payload.domains.initialization !== payload.source
   ) throw new Error("运行时 rehearsal 数据源配置不一致");
   if (payload.source === "neon") {
     const { createNeonDomainRegistry } = await import("./neon-domain-registry.ts");

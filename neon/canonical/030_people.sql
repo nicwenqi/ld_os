@@ -20,8 +20,14 @@ create table public.properties (
   code text not null,
   name_zh text not null,
   name_en text,
+  short_name text,
+  brand text,
+  city text,
+  country_region text not null default 'CN',
   timezone text not null default 'Asia/Shanghai',
-  status text not null default 'active' check (status in ('active', 'inactive')),
+  default_language text not null default 'zh-CN',
+  status text not null default 'initializing' check (status in ('initializing', 'active', 'inactive')),
+  updated_at timestamptz not null default pg_catalog.transaction_timestamp(),
   unique (tenant_id, id),
   unique (tenant_id, code)
 );
@@ -51,6 +57,7 @@ create table public.user_accounts (
   user_id uuid not null unique references public.profiles(id),
   tenant_id uuid not null references public.tenants(id),
   property_id uuid not null,
+  login_id text,
   account_status text not null default 'active' check (account_status in ('active', 'inactive', 'locked')),
   locked_until timestamptz,
   must_change_password boolean not null default false,
