@@ -10,7 +10,10 @@ Date: 2026-08-09
 - Fresh-empty final replay: project `hotel-ld-os-neon-final-replay`
   (`wild-tree-31942896`), branch `main` (`br-frosty-forest-awu4aprl`), endpoint
   `ep-hidden-meadow-aweq2rfx`.
-- Both targets use database `neondb`, bootstrap role `neondb_owner`, and the
+- Fresh-empty final acceptance: project `hotel-ld-os-neon-final-acceptance`
+  (`delicate-wind-06430851`), branch `main` (`br-icy-scene-aukkzv69`), endpoint
+  `ep-frosty-math-audxlq88`.
+- All three targets use database `neondb`, bootstrap role `neondb_owner`, and the
   PostgreSQL 18 major-version gate.
 
 No valid live connection string, live host URL, or password is recorded in this
@@ -56,6 +59,42 @@ On the replay target, the connector's describe operation created
 exactly as designed. The helper was then deleted precisely, after which the
 baseline again contained zero user objects. It contained no business data.
 No deny-listed project, branch, or endpoint was connected to.
+
+## Final acceptance — fresh empty final source
+
+The final acceptance project was created independently with an empty `main`
+branch. Its initial identity and emptiness checks proved PostgreSQL 18, database
+`neondb`, owner `neondb_owner`, zero user tables, zero `public`/`app_private`
+routines, and zero `auth`, `storage`, and `app_private` schemas/objects.
+
+Acceptance used the final source represented by commits `1fde0f2` and
+`74fd250`. It installed directly from that source: no connector helper had to be
+removed from the empty branch, and no function body or other object was patched
+after apply.
+
+| Acceptance gate | Verdict |
+|---|---|
+| `source` | PASS |
+| `dry-run` | PASS; outer transaction rolled back and empty state was reproved |
+| `repeatability` rollback 1 | PASS |
+| `repeatability` rollback 2 | PASS; identical to rollback 1 |
+| Atomic apply | PASS |
+| Runtime credential provisioning | PASS; parameterized and not persisted |
+| Catalog after apply | PASS; exact inventory and zero rows |
+| Expanded pooled runtime | PASS; 10/10 matrix fields |
+| Runtime cleanup | PASS; `finalRowsZero=true` |
+| Final catalog | PASS; `rowsEmpty=true` |
+
+The repeatability result reported `dryRuns=2`, `identical=true`,
+`applied=true`, and runtime credential provisioning success. The exact catalog
+inventory was 2 schemas, 6 enum types, 31 tables, 83 routines, 27 public
+entrypoints, 31 policies, 15 triggers, and 31 ENABLE + FORCE RLS tables.
+Application and audit row counts were both zero before runtime and after final
+cleanup. No business data was retained.
+
+This acceptance run is the final fresh-environment verdict. The initial staging
+and fresh replay results below remain as historical RED/GREEN and prior
+acceptance evidence.
 
 ## Fresh-empty replay acceptance
 
@@ -257,7 +296,7 @@ npm run build
 git diff --check
 ```
 
-Final connection-free verdicts were 105/105 Task 3 tests, 201/201 application tests,
+Final connection-free verdicts were 111/111 Task 3 tests, 201/201 application tests,
 1/1 rendered-HTML test, a successful source gate, a successful production
 build, and a clean diff check.
 
@@ -286,11 +325,17 @@ replay baseline outside its validated source bundle.
 
 ## Final state
 
-The independent replay database contains exactly 2 schemas, 6 enum types, 31
-tables, 83 routines, 27 public entrypoints, 31 policies, 15 triggers, and 31
-ENABLE + FORCE RLS tables. The final internal catalog assertion after runtime
-cleanup passed with application and audit row counts both zero. The earlier
-staging owner and runtime passwords were rotated after the temporary-output
-incident; the exposed old credential is invalid. No valid credential or live
-URL was written to Git or this report. No deny-listed project, branch, endpoint,
-database, or host was connected to or modified.
+The independent final acceptance database contains exactly 2 schemas, 6 enum
+types, 31 tables, 83 routines, 27 public entrypoints, 31 policies, 15 triggers,
+and 31 ENABLE + FORCE RLS tables. Its expanded runtime matrix passed 10/10 and
+the final internal catalog assertion passed with `rowsEmpty=true`, application
+rows zero, audit rows zero, and `finalRowsZero=true`. This was a direct install
+of the final source into an empty database, with no helper cleanup and no
+post-apply patch.
+
+The earlier staging owner and runtime passwords were rotated after the
+temporary-output incident; the exposed old credential is invalid. No valid
+credential or live URL was written to Git or this report. No deny-listed
+project, branch, endpoint, database, or host was connected to or modified. The
+staging and replay sections remain unchanged historical evidence; the final
+acceptance target is the authoritative completion verdict.
