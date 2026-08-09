@@ -1387,6 +1387,17 @@ export function runtimeEntrypointQuery(manifest, signature, values) {
   };
 }
 
+export function runtimeSmokeActorKind(manifest, signature) {
+  const normalized = normalizeIdentifier(signature).replace(/\s+/g, "");
+  const declared = new Set(asStringArray(manifest, "entrypointSignatures").map((value) => value.replace(/\s+/g, "")));
+  if (!declared.has(normalized)) {
+    fail("CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT", "runtime actor fixture signature is not declared by the canonical manifest");
+  }
+  return normalized === "public.read_neon_people_department_directory(text,text,integer,integer)"
+    ? "admin"
+    : "manager";
+}
+
 export function assertExpectedSmokeRejection(manifest, signature, error) {
   const code = typeof error?.code === "string" ? error.code : "";
   const message = typeof error?.message === "string" ? error.message : "";
@@ -1397,7 +1408,7 @@ export function assertExpectedSmokeRejection(manifest, signature, error) {
   throw error;
 }
 
-async function smokeAllEntrypoints(withActor, runtimePool, seed, bundle) {
+export async function smokeAllEntrypoints(withActor, runtimePool, seed, bundle) {
   const smoked = new Set();
   for (const signature of asStringArray(bundle.manifest, "entrypointSignatures")) {
     const match = signature.match(/^([a-z_][a-z0-9_]*\.[a-z_][a-z0-9_]*)\((.*)\)$/);
@@ -1405,7 +1416,7 @@ async function smokeAllEntrypoints(withActor, runtimePool, seed, bundle) {
     const types = match[2] ? match[2].split(",") : [];
     const values = runtimeSmokeValues(signature, seed);
     try {
-      await rolledBackActor(withActor, actor(seed), runtimePool, (database) => database.query(
+      await rolledBackActor(withActor, actor(seed, runtimeSmokeActorKind(bundle.manifest, signature)), runtimePool, (database) => database.query(
         runtimeEntrypointQuery(bundle.manifest, signature, values),
       ));
     } catch (error) {

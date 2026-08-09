@@ -412,6 +412,59 @@ test("entrypoint smoke supplies scoped fixtures for every exact signature", asyn
   );
 });
 
+test("entrypoint smoke selects the authorized actor kind for every exact signature", async () => {
+  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const manifest = JSON.parse(await readFile(new URL("../../neon/canonical/manifest.json", import.meta.url), "utf8"));
+  const departmentSignature = "public.read_neon_people_department_directory(text,text,integer,integer)";
+
+  assert.equal(typeof module.runtimeSmokeActorKind, "function");
+  for (const signature of manifest.entrypointSignatures) {
+    assert.equal(
+      module.runtimeSmokeActorKind(manifest, signature),
+      signature === departmentSignature ? "admin" : "manager",
+      signature,
+    );
+  }
+  assert.throws(
+    () => module.runtimeSmokeActorKind(manifest, "public.not_declared(text)"),
+    (error) => error?.code === "CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT",
+  );
+});
+
+test("entrypoint smoke executes every signature with its selected authorized actor", async () => {
+  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const manifest = JSON.parse(await readFile(new URL("../../neon/canonical/manifest.json", import.meta.url), "utf8"));
+  const seed = Object.fromEntries([
+    "tenantA", "propertyA", "rootDepartment", "childDepartment", "operationalUnit",
+    "departmentAlias", "positionAlias", "position", "positionFamily", "childEmployee",
+    "managerAuth", "adminAuth",
+  ].map((key, index) => [key, `00000000-0000-0000-0000-${String(index + 1).padStart(12, "0")}`]));
+  seed.hostnameA = "fixture.validation.invalid";
+  const actors = [];
+
+  assert.equal(typeof module.smokeAllEntrypoints, "function");
+  await module.smokeAllEntrypoints(
+    async (input, action) => {
+      actors.push(input.authUserId);
+      return action({ query: async () => ({ rows: [] }) });
+    },
+    {},
+    seed,
+    { manifest },
+  );
+
+  assert.equal(actors.length, manifest.entrypointSignatures.length);
+  manifest.entrypointSignatures.forEach((signature, index) => {
+    assert.equal(
+      actors[index],
+      signature === "public.read_neon_people_department_directory(text,text,integer,integer)"
+        ? seed.adminAuth
+        : seed.managerAuth,
+      signature,
+    );
+  });
+});
+
 test("catalog fails closed when the migration owner gains login, inheritance, bypass, or admin attributes", async () => {
   const pool = fakePool((text) => {
     if (text.includes("canonical_target_identity")) return { rows: [identityRow()] };
