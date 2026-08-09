@@ -168,6 +168,42 @@ function stripSqlComments(source) {
   return output;
 }
 
+function normalizeQuotedIdentifiers(source) {
+  let output = "";
+  let index = 0;
+  while (index < source.length) {
+    if (source[index] === "'") {
+      const start = index;
+      index += 1;
+      while (index < source.length) {
+        if (source[index] === "'" && source[index + 1] === "'") index += 2;
+        else if (source[index++] === "'") break;
+      }
+      output += source.slice(start, index);
+      continue;
+    }
+    const dollar = source.slice(index).match(/^\$([A-Za-z_][A-Za-z0-9_]*)?\$/);
+    if (dollar) {
+      const delimiter = dollar[0];
+      const end = source.indexOf(delimiter, index + delimiter.length);
+      const finish = end === -1 ? source.length : end + delimiter.length;
+      output += source.slice(index, finish);
+      index = finish;
+      continue;
+    }
+    if (source[index] === '"') {
+      const end = source.indexOf('"', index + 1);
+      if (end === -1) fail("CANONICAL_NEON_INVALID_SQL_IDENTIFIER", "unterminated quoted identifier");
+      const identifier = source.slice(index + 1, end).replace(/""/g, '"');
+      output += /^[A-Za-z_][A-Za-z0-9_]*$/.test(identifier) ? identifier.toLowerCase() : source.slice(index, end + 1);
+      index = end + 1;
+      continue;
+    }
+    output += source[index++];
+  }
+  return output;
+}
+
 function functionBlocks(source) {
   const starts = [...source.matchAll(/\bcreate\s+(?:or\s+replace\s+)?function\b/gi)].map((match) => match.index);
   return starts.map((start, index) => source.slice(start, starts[index + 1] ?? source.length));
@@ -194,21 +230,28 @@ function runtimeRoleSourceChecks(source, manifest) {
   if (new RegExp(`\\b(?:create|alter)\\s+(?:table|view|sequence|function|schema|type)\\s+[^;]*(?:\\bowner\\s+to|\\bauthorization)\\s+${escaped(runtimeRole)}\\b`, "i").test(source)) {
     fail("CANONICAL_NEON_APPLICATION_OWNERSHIP", `${runtimeRole} cannot own business objects`);
   }
+  if (new RegExp(`\\breassign\\s+owned\\s+by\\s+[^;]+\\bto\\s+${escaped(runtimeRole)}\\b`, "i").test(source)) {
+    fail("CANONICAL_NEON_APPLICATION_OWNERSHIP", `${runtimeRole} cannot receive reassigned object ownership`);
+  }
 }
 
 function requireActorContextLocality(source) {
   const actorSettings = ["auth_user_id", "property_id", "request_id"];
+  const actorCalls = [...source.matchAll(/\bset_config\s*\(\s*'app\.actor_(auth_user_id|property_id|request_id)'/gi)];
+  let validatedCalls = 0;
   for (const setting of actorSettings) {
-    const pattern = new RegExp(`\\bset_config\\s*\\(\\s*'app\\.actor_${setting}'\\s*,\\s*[^,]+,\\s*(true|false)\\s*\\)`, "gi");
+    const pattern = new RegExp(`\\bset_config\\s*\\(\\s*'app\\.actor_${setting}'\\s*,\\s*[^,]+,\\s*([^)]*)\\)`, "gi");
     const calls = [...source.matchAll(pattern)];
-    if (calls.some((call) => call[1].toLowerCase() !== "true") || calls.length === 0) {
+    validatedCalls += calls.length;
+    if (calls.some((call) => call[1].trim().toLowerCase() !== "true") || calls.length === 0) {
       fail("CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL", `app.actor_${setting} must use set_config(..., true)`);
     }
   }
+  if (validatedCalls !== actorCalls.length) fail("CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL", "every approved actor GUC set_config call must be exactly transaction-local TRUE");
 }
 
 function requirePublicRevocations(source, routines) {
-  const defaultPrivilege = source.match(/\balter\s+default\s+privileges\s+for\s+role\s+hotel_ld_migration_owner\b[\s\S]*?\brevoke\s+execute\s+on\s+functions\s+from\s+public\s*;/i);
+  const defaultPrivilege = source.match(/\balter\s+default\s+privileges\s+for\s+role\s+hotel_ld_migration_owner\s+revoke\s+execute\s+on\s+functions\s+from\s+public\s*;/i);
   const firstFunction = source.search(/\bcreate\s+(?:or\s+replace\s+)?function\b/i);
   if (defaultPrivilege && (firstFunction === -1 || defaultPrivilege.index < firstFunction)) return;
   for (const routine of routines) {
@@ -226,6 +269,18 @@ function grantedEntrypointSignatures(source, runtimeRole) {
   const grants = [...source.matchAll(new RegExp(`\\bgrant\\s+execute\\s+on\\s+function\\s+([\\s\\S]*?)\\s+to\\s+${escaped(runtimeRole)}\\s*;`, "gi"))];
   return orderedUnique(grants.flatMap((grant) => [...grant[1].matchAll(new RegExp(`(public\\.${IDENTIFIER})\\s*\\(([^()]*)\\)`, "gi"))]
     .map((match) => `${normalizeIdentifier(match[1])}(${match[2].replace(/\\s+/g, "").toLowerCase()})`)));
+}
+
+function createdEntrypointSignatures(source) {
+  const definitions = [...source.matchAll(new RegExp(`\\bcreate\\s+(?:or\\s+replace\\s+)?function\\s+(public\\.${IDENTIFIER})\\s*\\(([^()]*)\\)`, "gi"))];
+  return orderedUnique(definitions.map((definition) => {
+    const types = definition[2].split(",").map((argument) => {
+      const withoutDefault = argument.trim().replace(/\s+default\s+.+$/i, "");
+      const tokens = withoutDefault.replace(/^(?:in|out|inout|variadic)\s+/i, "").trim().split(/\s+/);
+      return tokens.length === 1 ? tokens[0] : tokens.at(-1);
+    });
+    return `${normalizeIdentifier(definition[1])}(${types.join(",").replace(/\s+/g, "").toLowerCase()})`;
+  }));
 }
 
 function rejectUnsafeSource(source, manifest) {
@@ -292,7 +347,7 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
     fail("CANONICAL_NEON_MISSING_MODULE", `canonical module inventory is incomplete: ${missingPaths.join(", ")}`);
   }
   const sources = await Promise.all(modules.map(({ path }) => readFile(join(canonicalRoot, path), "utf8")));
-  const source = stripSqlComments(sources.join("\n"));
+  const source = normalizeQuotedIdentifiers(stripSqlComments(sources.join("\n")));
   rejectUnsafeSource(source, manifest);
   const actual = objectInventory(source);
   const declaredSchemas = asStringArray(manifest, "schemas");
@@ -312,6 +367,7 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
   compareInventory("entrypoints", grantedEntrypoints(source, manifest.security?.runtimeRole), entrypoints);
   try {
     compareInventory("entrypoint signatures", grantedEntrypointSignatures(source, manifest.security?.runtimeRole), entrypointSignatures);
+    compareInventory("created entrypoint signatures", createdEntrypointSignatures(source).filter((signature) => entrypoints.includes(signature.slice(0, signature.indexOf("(")))), entrypointSignatures);
   } catch (error) {
     if (error?.code === "CANONICAL_NEON_MANIFEST_DRIFT") fail("CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT", error.message);
     throw error;

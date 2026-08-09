@@ -90,6 +90,22 @@ test("rejects default PUBLIC revocations scoped to the wrong role", async (t) =>
   );
 });
 
+test("rejects default PUBLIC revocations scoped away from public entrypoints", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const roles = await source(root, "001_roles.sql");
+  const people = await source(root, "002_people.sql");
+  const actor = await source(root, "003_actor_context.sql");
+  await replace(root, "001_roles.sql", `${roles}\nalter default privileges for role hotel_ld_migration_owner in schema app_private revoke execute on functions from public;\n`);
+  await replace(root, "002_people.sql", people.replace(/revoke all on function[^\n]+\n/g, ""));
+  await replace(root, "003_actor_context.sql", actor.replace(/revoke all on function[^\n]+\n/g, ""));
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_PUBLIC_EXECUTE_DEFAULT",
+  );
+});
+
 test("enforces the runtime role's NOINHERIT, NOBYPASSRLS, and no-ownership boundary", async (t) => {
   const cases = [
     ["BYPASSRLS", "alter role hotel_ld_application bypassrls;", "CANONICAL_NEON_RUNTIME_ROLE_BYPASSRLS"],
@@ -97,6 +113,7 @@ test("enforces the runtime role's NOINHERIT, NOBYPASSRLS, and no-ownership bound
     ["SUPERUSER", "alter role hotel_ld_application superuser;", "CANONICAL_NEON_RUNTIME_ROLE_ADMIN"],
     ["ownership", "alter table public.properties owner to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_OWNERSHIP"],
     ["schema authorization", "create schema app_private authorization hotel_ld_application;", "CANONICAL_NEON_APPLICATION_OWNERSHIP"],
+    ["reassign owned", "reassign owned by hotel_ld_migration_owner to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_OWNERSHIP"],
   ];
   for (const [name, mutation, code] of cases) {
     await t.test(name, async (t) => {
@@ -107,6 +124,14 @@ test("enforces the runtime role's NOINHERIT, NOBYPASSRLS, and no-ownership bound
       await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === code);
     });
   }
+});
+
+test("rejects quoted application roles in raw table grants", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "002_people.sql");
+  await replace(root, "002_people.sql", `${sql}\ngrant select on table public.properties to "hotel_ld_application";\n`);
+  await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE");
 });
 
 test("requires transaction-local actor GUC writes", async (t) => {
@@ -131,6 +156,14 @@ test("rejects actor GUC transaction-local expressions that are not exactly TRUE"
     validateCanonicalNeonSource({ root }),
     (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL",
   );
+});
+
+test("rejects an extra non-local actor GUC write beside a valid one", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "003_actor_context.sql");
+  await replace(root, "003_actor_context.sql", `${sql}\nselect set_config('app.actor_auth_user_id', p_user::text, false::boolean);\n`);
+  await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL");
 });
 
 test("does not treat commented security directives as executable", async (t) => {
@@ -192,6 +225,13 @@ test("validates declared schemas and entrypoint relationships", async (t) => {
       "grant execute on function public.read_people(text) to hotel_ld_application;",
       "grant execute on function public.read_people(integer) to hotel_ld_application;",
     ));
+    await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT");
+  });
+  await t.test("created entrypoint must keep its declared signature", async (t) => {
+    const root = await copiedFixture();
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const sql = await source(root, "002_people.sql");
+    await replace(root, "002_people.sql", sql.replace("public.read_people(p_host text)", "public.read_people(p_host integer)"));
     await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT");
   });
 });

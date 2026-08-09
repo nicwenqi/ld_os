@@ -100,3 +100,23 @@ and compares granted public entrypoint signatures exactly against the manifest.
 
 Fresh `node --check` and `git diff --check` passed. No database connection was
 attempted.
+
+## Review round 3 evidence
+
+RED: the Round 3 mutations produced 34 passing and 7 failing focused tests.
+They demonstrated acceptance of a migration-owner default revoke scoped only
+to `app_private`, `REASSIGN OWNED` to the application role, a quoted runtime
+role in a raw grant, an additional `false::boolean` Actor Context write, and a
+created entrypoint overload that did not match the manifest signature.
+
+GREEN: the focused test command now reports 41/41 passed. Default-privilege
+fallback is accepted only as a global, migration-owner revoke before the first
+function creation; per-signature revokes remain the alternative. The validator
+normalizes quoted SQL identifiers before statement checks, rejects ownership
+reassignment, inventories every approved Actor Context `set_config` call, and
+compares manifest signatures against both CREATE FUNCTION and GRANT EXECUTE
+surfaces exactly.
+
+Fresh `node --check` and `git diff --check` passed. `source` still reports
+only the expected missing-module contract and `runtime` stays fail-closed;
+no database connection was attempted.
