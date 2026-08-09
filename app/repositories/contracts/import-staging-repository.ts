@@ -40,6 +40,7 @@ export type ImportEmployeeMasterTargetField =
 
 /** Raw evidence preserves one parsed source cell with its approved target. */
 export type ImportRawCellStagingEvidence = {
+  sourceColumnIndex: number;
   sourceColumnName: string;
   targetField: ImportEmployeeMasterTargetField;
   value: ImportEvidenceValue;

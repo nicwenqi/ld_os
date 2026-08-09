@@ -52,6 +52,12 @@ normalization persisted by the entrypoint; same-name/excluded-sheet ambiguity is
 rejected. Every selected-sheet row has bidirectional raw-cell ↔ mapping and
 normalized-key ↔ mapping key-set validation.
 
+Raw cells carry the immutable source column index as well as the column name and
+target. Duplicate headers are therefore distinguished by the exact evidence
+identity `(sheetId, sourceColumnIndex, sourceColumnName, targetField)`. The
+stored raw-cell array and row fingerprint are ordered by that identity; both
+directions of the final mapping check use the same tuple.
+
 Chunk limits are 250 records. Source-row chunks are capped at 1 MiB; all other
 evidence chunks are capped at 512 KiB. Unknown keys, duplicate identifiers,
 wrong batch/sheet scope, malformed JSON, unauthorized label types, and append

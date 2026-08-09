@@ -418,11 +418,11 @@ export function validateE5bImportStagingEntrypoints(source, manifest = null) {
     }
   }
   const mappings = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[2]);
-  const rows = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[3]);
+  const rawRows = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[3]);
   if (!/public\.import_source_rows/i.test(mappings)
-    || !/public\.import_field_mappings/i.test(rows)
-    || !/row_fingerprint/i.test(rows)
-    || !/app_private\.neon_import_source_row_fingerprint/i.test(rows)) {
+    || !/public\.import_field_mappings/i.test(rawRows)
+    || !/row_fingerprint/i.test(rawRows)
+    || !/app_private\.neon_import_source_row_fingerprint/i.test(rawRows)) {
     failSource("E5B_IMPORT_STAGING_MAPPING_ROW_CONSISTENCY_MISSING");
   }
   const labels = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[5]);
@@ -448,7 +448,17 @@ export function validateE5bImportStagingEntrypoints(source, manifest = null) {
     || !/app_private\.append_neon_import_activity/i.test(finalize)) {
     failSource("E5B_IMPORT_STAGING_CANONICAL_MANIFEST_MISSING");
   }
+  const rawCanonicalizer = functionSource(sql, "app_private.neon_import_canonical_raw_values");
+  if (!/'sourceColumnIndex'/i.test(rawRows)
+    || !/sourceColumnIndex.*sourceColumnName.*targetField/i.test(rawRows)
+    || !/app_private\.neon_import_canonical_raw_values/i.test(rawRows)
+    || !/value->>'sourceColumnIndex'\)::integer/i.test(rawCanonicalizer)
+    || !/sourceColumnName.*targetField/i.test(rawCanonicalizer)) {
+    failSource("E5B_IMPORT_STAGING_DUPLICATE_HEADER_IDENTITY_MISSING");
+  }
   if (!/pg_catalog\.jsonb_array_elements\(row\.raw_values\).*?mapping\.source_column_name/i.test(finalize)
+    || !/mapping\.source_column_index\s*=\s*\(cell->>'sourceColumnIndex'\)::integer/i.test(finalize)
+    || !/\(cell->>'sourceColumnIndex'\)::integer\s*=\s*mapping\.source_column_index/i.test(finalize)
     || !/mapping\.mapping_status\s*=\s*'suggested'/i.test(finalize)
     || !/pg_catalog\.jsonb_object_keys\(row\.normalized_values\)/i.test(finalize)
     || !/not\s+\(row\.normalized_values\s*\?\s*mapping\.target_field\)/i.test(finalize)) {

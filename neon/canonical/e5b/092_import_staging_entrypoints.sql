@@ -102,11 +102,20 @@ create function app_private.neon_import_source_row_fingerprint(p_raw_values json
 returns text language sql immutable security invoker set search_path = ''
 as $function$
   select app_private.neon_import_sha256(
-    pg_catalog.coalesce((
-      select pg_catalog.jsonb_agg(value order by value->>'sourceColumnName', value->>'targetField')::text
-      from pg_catalog.jsonb_array_elements(p_raw_values) value
-    ), '[]')
+    app_private.neon_import_canonical_raw_values(p_raw_values)::text
   );
+$function$;
+
+create function app_private.neon_import_canonical_raw_values(p_raw_values jsonb)
+returns jsonb language sql immutable security invoker set search_path = ''
+as $function$
+  select pg_catalog.coalesce((
+    select pg_catalog.jsonb_agg(
+      value order by (value->>'sourceColumnIndex')::integer,
+        value->>'sourceColumnName', value->>'targetField'
+    )
+    from pg_catalog.jsonb_array_elements(p_raw_values) value
+  ), '[]'::jsonb);
 $function$;
 
 create function app_private.neon_import_staging_manifest(p_batch_id uuid)
@@ -310,12 +319,12 @@ as $function$
 declare v_count integer; v_distinct integer; v_allowed text[]:=array['employee_number','name_zh','name_en','department_source_label','position_source_label','grade_or_band','hire_date','probation_or_confirmation_date','employment_status'];
 begin
   perform 1 from app_private.assert_neon_import_manager(p_hostname); perform app_private.assert_neon_import_staging_guard(p_batch_id); perform app_private.assert_neon_import_json_array(p_chunk,250,1048576);
-  if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value where not app_private.neon_import_json_keys_allowed(value,array['id','sheetId','sourceRowNumber','rawValues','normalizedValues','rowFingerprint','processingStatus','proposedAction','validationSummary']) or not (value ?& array['id','sheetId','sourceRowNumber','rawValues','normalizedValues','rowFingerprint','processingStatus','proposedAction','validationSummary']) or pg_catalog.jsonb_typeof(value->'rawValues')<>'array' or pg_catalog.jsonb_typeof(value->'normalizedValues')<>'object' or pg_catalog.jsonb_typeof(value->'validationSummary')<>'object' or value->>'processingStatus' not in ('staged','warning','error') or value->>'proposedAction'<>'unresolved' or value->>'rowFingerprint' !~ '^[0-9a-f]{64}$' or exists(select 1 from pg_catalog.jsonb_object_keys(value->'normalizedValues') key where key <> all(v_allowed)) or exists(select 1 from pg_catalog.jsonb_array_elements(value->'rawValues') cell where not app_private.neon_import_json_keys_allowed(cell,array['sourceColumnName','targetField','value']) or not(cell ?& array['sourceColumnName','targetField','value']) or cell->>'targetField' <> all(v_allowed))) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_CHUNK_INVALID';end if;
+  if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value where not app_private.neon_import_json_keys_allowed(value,array['id','sheetId','sourceRowNumber','rawValues','normalizedValues','rowFingerprint','processingStatus','proposedAction','validationSummary']) or not (value ?& array['id','sheetId','sourceRowNumber','rawValues','normalizedValues','rowFingerprint','processingStatus','proposedAction','validationSummary']) or pg_catalog.jsonb_typeof(value->'rawValues')<>'array' or pg_catalog.jsonb_typeof(value->'normalizedValues')<>'object' or pg_catalog.jsonb_typeof(value->'validationSummary')<>'object' or value->>'processingStatus' not in ('staged','warning','error') or value->>'proposedAction'<>'unresolved' or value->>'rowFingerprint' !~ '^[0-9a-f]{64}$' or exists(select 1 from pg_catalog.jsonb_object_keys(value->'normalizedValues') key where key <> all(v_allowed)) or exists(select 1 from pg_catalog.jsonb_array_elements(value->'rawValues') cell where not app_private.neon_import_json_keys_allowed(cell,array['sourceColumnIndex','sourceColumnName','targetField','value']) or not(cell ?& array['sourceColumnIndex','sourceColumnName','targetField','value']) or pg_catalog.jsonb_typeof(cell->'sourceColumnIndex')<>'number' or cell->>'targetField' <> all(v_allowed)) or (select count(*) from pg_catalog.jsonb_array_elements(value->'rawValues') cell)<>(select count(distinct (cell->>'sourceColumnIndex')::integer) from pg_catalog.jsonb_array_elements(value->'rawValues') cell)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_CHUNK_INVALID';end if;
   select count(*),count(distinct value->>'id') into v_count,v_distinct from pg_catalog.jsonb_array_elements(p_chunk)value; if v_count<>v_distinct then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_CHUNK_INVALID';end if;
   if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value left join public.import_sheets sheet on sheet.id=(value->>'sheetId')::uuid and sheet.batch_id=p_batch_id and sheet.property_id=app_private.current_actor_property_id() left join public.import_field_mappings mapping on mapping.batch_id=p_batch_id and mapping.sheet_id=(value->>'sheetId')::uuid where sheet.id is null or not sheet.is_selected or mapping.id is null) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SHEET_SCOPE_INVALID';end if;
   if exists(select 1 from pg_catalog.jsonb_array_elements(p_chunk)value where value->>'rowFingerprint' <> app_private.neon_import_source_row_fingerprint(value->'rawValues')) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_ROW_FINGERPRINT_INVALID';end if;
   insert into public.import_source_rows(id,tenant_id,property_id,batch_id,sheet_id,source_row_number,raw_values,normalized_values,row_fingerprint,processing_status,proposed_action,validation_summary)
-  select (value->>'id')::uuid,batch.tenant_id,batch.property_id,batch.id,(value->>'sheetId')::uuid,(value->>'sourceRowNumber')::integer,value->'rawValues',value->'normalizedValues',value->>'rowFingerprint',(value->>'processingStatus')::public.import_source_row_status,'unresolved',value->'validationSummary' from pg_catalog.jsonb_array_elements(p_chunk)value join public.import_batches batch on batch.id=p_batch_id and batch.property_id=app_private.current_actor_property_id();
+  select (value->>'id')::uuid,batch.tenant_id,batch.property_id,batch.id,(value->>'sheetId')::uuid,(value->>'sourceRowNumber')::integer,app_private.neon_import_canonical_raw_values(value->'rawValues'),value->'normalizedValues',value->>'rowFingerprint',(value->>'processingStatus')::public.import_source_row_status,'unresolved',value->'validationSummary' from pg_catalog.jsonb_array_elements(p_chunk)value join public.import_batches batch on batch.id=p_batch_id and batch.property_id=app_private.current_actor_property_id();
 end
 $function$;
 
@@ -361,8 +370,8 @@ begin
   if v_total<>v_batch.total_source_rows or v_valid<>v_batch.valid_rows or v_warning<>v_batch.warning_rows or v_error<>v_batch.error_rows or (select count(*) from public.import_sheets where batch_id=p_batch_id)<>v_batch.detected_sheet_count or (select count(*) from public.import_sheets where batch_id=p_batch_id and id=v_batch.selected_sheet_id and is_selected and purpose='employee_master')<>1 then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_COUNT_OR_SELECTION_INVALID';end if;
   if exists(select 1 from public.import_source_rows row where row.batch_id=p_batch_id and row.row_fingerprint<>app_private.neon_import_source_row_fingerprint(row.raw_values)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_ROW_FINGERPRINT_INVALID';end if;
   if exists(select 1 from public.import_source_rows row left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id where row.batch_id=p_batch_id and mapping.id is null)
-    or exists(select 1 from public.import_source_rows row cross join lateral pg_catalog.jsonb_array_elements(row.raw_values) cell left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.source_column_name=cell->>'sourceColumnName' and mapping.target_field=cell->>'targetField' where row.batch_id=p_batch_id and mapping.id is null)
-    or exists(select 1 from public.import_source_rows row join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field is not null where row.batch_id=p_batch_id and not exists(select 1 from pg_catalog.jsonb_array_elements(row.raw_values) cell where cell->>'sourceColumnName'=mapping.source_column_name and cell->>'targetField'=mapping.target_field))
+    or exists(select 1 from public.import_source_rows row cross join lateral pg_catalog.jsonb_array_elements(row.raw_values) cell left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.source_column_index=(cell->>'sourceColumnIndex')::integer and mapping.source_column_name=cell->>'sourceColumnName' and mapping.target_field=cell->>'targetField' where row.batch_id=p_batch_id and mapping.id is null)
+    or exists(select 1 from public.import_source_rows row join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field is not null where row.batch_id=p_batch_id and not exists(select 1 from pg_catalog.jsonb_array_elements(row.raw_values) cell where (cell->>'sourceColumnIndex')::integer=mapping.source_column_index and cell->>'sourceColumnName'=mapping.source_column_name and cell->>'targetField'=mapping.target_field))
     or exists(select 1 from public.import_source_rows row cross join lateral pg_catalog.jsonb_object_keys(row.normalized_values) normalized_key left join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field=normalized_key where row.batch_id=p_batch_id and mapping.id is null)
     or exists(select 1 from public.import_source_rows row join public.import_field_mappings mapping on mapping.batch_id=row.batch_id and mapping.sheet_id=row.sheet_id and mapping.mapping_status='suggested' and mapping.target_field is not null where row.batch_id=p_batch_id and not (row.normalized_values ? mapping.target_field)) then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_MAPPING_ROW_DRIFT';end if;
   if exists(select 1 from public.import_source_label_resolutions label where label.batch_id=p_batch_id and label.resolution_status<>'pending') then raise exception using errcode='22023',message='NEON_IMPORT_STAGING_SOURCE_LABEL_SCOPE_INVALID';end if;
@@ -385,6 +394,7 @@ alter function app_private.neon_import_json_keys_allowed(jsonb,text[]) owner to 
 alter function app_private.neon_import_sha256(text) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_normalize_source_label(text) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_source_row_fingerprint(jsonb) owner to hotel_ld_migration_owner;
+alter function app_private.neon_import_canonical_raw_values(jsonb) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_staging_manifest(uuid) owner to hotel_ld_migration_owner;
 alter function app_private.neon_import_staging_manifest_sha256(uuid) owner to hotel_ld_migration_owner;
 alter function public.begin_neon_import_staging(text,uuid,bigint,jsonb) owner to hotel_ld_migration_owner;
@@ -402,6 +412,7 @@ revoke all on function app_private.neon_import_json_keys_allowed(jsonb,text[]) f
 revoke all on function app_private.neon_import_sha256(text) from public;
 revoke all on function app_private.neon_import_normalize_source_label(text) from public;
 revoke all on function app_private.neon_import_source_row_fingerprint(jsonb) from public;
+revoke all on function app_private.neon_import_canonical_raw_values(jsonb) from public;
 revoke all on function app_private.neon_import_staging_manifest(uuid) from public;
 revoke all on function app_private.neon_import_staging_manifest_sha256(uuid) from public;
 revoke all on function public.begin_neon_import_staging(text,uuid,bigint,jsonb) from public;

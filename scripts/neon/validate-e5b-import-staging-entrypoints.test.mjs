@@ -64,6 +64,17 @@ test("E5B finalization requires bidirectional mapping and row evidence key sets"
   );
 });
 
+test("E5B raw evidence identifies duplicate headers by source column index", async () => {
+  const source = await readFile(sourceUrl, "utf8");
+
+  assert.throws(
+    () => validateE5bImportStagingEntrypoints(
+      source.replaceAll("sourceColumnIndex", "sourceColumnIdentityOmitted"),
+    ),
+    /E5B_IMPORT_STAGING_DUPLICATE_HEADER_IDENTITY_MISSING/,
+  );
+});
+
 test("E5B evidence hashing uses canonical JSON and UTF-8 length framing", async () => {
   const source = await readFile(sourceUrl, "utf8");
 
