@@ -62,6 +62,7 @@ export const E5B_ENTRYPOINT_SIGNATURES = Object.freeze([
 ]);
 
 export const E5B_SAGA_ENTRYPOINT_SIGNATURES = Object.freeze(E5B_ENTRYPOINT_SIGNATURES.slice(0, 9));
+export const E5B_WORKBOOK_ENTRYPOINT_SIGNATURES = Object.freeze(E5B_ENTRYPOINT_SIGNATURES.slice(9));
 
 const E5B_SAGA_PRIVATE_ROUTINES = Object.freeze([
   "app_private.append_neon_import_activity",
@@ -140,6 +141,9 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   }
   if (!(await exists(migrationPaths[2]))) {
     failSource("E5B_IMPORT_STAGING_WORKBOOK_ENTRYPOINT_MISSING");
+  }
+  if (hasCapabilityRoot) {
+    validateE5bImportStagingEntrypoints(await readFile(migrationPaths[2], "utf8"));
   }
   if (!(await everyExists(serverPaths))) {
     failSource("E5B_IMPORT_STAGING_SERVER_BOUNDARY_MISSING");
@@ -359,6 +363,83 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
     failSource("E5B_IMPORT_STAGING_SAGA_MANIFEST_DRIFT");
   }
   return { entrypoints: E5B_SAGA_ENTRYPOINT_SIGNATURES.length, privateRoutines: E5B_SAGA_PRIVATE_ROUTINES.length };
+}
+
+/**
+ * Task 4 is deliberately source-verifiable before any repository exists.  The
+ * transaction-local guard is critical: a chunk routine must never be usable as
+ * an independently committed mutation after `begin` has released its lock.
+ */
+export function validateE5bImportStagingEntrypoints(source) {
+  const sql = stripSqlComments(source);
+  if (!/begin;[\s\S]*commit;\s*$/i.test(sql)
+    || !/set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i.test(sql)) {
+    failSource("E5B_IMPORT_STAGING_TRANSACTION_BOUNDARY");
+  }
+  for (const signature of E5B_WORKBOOK_ENTRYPOINT_SIGNATURES) {
+    const routine = routineSource(sql, signature);
+    if (!routine
+      || !/security\s+definer/i.test(routine)
+      || !/set\s+search_path\s*=\s*''/i.test(routine)
+      || !new RegExp(`alter\\s+function\\s+${escape(signature)}\\s+owner\\s+to\\s+hotel_ld_migration_owner`, "i").test(sql)
+      || !new RegExp(`revoke\\s+all\\s+on\\s+function\\s+${escape(signature)}\\s+from\\s+public`, "i").test(sql)
+      || !new RegExp(`grant\\s+execute\\s+on\\s+function\\s+${escape(signature)}\\s+to\\s+hotel_ld_application`, "i").test(sql)) {
+      failSource("E5B_IMPORT_STAGING_ENTRYPOINT_SECURITY", signature);
+    }
+  }
+  const begin = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[0]);
+  if (!/storage_lifecycle\s*<>\s*'verified'/i.test(begin)
+    || !/verification_status\s*<>\s*'passed'/i.test(begin)
+    || !/workbook_lifecycle\s*<>\s*'intent_created'/i.test(begin)
+    || !/v_batch\.version\s*<>\s*p_expected_version/i.test(begin)
+    || !/pg_catalog\.pg_advisory_xact_lock/i.test(begin)
+    || !/pg_catalog\.set_config\(\s*'app\.e5b_import_staging_batch_id'/i.test(begin)) {
+    failSource("E5B_IMPORT_STAGING_BEGIN_GUARD_MISSING");
+  }
+  const guard = functionSource(sql, "app_private.assert_neon_import_staging_guard");
+  if (!/pg_catalog\.current_setting\(\s*'app\.e5b_import_staging_batch_id'\s*,\s*true\s*\)/i.test(guard)
+    || !/pg_catalog\.pg_try_advisory_xact_lock/i.test(guard)
+    || !/NEON_IMPORT_STAGING_TRANSACTION_REQUIRED/i.test(guard)) {
+    failSource("E5B_IMPORT_STAGING_XACT_LOCK_GUARD_MISSING");
+  }
+  for (const signature of E5B_WORKBOOK_ENTRYPOINT_SIGNATURES.slice(1, 6)) {
+    const append = routineSource(sql, signature);
+    if (!/app_private\.assert_neon_import_staging_guard/i.test(append)
+      || !/NEON_IMPORT_STAGING_CHUNK_INVALID/i.test(append)
+      || !/250/i.test(append)) {
+      failSource("E5B_IMPORT_STAGING_APPEND_BOUNDARY_MISSING", signature);
+    }
+  }
+  const mappings = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[2]);
+  const rows = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[3]);
+  if (!/public\.import_source_rows/i.test(mappings)
+    || !/public\.import_field_mappings/i.test(rows)
+    || !/row_fingerprint/i.test(rows)
+    || !/app_private\.neon_import_source_row_fingerprint/i.test(rows)) {
+    failSource("E5B_IMPORT_STAGING_MAPPING_ROW_CONSISTENCY_MISSING");
+  }
+  const labels = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[5]);
+  if (!/(?:resolution_type|resolutiontype).*?not\s+in\s*\(\s*'department'\s*,\s*'position'\s*\)/i.test(labels)
+    || !/resolution_status/i.test(labels)
+    || !/'pending'/i.test(labels)) {
+    failSource("E5B_IMPORT_STAGING_SOURCE_LABEL_SCOPE_MISSING");
+  }
+  const finalize = routineSource(sql, E5B_WORKBOOK_ENTRYPOINT_SIGNATURES[6]);
+  if (!/app_private\.neon_import_staging_manifest_sha256/i.test(finalize)
+    || !/p_evidence_manifest\s*<>\s*v_manifest/i.test(finalize)
+    || !/p_evidence_sha256\s*<>\s*v_evidence_sha256/i.test(finalize)
+    || !/storage_lifecycle\s*=\s*'linked'/i.test(finalize)
+    || !/workbook_lifecycle\s*=\s*'mapping_required'/i.test(finalize)
+    || !/version\s*=\s*v_batch\.version\s*\+\s*1/i.test(finalize)
+    || !/app_private\.append_neon_import_activity/i.test(finalize)) {
+    failSource("E5B_IMPORT_STAGING_CANONICAL_MANIFEST_MISSING");
+  }
+  if (/\b(?:commit_neon_import|revert_neon_import|employee_external_identifiers|insert\s+into\s+public\.employees)\b/i.test(sql)
+    || hasUnsafeRawApplicationPrivilege(sql)
+    || hasUnsafeDefaultApplicationPrivilege(sql)) {
+    failSource("E5B_IMPORT_STAGING_BOUNDARY_VIOLATION");
+  }
+  return { entrypoints: E5B_WORKBOOK_ENTRYPOINT_SIGNATURES.length, atomic: true };
 }
 
 /**
