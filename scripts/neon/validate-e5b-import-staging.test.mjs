@@ -116,6 +116,25 @@ test("source validation rejects ALL TABLES and ALL SEQUENCES schema grants", asy
   });
 });
 
+test("source validation rejects ALL TABLES or SEQUENCES across multi-schema lists", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql(`
+        grant select on all tables in schema public, app_private
+          to hotel_ld_application;
+        grant usage, select on all sequences in schema "private", "public"
+          to "hotel_ld_application";
+      `),
+    );
+
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_RAW_APPLICATION_GRANT/,
+    );
+  });
+});
+
 test("source validation requires both ENABLE and FORCE RLS for every E5B table", async () => {
   await withSourceFixture(async root => {
     await writeFile(
@@ -173,6 +192,38 @@ test("source validation rejects runtime default privileges on tables or sequence
     await assert.rejects(
       validateE5bImportStagingSource({ root }),
       /E5B_IMPORT_STAGING_DEFAULT_PRIVILEGE_GRANT/,
+    );
+  });
+});
+
+test("source validation rejects runtime default privileges across multi-schema lists", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql(`
+        alter default privileges in schema public, app_private
+          grant select on tables to hotel_ld_application;
+      `),
+    );
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_DEFAULT_PRIVILEGE_GRANT/,
+    );
+  });
+});
+
+test("source validation rejects any quoted Auth or Storage qualification", async () => {
+  await withSourceFixture(async root => {
+    await writeFile(
+      join(root, "neon/canonical/090_import_staging_schema.sql"),
+      schemaSql(`
+        alter table auth."1-thing" enable row level security;
+        alter table "storage"."123" force row level security;
+      `),
+    );
+    await assert.rejects(
+      validateE5bImportStagingSource({ root }),
+      /E5B_IMPORT_STAGING_LEGACY_COMPATIBILITY_OBJECT/,
     );
   });
 });

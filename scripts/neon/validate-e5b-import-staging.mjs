@@ -134,7 +134,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     failSource("E5B_IMPORT_STAGING_DEFAULT_PRIVILEGE_GRANT");
   }
   if (/\bcreate\s+schema(?:\s+if\s+not\s+exists)?\s+"?(?:auth|storage)"?\b/i.test(sql)
-    || /(?:^|[^\w"])"?(?:auth|storage)"?\s*\.\s*"?[a-z_][\w$]*"?/i.test(sql)
+    || /(?:^|[^\w"])"?(?:auth|storage)"?\s*\./i.test(sql)
     || /(?:commit_neon_import|revert_neon_import|legacy_import)/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_LEGACY_COMPATIBILITY_OBJECT");
   }
@@ -246,9 +246,10 @@ export function hasUnsafeRawApplicationPrivilege(source) {
     const [, kind = "table", objects, grantees] = match;
     if (!mentionsApplicationRole(grantees)) continue;
     if (/^\s*function\b/i.test(objects) || /^\s*all\s+functions\b/i.test(objects)) continue;
-    if (/^\s*all\s+(?:tables|sequences)\s+in\s+schema\s+"?(?:public|app_private)"?\s*$/i.test(objects)) return true;
+    const allSchemaObjects = objects.match(/^\s*all\s+(?:tables|sequences)\s+in\s+schema\s+([\s\S]*?)\s*$/i);
+    if (allSchemaObjects && includesApplicationSchema(allSchemaObjects[1])) return true;
     if (kind.toLowerCase() === "schema") {
-      if (/(?:^|,)\s*"?(?:public|app_private)"?\s*(?:,|$)/i.test(objects)) return true;
+      if (includesApplicationSchema(objects)) return true;
       continue;
     }
     if (objects.split(",").some(object => /^\s*"?(?:public|app_private)"?\s*\./i.test(object))) return true;
@@ -259,11 +260,16 @@ export function hasUnsafeRawApplicationPrivilege(source) {
 export function hasUnsafeDefaultApplicationPrivilege(source) {
   const sql = stripSqlComments(source);
   for (const statement of sql.match(/\balter\s+default\s+privileges\b[\s\S]*?;/gi) ?? []) {
-    if (!/\bin\s+schema\s+"?(?:public|app_private)"?(?=\s|;|$)/i.test(statement)) continue;
+    const schemaList = statement.match(/\bin\s+schema\s+([\s\S]*?)\s+\bgrant\b/i)?.[1] ?? "";
+    if (!includesApplicationSchema(schemaList)) continue;
     const grant = statement.match(/\bgrant\s+[\s\S]*?\bon\s+(tables|sequences)\s+to\s+([\s\S]*?);\s*$/i);
     if (grant && mentionsApplicationRole(grant[2])) return true;
   }
   return false;
+}
+
+function includesApplicationSchema(value) {
+  return value.split(",").some(identifier => /^\s*"?(?:public|app_private)"?\s*$/i.test(identifier));
 }
 
 function mentionsApplicationRole(value) {
