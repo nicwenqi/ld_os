@@ -333,6 +333,7 @@ as $function$
     ('intent_created'::public.import_storage_lifecycle, 'cleanup_pending'::public.import_storage_lifecycle),
     ('uploaded_unverified'::public.import_storage_lifecycle, 'verified'::public.import_storage_lifecycle),
     ('uploaded_unverified'::public.import_storage_lifecycle, 'verification_failed'::public.import_storage_lifecycle),
+    ('uploaded_unverified'::public.import_storage_lifecycle, 'cleanup_pending'::public.import_storage_lifecycle),
     ('verification_failed'::public.import_storage_lifecycle, 'cleanup_pending'::public.import_storage_lifecycle),
     ('verified'::public.import_storage_lifecycle, 'linked'::public.import_storage_lifecycle),
     ('verified'::public.import_storage_lifecycle, 'cleanup_pending'::public.import_storage_lifecycle),

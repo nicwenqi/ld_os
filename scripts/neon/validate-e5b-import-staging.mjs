@@ -264,29 +264,45 @@ export function validateE5bImportSagaEntrypoints(source, manifest = null) {
     || !/insert\s+into\s+app_private\.import_storage_operations/i.test(verification)) {
     failSource("E5B_IMPORT_STAGING_SAGA_VERIFICATION_INVARIANT_MISSING");
   }
+  if (!/storage_lifecycle\s*=\s*'verification_failed'[\s\S]*?workbook_lifecycle\s*=\s*'failed'/i.test(verification)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_FAILURE_WORKBOOK_TERMINALIZATION_MISSING");
+  }
 
   const cleanupPending = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[3]);
   if (!/storage_lifecycle\s*=\s*'linked'/i.test(cleanupPending)
     || !/storage_lifecycle\s*=\s*'cleanup_pending'/i.test(cleanupPending)
+    || !/workbook_lifecycle\s*=\s*'failed'/i.test(cleanupPending)
     || !/on\s+conflict\s*\(batch_id\)\s+do\s+update/i.test(cleanupPending)) {
     failSource("E5B_IMPORT_STAGING_SAGA_CLEANUP_PENDING_INVARIANT_MISSING");
   }
 
   const claim = routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[4]);
-  const lockIndex = claim.search(/for\s+update\s+skip\s+locked/i);
-  const currentTimeIndex = claim.search(/pg_catalog\.clock_timestamp\s*\(\s*\)/i);
+  const lockIndex = claim.search(/for\s+update(?:\s+of\s+operation\s*,\s*batch)?\s+skip\s+locked/i);
   if (lockIndex < 0) failSource("E5B_IMPORT_STAGING_SAGA_SKIP_LOCKED_MISSING");
-  if (currentTimeIndex < lockIndex
+  if (!/\bloop\b[\s\S]*?v_now\s*:=\s*pg_catalog\.clock_timestamp\s*\(\s*\)/i.test(claim)
     || !/lease_expires_at\s*<=\s*v_now/i.test(claim)
     || !/v_lease_expires_at\s*:=\s*v_now\s*\+\s*interval\s*'5 minutes'/i.test(claim)) {
     failSource("E5B_IMPORT_STAGING_SAGA_CURRENT_TIME_LEASE_GUARD_MISSING");
+  }
+  if (/from\s+public\.import_batches\s+batch[\s\S]*?for\s+update\s*;[\s\S]*?for\s+update(?:\s+of\s+operation\s*,\s*batch)?\s+skip\s+locked/i.test(claim)
+    || !/limit\s+p_limit/i.test(claim)
+    || !/p_batch_id\s+is\s+null\s+or\s+operation\.batch_id\s*=\s*p_batch_id/i.test(claim)) {
+    failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_LIMIT_OR_NONBLOCKING_MISSING");
   }
   if (!/operation\.batch_id\s*=\s*p_batch_id/i.test(claim)
     || !/operation\.property_id\s*=\s*app_private\.current_actor_property_id\s*\(\s*\)/i.test(claim)
     || !/attempt_count\s*=\s*operation\.attempt_count\s*\+\s*1/i.test(claim)
     || !/last_request_id\s*=\s*app_private\.current_actor_request_id\s*\(\s*\)/i.test(claim)
-    || !/'object_path'\s*,\s*v_operation\.object_path/i.test(claim)) {
+    || !/'object_path'\s*,\s*v_candidate\.object_path/i.test(claim)) {
     failSource("E5B_IMPORT_STAGING_SAGA_CLAIM_SCOPE_MISSING");
+  }
+
+  for (const routine of [verification, cleanupPending, claim,
+    routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[5]),
+    routineSource(sql, E5B_SAGA_ENTRYPOINT_SIGNATURES[6])]) {
+    if (!/updated_at\s*=\s*pg_catalog\.transaction_timestamp\s*\(\s*\)/i.test(routine)) {
+      failSource("E5B_IMPORT_STAGING_SAGA_LEDGER_UPDATED_AT_MISSING");
+    }
   }
 
   for (const signature of E5B_SAGA_ENTRYPOINT_SIGNATURES.slice(5, 7)) {
@@ -406,6 +422,19 @@ export function validateE5bImportStagingSchema(source, manifest = null) {
     || !/create\s+function\s+app_private\.neon_import_workbook_transition_allowed\s*\(/i.test(sql)
     || !/create\s+trigger\s+canonical_import_batch_lifecycle_transition\b/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "lifecycle_transitions");
+  }
+  const storageTransitions = normalizedSource(
+    functionSource(sql, "app_private.neon_import_storage_transition_allowed"),
+  );
+  // Task 1/2 focused fixtures intentionally model the minimum schema inventory.
+  // The complete canonical manifest adds the saga failure/reconciliation state
+  // machine and therefore must carry this ambiguous-upload transition.
+  const requiresSagaCleanupTransition = manifest?.schemaTypes?.includes(
+    "public.import_sheet_purpose",
+  );
+  if (requiresSagaCleanupTransition
+    && !storageTransitions.includes("'uploaded_unverified'::public.import_storage_lifecycle,'cleanup_pending'::public.import_storage_lifecycle")) {
+    failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "storage_cleanup_pending_transition");
   }
   if (!/object_path\s*=\s*tenant_id::text\s*\|\|\s*'\/'\s*\|\|\s*property_id::text\s*\|\|\s*'\/imports\/'\s*\|\|\s*id::text\s*\|\|\s*'\/'\s*\|\|\s*sanitized_filename/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "server_generated_object_path");

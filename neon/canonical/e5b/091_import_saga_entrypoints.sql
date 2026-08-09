@@ -307,6 +307,7 @@ begin
         verified_mime_type = nullif(pg_catalog.btrim(p_verified_mime_type), ''),
         verification_status = 'failed',
         storage_lifecycle = 'verification_failed',
+        workbook_lifecycle = 'failed',
         failure_reason = v_failure_reason,
         version = version + 1
     where id = p_batch_id and property_id = app_private.current_actor_property_id();
@@ -328,6 +329,7 @@ begin
         last_error_message = excluded.last_error_message,
         last_request_id = app_private.current_actor_request_id(),
         completed_at = null,
+        updated_at = pg_catalog.transaction_timestamp(),
         version = app_private.import_storage_operations.version + 1;
   end if;
 
@@ -386,7 +388,9 @@ begin
   end if;
 
   update public.import_batches
-  set storage_lifecycle = 'cleanup_pending', version = version + 1
+  set storage_lifecycle = 'cleanup_pending',
+      workbook_lifecycle = 'failed',
+      version = version + 1
   where id = p_batch_id and property_id = app_private.current_actor_property_id();
 
   insert into app_private.import_storage_operations (
@@ -406,6 +410,7 @@ begin
       last_error_message = excluded.last_error_message,
       last_request_id = app_private.current_actor_request_id(),
       completed_at = null,
+      updated_at = pg_catalog.transaction_timestamp(),
       version = app_private.import_storage_operations.version + 1;
 
   perform app_private.append_neon_import_activity(
@@ -425,99 +430,110 @@ create function public.claim_neon_import_cleanup(
 returns jsonb language plpgsql volatile security definer set search_path = ''
 as $function$
 declare
-  v_operation app_private.import_storage_operations%rowtype;
-  v_batch public.import_batches%rowtype;
+  v_candidate record;
+  v_claims jsonb := '[]'::jsonb;
   v_now timestamptz;
   v_lease_expires_at timestamptz;
+  v_attempt_count integer;
 begin
   perform 1 from app_private.assert_neon_import_manager(p_hostname);
-  if p_batch_id is null or p_claim_id is null or p_limit not between 1 and 50 then
+  if p_claim_id is null or p_limit not between 1 and 50 then
     raise exception using errcode = '22023', message = 'NEON_IMPORT_CLEANUP_CLAIM_INVALID';
   end if;
 
-  select batch.* into v_batch
-  from public.import_batches batch
-  where batch.id = p_batch_id
-    and batch.property_id = app_private.current_actor_property_id()
-  for update;
-  if not found or v_batch.storage_lifecycle = 'linked' then
-    return null;
-  end if;
+  for v_candidate in
+    select operation.id as operation_id,
+           operation.batch_id,
+           operation.object_path,
+           operation.cleanup_state,
+           operation.attempt_count,
+           operation.next_attempt_at,
+           operation.lease_expires_at,
+           batch.storage_bucket,
+           batch.storage_lifecycle,
+           batch.workbook_lifecycle
+    from app_private.import_storage_operations operation
+    join public.import_batches batch
+      on batch.id = operation.batch_id
+     and batch.tenant_id = operation.tenant_id
+     and batch.property_id = operation.property_id
+    where operation.property_id = app_private.current_actor_property_id()
+      and (p_batch_id is null or operation.batch_id = p_batch_id)
+      and batch.storage_lifecycle <> 'linked'
+      and (
+        (operation.cleanup_state in ('cleanup_pending', 'cleanup_failed')
+          and operation.next_attempt_at is not null
+          and operation.next_attempt_at <= pg_catalog.clock_timestamp())
+        or (operation.cleanup_state = 'cleanup_in_progress'
+          and operation.lease_expires_at is not null
+          and operation.lease_expires_at <= pg_catalog.clock_timestamp())
+      )
+    order by pg_catalog.coalesce(operation.next_attempt_at, operation.lease_expires_at), operation.id
+    limit p_limit
+    for update of operation, batch skip locked
+  loop
+    -- Recheck a current lease after the ledger+batch rows have been claimed.
+    v_now := pg_catalog.clock_timestamp();
+    if not (
+      (v_candidate.cleanup_state in ('cleanup_pending', 'cleanup_failed')
+        and v_candidate.next_attempt_at is not null and v_candidate.next_attempt_at <= v_now)
+      or (v_candidate.cleanup_state = 'cleanup_in_progress'
+        and v_candidate.lease_expires_at is not null and v_candidate.lease_expires_at <= v_now)
+    ) then
+      continue;
+    end if;
 
-  select operation.* into v_operation
-  from app_private.import_storage_operations operation
-  where operation.batch_id = p_batch_id
-    and operation.property_id = app_private.current_actor_property_id()
-  for update skip locked;
-  if not found then
-    return null;
-  end if;
+    if v_candidate.storage_lifecycle in ('verification_failed', 'cleanup_failed') then
+      update public.import_batches
+      set storage_lifecycle = 'cleanup_pending', version = version + 1
+      where id = v_candidate.batch_id and property_id = app_private.current_actor_property_id();
+      v_candidate.storage_lifecycle := 'cleanup_pending';
+    end if;
+    if v_candidate.storage_lifecycle not in ('cleanup_pending', 'cleanup_in_progress') then
+      continue;
+    end if;
 
-  -- Lease eligibility is time-dependent and is deliberately evaluated only
-  -- after the stable batch→ledger lock order is held.
-  v_now := pg_catalog.clock_timestamp();
-  if not (
-    (v_operation.cleanup_state in ('cleanup_pending', 'cleanup_failed')
-      and v_operation.next_attempt_at is not null and v_operation.next_attempt_at <= v_now)
-    or (v_operation.cleanup_state = 'cleanup_in_progress'
-      and v_operation.lease_expires_at is not null and v_operation.lease_expires_at <= v_now)
-  ) then
-    return null;
-  end if;
+    v_lease_expires_at := v_now + interval '5 minutes';
+    update app_private.import_storage_operations operation
+    set cleanup_state = 'cleanup_in_progress',
+        attempt_count = operation.attempt_count + 1,
+        last_attempt_at = v_now,
+        next_attempt_at = null,
+        claim_id = p_claim_id,
+        lease_expires_at = v_lease_expires_at,
+        last_request_id = app_private.current_actor_request_id(),
+        last_error_code = null,
+        last_error_message = null,
+        completed_at = null,
+        updated_at = pg_catalog.transaction_timestamp(),
+        version = operation.version + 1
+    where operation.id = v_candidate.operation_id
+      and operation.property_id = app_private.current_actor_property_id()
+    returning operation.attempt_count into v_attempt_count;
 
-  if v_batch.storage_lifecycle = 'verification_failed' then
-    update public.import_batches
-    set storage_lifecycle = 'cleanup_pending', version = version + 1
-    where id = v_batch.id and property_id = app_private.current_actor_property_id();
-    v_batch.storage_lifecycle := 'cleanup_pending';
-  elsif v_batch.storage_lifecycle = 'cleanup_failed' then
-    update public.import_batches
-    set storage_lifecycle = 'cleanup_pending', version = version + 1
-    where id = v_batch.id and property_id = app_private.current_actor_property_id();
-    v_batch.storage_lifecycle := 'cleanup_pending';
-  end if;
-  if v_batch.storage_lifecycle <> 'cleanup_pending'
-    and v_batch.storage_lifecycle <> 'cleanup_in_progress' then
-    return null;
-  end if;
+    if v_candidate.storage_lifecycle <> 'cleanup_in_progress' then
+      update public.import_batches
+      set storage_lifecycle = 'cleanup_in_progress', version = version + 1
+      where id = v_candidate.batch_id and property_id = app_private.current_actor_property_id();
+    end if;
 
-  v_lease_expires_at := v_now + interval '5 minutes';
-  update app_private.import_storage_operations operation
-  set cleanup_state = 'cleanup_in_progress',
-      attempt_count = operation.attempt_count + 1,
-      last_attempt_at = v_now,
-      next_attempt_at = null,
-      claim_id = p_claim_id,
-      lease_expires_at = v_lease_expires_at,
-      last_request_id = app_private.current_actor_request_id(),
-      last_error_code = null,
-      last_error_message = null,
-      completed_at = null,
-      version = operation.version + 1
-  where operation.id = v_operation.id
-    and operation.property_id = app_private.current_actor_property_id()
-  returning operation.* into v_operation;
+    perform app_private.append_neon_import_activity(
+      v_candidate.batch_id, 'cleanup_claimed', v_candidate.storage_lifecycle,
+      v_candidate.workbook_lifecycle,
+      pg_catalog.jsonb_build_object('attempt_count', v_attempt_count)
+    );
+    v_claims := v_claims || pg_catalog.jsonb_build_array(pg_catalog.jsonb_build_object(
+      'batch_id', v_candidate.batch_id,
+      'operation_id', v_candidate.operation_id,
+      'bucket', v_candidate.storage_bucket,
+      'object_path', v_candidate.object_path,
+      'claim_id', p_claim_id,
+      'attempt_count', v_attempt_count,
+      'lease_expires_at', v_lease_expires_at
+    ));
+  end loop;
 
-  if v_batch.storage_lifecycle <> 'cleanup_in_progress' then
-    update public.import_batches
-    set storage_lifecycle = 'cleanup_in_progress', version = version + 1
-    where id = v_batch.id and property_id = app_private.current_actor_property_id();
-  end if;
-
-  perform app_private.append_neon_import_activity(
-    v_batch.id, 'cleanup_claimed', v_batch.storage_lifecycle,
-    v_batch.workbook_lifecycle,
-    pg_catalog.jsonb_build_object('attempt_count', v_operation.attempt_count)
-  );
-  return pg_catalog.jsonb_build_object(
-    'batch_id', v_batch.id,
-    'operation_id', v_operation.id,
-    'bucket', v_batch.storage_bucket,
-    'object_path', v_operation.object_path,
-    'claim_id', p_claim_id,
-    'attempt_count', v_operation.attempt_count,
-    'lease_expires_at', v_lease_expires_at
-  );
+  return pg_catalog.jsonb_build_object('claims', v_claims);
 end
 $function$;
 
@@ -571,6 +587,7 @@ begin
       last_error_code = null,
       last_error_message = null,
       completed_at = v_now,
+      updated_at = pg_catalog.transaction_timestamp(),
       version = operation.version + 1
   where operation.id = v_operation.id
     and operation.property_id = app_private.current_actor_property_id();
@@ -644,6 +661,7 @@ begin
       next_attempt_at = p_next_attempt_at,
       last_error_code = 'storage_cleanup_failed',
       last_error_message = v_error,
+      updated_at = pg_catalog.transaction_timestamp(),
       version = operation.version + 1
   where operation.id = v_operation.id
     and operation.property_id = app_private.current_actor_property_id();

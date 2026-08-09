@@ -29,7 +29,8 @@ network operation was added.
   membership. No caller-supplied property, role, tenant, actor, object path, or
   request identity is trusted.
 - Existing 090 `FORCE RLS` and raw-table privilege zero remain unchanged.
-- Cleanup locks batch then ledger consistently. Lease eligibility and
+- Cleanup claims lock the ledger and matching batch together through a single
+  `FOR UPDATE OF operation, batch SKIP LOCKED` selection. Lease eligibility and
   completion/failure claim freshness use `clock_timestamp()` inside entrypoints,
   never a time-dependent table `CHECK`.
 - Public workflow/history projections omit object paths, full checksums,
@@ -46,7 +47,7 @@ expected before the saga validator was implemented, then passed after GREEN.
 
 ## Validation
 
-- `node --test scripts/neon/validate-e5b-import-saga-entrypoints.test.mjs scripts/neon/validate-e5b-import-staging-schema.test.mjs scripts/neon/validate-e5b-import-staging.test.mjs` — 24/24 passed.
+- `node --test scripts/neon/validate-e5b-import-saga-entrypoints.test.mjs scripts/neon/validate-e5b-import-staging-schema.test.mjs scripts/neon/validate-e5b-import-staging.test.mjs` — 30/30 passed.
 - `node scripts/neon/validate-e5b-import-staging.mjs source` — correctly stops
   at `E5B_IMPORT_STAGING_WORKBOOK_ENTRYPOINT_MISSING`, the next unimplemented
   Task 4 boundary.
@@ -56,3 +57,25 @@ expected before the saga validator was implemented, then passed after GREEN.
 
 No PostgreSQL parser/apply/catalog/runtime check was run: Task 4 is intentionally
 not installed and E5B live validation remains the later approved Task 9 gate.
+
+## Review correction
+
+The Task 3 review required four lifecycle/concurrency corrections. The current
+implementation and focused RED→GREEN fixtures now prove that:
+
+- `uploaded_unverified` may transition directly to `cleanup_pending` for an
+  ambiguous upload outcome;
+- verification failure and every cleanup-pending transition terminalize the
+  workbook as `failed`; verification failure also records failed verification
+  status;
+- every ledger mutation path (verification retry, cleanup-pending retry,
+  claim, completion, and failure) refreshes `updated_at`; and
+- `claim_neon_import_cleanup` accepts an optional server-targeted batch while
+  using its real bounded `p_limit` for property-wide claims. It acquires the
+  ledger and matching batch through one `FOR UPDATE OF operation, batch SKIP
+  LOCKED` query, then rechecks the lease with current time after locking.
+
+The correction fixtures were RED before these changes: transition removal,
+non-terminal verification/cleanup state, a missing ledger timestamp refresh,
+an ignored limit, and a blocking pre-claim batch lock each failed the static
+validator. They now pass without a database connection.
