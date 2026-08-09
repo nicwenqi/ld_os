@@ -1192,7 +1192,7 @@ async function createRuntimeSeed(bootstrapPool, bundle) {
     await database.query(`insert into public.role_assignments(id,tenant_id,property_id,user_id,role_id) values ($1,$2,$3,$4,$5),($6,$2,$3,$7,$8)`, [seed.managerAssignment, seed.tenantA, seed.propertyA, seed.managerProfile, seed.managerRole, seed.adminAssignment, seed.adminProfile, seed.adminRole]);
     await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,null,'department','root','Validation Root','Validation Root',1)`, [seed.rootDepartment, seed.tenantA, seed.propertyA]);
     await database.query(`insert into public.departments(id,tenant_id,property_id,parent_id,node_type,code,name_zh,name_en,sort_order) values ($1,$2,$3,$4,'team','child','Validation Child','Validation Child',2),($5,$2,$3,null,'department','other','Validation Other','Validation Other',3)`, [seed.childDepartment, seed.tenantA, seed.propertyA, seed.rootDepartment, seed.otherDepartment]);
-    await database.query(`insert into public.operational_units(id,tenant_id,property_id,department_id,unit_type,code,name_zh,name_en) values ($1,$2,$3,$4,'other','validation-unit','Validation Unit','Validation Unit')`, [seed.operationalUnit, seed.tenantA, seed.propertyA, seed.rootDepartment]);
+    await database.query(`insert into public.operational_units(id,tenant_id,property_id,department_id,unit_type,code,name_zh,name_en) values ($1,$2,$3,$4,'other','validation-unit','Validation Unit','Validation Unit')`, [seed.operationalUnit, seed.tenantA, seed.propertyA, seed.childDepartment]);
     await database.query(`insert into public.department_aliases(id,tenant_id,property_id,source_system,source_sheet,source_value,normalized_source_value,suggested_target_id) values ($1,$2,$3,'validation','fixture','Validation Department Alias','validation department alias',$4)`, [seed.departmentAlias, seed.tenantA, seed.propertyA, seed.childDepartment]);
     await database.query(`insert into public.trainer_scopes(id,tenant_id,property_id,role_assignment_id,department_id,include_descendants) values ($1,$2,$3,$4,$5,true)`, [seed.trainerScope, seed.tenantA, seed.propertyA, seed.adminAssignment, seed.rootDepartment]);
     await database.query(`insert into public.position_families(id,tenant_id,property_id,code,name_zh,name_en) values ($1,$2,$3,'validation-family','Validation Family','Validation Family')`, [seed.positionFamily, seed.tenantA, seed.propertyA]);
@@ -1298,7 +1298,7 @@ export function runtimeSmokeValues(signature, seed) {
     "public.update_neon_organization_department(text,uuid,bigint,text,text,integer,boolean)":
       () => [seed.hostnameA, seed.childDepartment, 1, "Validation Child", "Validation Child", 2, true],
     "public.update_neon_organization_operational_unit(text,uuid,bigint,uuid,uuid,text,text,text,text,integer,boolean)":
-      () => [seed.hostnameA, seed.operationalUnit, 1, seed.rootDepartment, null, "other", "validation-unit", "Validation Unit", "Validation Unit", 10, true],
+      () => [seed.hostnameA, seed.operationalUnit, 1, seed.childDepartment, null, "other", "validation-unit", "Validation Unit", "Validation Unit", 10, true],
   };
   const normalized = normalizeIdentifier(signature).replace(/\s+/g, "");
   const fixture = fixtures[normalized];

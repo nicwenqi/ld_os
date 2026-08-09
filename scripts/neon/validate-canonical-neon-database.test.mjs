@@ -295,6 +295,16 @@ test("entrypoint smoke supplies scoped fixtures for every exact signature", asyn
     runtimeSmokeValues("public.create_neon_organization_department(text,uuid,uuid,uuid,text,text,text,text,integer)", seed).slice(1, 3),
     [seed.tenantA, seed.propertyA],
   );
+  const employee = runtimeSmokeValues(
+    "public.save_neon_employee_with_identifiers(text,uuid,uuid,uuid,bigint,text,text,text,uuid,uuid,uuid,uuid,text,date,date,text,boolean,jsonb)",
+    seed,
+  );
+  assert.deepEqual(employee.slice(8, 10), [seed.childDepartment, seed.operationalUnit]);
+  const validatorSource = await readFile(validatorPath, "utf8");
+  assert.match(
+    validatorSource,
+    /insert into public\.operational_units[\s\S]*?\[seed\.operationalUnit, seed\.tenantA, seed\.propertyA, seed\.childDepartment\]/,
+  );
 });
 
 test("catalog fails closed when the migration owner gains login, inheritance, bypass, or admin attributes", async () => {
