@@ -31,4 +31,5 @@ for each row execute function app_private.touch_properties();
 
 revoke all on table public.properties from hotel_ld_application;
 revoke all on function public.read_people(text) from public;
+revoke all on function app_private.touch_properties() from public;
 grant execute on function public.read_people(text) to hotel_ld_application;

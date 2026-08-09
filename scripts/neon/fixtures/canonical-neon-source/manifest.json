@@ -2,13 +2,14 @@
   "version": 1,
   "modules": [
     { "order": 1, "path": "001_roles.sql" },
-    { "order": 2, "path": "002_people.sql" }
+    { "order": 2, "path": "002_people.sql" },
+    { "order": 3, "path": "003_actor_context.sql" }
   ],
   "schemas": ["app_private", "public"],
   "roles": ["hotel_ld_application", "hotel_ld_migration_owner"],
   "types": ["public.property_status"],
   "tables": ["public.properties"],
-  "routines": ["app_private.touch_properties", "public.read_people"],
+  "routines": ["app_private.install_actor_context", "app_private.touch_properties", "public.read_people"],
   "entrypoints": ["public.read_people"],
   "policies": ["properties_tenant_scope"],
   "triggers": ["properties_touch"],
@@ -17,5 +18,5 @@
     "objects": ["import", "history", "compatibility", "bridge", "reset"],
     "capabilities": ["seed data"]
   },
-  "security": { "requireForceRls": true }
+  "security": { "requireForceRls": true, "runtimeRole": "hotel_ld_application" }
 }

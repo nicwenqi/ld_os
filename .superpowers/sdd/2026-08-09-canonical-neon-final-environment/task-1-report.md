@@ -52,3 +52,31 @@ connection was attempted.
 Task 2 must create exactly the seven ordered SQL files named by
 `neon/canonical/manifest.json` and keep the declared object inventory in sync.
 Task 3 is the first authorized database-validation task.
+
+## Review round 1 evidence
+
+RED: after adding the review mutations, `node --test
+scripts/neon/validate-canonical-neon-baseline.test.mjs` reported 12 passing
+and 15 failing tests. The failures demonstrated that the prior validator
+accepted default PUBLIC EXECUTE exposure, a `BYPASSRLS` role alteration,
+application ownership, `set_config(..., false)`, commented-out RLS/path
+directives, undeclared schemas and entrypoint drift, raw schema-wide grants,
+unqualified seed DML, and an Import view.
+
+GREEN: the focused command now reports 28/28 passed. The validator now:
+
+- requires an explicit PUBLIC execution revocation for every manifest routine
+  (or a safe default-privilege revocation);
+- validates runtime `NOINHERIT`/`NOBYPASSRLS`, rejects application ownership,
+  direct raw grants, and schema-wide raw grants;
+- requires all three Actor Context GUCs to use `set_config(..., true)`;
+- strips SQL comments before executable security checks;
+- validates exact non-default schema inventory, entrypoint-to-routine
+  relationships, and exact application execution grants;
+- rejects legacy Import views and qualified or unqualified top-level business
+  DML.
+
+Fresh verification: `node --check
+scripts/neon/validate-canonical-neon-baseline.mjs` and `git diff --check`
+passed. `source` continues to return only the expected missing-module
+contract, and `runtime` remains fail-closed without attempting a connection.
