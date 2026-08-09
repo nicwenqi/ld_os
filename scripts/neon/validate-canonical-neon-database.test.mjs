@@ -14,9 +14,20 @@ import {
 const fixtureRoot = fileURLToPath(new URL("../../neon/canonical/", import.meta.url));
 const validatorPath = fileURLToPath(new URL("./validate-canonical-neon-baseline.mjs", import.meta.url));
 
-function fixtureConnectionString(role, pooled = false) {
-  const endpoint = `${EXPECTED_NEON_TARGET.endpointId}${pooled ? "-pooler" : ""}.fixture.neon.tech`;
-  const url = new URL(["postgresql:", "", endpoint, EXPECTED_NEON_TARGET.database].join("/"));
+const replayTarget = Object.freeze({
+  projectName: "hotel-ld-os-neon-final-replay",
+  projectId: "wild-tree-31942896",
+  branchName: "main",
+  branchId: "br-frosty-forest-awu4aprl",
+  endpointId: "ep-hidden-meadow-aweq2rfx",
+  database: "neondb",
+  bootstrapRole: "neondb_owner",
+  postgresMajor: 18,
+});
+
+function fixtureConnectionString(role, pooled = false, target = EXPECTED_NEON_TARGET) {
+  const endpoint = `${target.endpointId}${pooled ? "-pooler" : ""}.fixture.neon.tech`;
+  const url = new URL(["postgresql:", "", endpoint, target.database].join("/"));
   url.username = role;
   url.password = "fixture-credential";
   url.searchParams.set("sslmode", "verify-full");
@@ -136,6 +147,90 @@ test("rejects any non-canonical project metadata before constructing a pool", as
       root: fixtureRoot,
       target: { ...EXPECTED_NEON_TARGET, projectId: "flat-brook-43278549" },
       bootstrapConnectionString: bootstrapUrl,
+      dependencies: {
+        createBootstrapPool() {
+          constructed += 1;
+          throw new Error("must remain unreachable");
+        },
+      },
+    }),
+    (error) => error?.code === "CANONICAL_NEON_TARGET_MISMATCH",
+  );
+  assert.equal(constructed, 0);
+});
+
+test("accepts only either complete authorized target tuple without field mixing", async () => {
+  for (const target of [EXPECTED_NEON_TARGET, replayTarget]) {
+    const pool = fakePool(bootstrapHandler);
+    const result = await validateCanonicalNeon({
+      mode: "dry-run",
+      root: fixtureRoot,
+      target,
+      bootstrapConnectionString: fixtureConnectionString(target.bootstrapRole, false, target),
+      dependencies: dependenciesFor(pool),
+    });
+    assert.equal(result.rolledBack, true);
+  }
+
+  const differingKeys = ["projectName", "projectId", "branchId", "endpointId"];
+  for (let mask = 1; mask < (2 ** differingKeys.length) - 1; mask += 1) {
+    const mixedTarget = { ...EXPECTED_NEON_TARGET };
+    differingKeys.forEach((key, index) => {
+      if (mask & (1 << index)) mixedTarget[key] = replayTarget[key];
+    });
+    let constructed = 0;
+    await assert.rejects(
+      validateCanonicalNeon({
+        mode: "dry-run",
+        root: fixtureRoot,
+        target: mixedTarget,
+        bootstrapConnectionString: fixtureConnectionString(mixedTarget.bootstrapRole, false, mixedTarget),
+        dependencies: {
+          createBootstrapPool() {
+            constructed += 1;
+            throw new Error("must remain unreachable");
+          },
+        },
+      }),
+      (error) => error?.code === "CANONICAL_NEON_TARGET_MISMATCH",
+    );
+    assert.equal(constructed, 0);
+  }
+});
+
+test("binds each authorized target tuple to its own endpoint", async () => {
+  for (const [target, connectionTarget] of [
+    [EXPECTED_NEON_TARGET, replayTarget],
+    [replayTarget, EXPECTED_NEON_TARGET],
+  ]) {
+    let constructed = 0;
+    await assert.rejects(
+      validateCanonicalNeon({
+        mode: "dry-run",
+        root: fixtureRoot,
+        target,
+        bootstrapConnectionString: fixtureConnectionString(target.bootstrapRole, false, connectionTarget),
+        dependencies: {
+          createBootstrapPool() {
+            constructed += 1;
+            throw new Error("must remain unreachable");
+          },
+        },
+      }),
+      (error) => error?.code === "CANONICAL_NEON_BOOTSTRAP_CONNECTION_MISMATCH",
+    );
+    assert.equal(constructed, 0);
+  }
+});
+
+test("rejects target metadata outside the exact tuple shape", async () => {
+  let constructed = 0;
+  await assert.rejects(
+    validateCanonicalNeon({
+      mode: "dry-run",
+      root: fixtureRoot,
+      target: { ...EXPECTED_NEON_TARGET, environment: "staging" },
+      bootstrapConnectionString: fixtureConnectionString(EXPECTED_NEON_TARGET.bootstrapRole),
       dependencies: {
         createBootstrapPool() {
           constructed += 1;

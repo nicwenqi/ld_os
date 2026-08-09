@@ -22,6 +22,22 @@ export const EXPECTED_NEON_TARGET = Object.freeze({
   postgresMajor: 18,
 });
 
+export const REPLAY_NEON_TARGET = Object.freeze({
+  projectName: "hotel-ld-os-neon-final-replay",
+  projectId: "wild-tree-31942896",
+  branchName: "main",
+  branchId: "br-frosty-forest-awu4aprl",
+  endpointId: "ep-hidden-meadow-aweq2rfx",
+  database: "neondb",
+  bootstrapRole: "neondb_owner",
+  postgresMajor: 18,
+});
+
+export const AUTHORIZED_NEON_TARGETS = Object.freeze([
+  EXPECTED_NEON_TARGET,
+  REPLAY_NEON_TARGET,
+]);
+
 const FORBIDDEN_NEON_TARGETS = new Set([
   "br-twilight-leaf-azmowo1k",
   "ep-wild-wave-azjmgdif",
@@ -770,14 +786,20 @@ function assertExpectedTarget(target) {
   if (Object.values(target).some((value) => FORBIDDEN_NEON_TARGETS.has(String(value)))) {
     fail("CANONICAL_NEON_TARGET_MISMATCH", "forbidden Neon target metadata");
   }
-  for (const [key, expected] of Object.entries(EXPECTED_NEON_TARGET)) {
-    if (target[key] !== expected) {
-      fail("CANONICAL_NEON_TARGET_MISMATCH", `canonical Neon target ${key} mismatch`);
-    }
+  const targetKeys = Object.keys(target).sort();
+  const matched = AUTHORIZED_NEON_TARGETS.find((candidate) => {
+    const candidateKeys = Object.keys(candidate).sort();
+    return targetKeys.length === candidateKeys.length
+      && targetKeys.every((key, index) => key === candidateKeys[index])
+      && candidateKeys.every((key) => target[key] === candidate[key]);
+  });
+  if (!matched) {
+    fail("CANONICAL_NEON_TARGET_MISMATCH", "canonical Neon target metadata does not match a complete authorized tuple");
   }
+  return matched;
 }
 
-function parseConnectionTarget(connectionString, kind) {
+function parseConnectionTarget(connectionString, kind, target) {
   let parsed;
   try {
     parsed = new URL(connectionString);
@@ -786,9 +808,9 @@ function parseConnectionTarget(connectionString, kind) {
   }
   const code = `CANONICAL_NEON_${kind.toUpperCase()}_CONNECTION_MISMATCH`;
   const endpointLabel = kind === "runtime"
-    ? `${EXPECTED_NEON_TARGET.endpointId}-pooler`
-    : EXPECTED_NEON_TARGET.endpointId;
-  const expectedRole = kind === "runtime" ? "hotel_ld_application" : EXPECTED_NEON_TARGET.bootstrapRole;
+    ? `${target.endpointId}-pooler`
+    : target.endpointId;
+  const expectedRole = kind === "runtime" ? "hotel_ld_application" : target.bootstrapRole;
   const decodedDatabase = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
   const unsafeSsl = new Set(["disable", "prefer", "allow", "no-verify"]);
   if (
@@ -797,13 +819,13 @@ function parseConnectionTarget(connectionString, kind) {
     || parsed.hostname.split(".")[0] !== endpointLabel
     || decodeURIComponent(parsed.username) !== expectedRole
     || !decodeURIComponent(parsed.password)
-    || decodedDatabase !== EXPECTED_NEON_TARGET.database
+    || decodedDatabase !== target.database
     || unsafeSsl.has(parsed.searchParams.get("sslmode") ?? "")
     || [...FORBIDDEN_NEON_TARGETS].some((id) => parsed.hostname.includes(id))
   ) {
     fail(code, `${kind} connection does not match the authorized canonical Neon target`);
   }
-  return { kind, endpointId: EXPECTED_NEON_TARGET.endpointId, database: decodedDatabase, role: expectedRole };
+  return { kind, endpointId: target.endpointId, database: decodedDatabase, role: expectedRole };
 }
 
 function stripModuleTransactionFrame(source, path) {
@@ -1717,9 +1739,9 @@ export async function validateCanonicalNeon({
   const sourceResult = await validateCanonicalNeonSource({ root });
   if (!DATABASE_MODES.has(mode)) return sourceResult;
 
-  assertExpectedTarget(target);
-  parseConnectionTarget(bootstrapConnectionString, "bootstrap");
-  if (mode === "runtime") parseConnectionTarget(runtimeConnectionString, "runtime");
+  const expectedTarget = assertExpectedTarget(target);
+  parseConnectionTarget(bootstrapConnectionString, "bootstrap", expectedTarget);
+  if (mode === "runtime") parseConnectionTarget(runtimeConnectionString, "runtime", expectedTarget);
   const bundle = await loadDatabaseBundle(root);
   const injected = resolvedDependencies(dependencies);
 
