@@ -11,6 +11,7 @@
   "tables": ["public.properties"],
   "routines": ["app_private.install_actor_context", "app_private.touch_properties", "public.read_people"],
   "entrypoints": ["public.read_people"],
+  "entrypointSignatures": ["public.read_people(text)"],
   "policies": ["properties_tenant_scope"],
   "triggers": ["properties_touch"],
   "exclusions": {

@@ -80,3 +80,23 @@ Fresh verification: `node --check
 scripts/neon/validate-canonical-neon-baseline.mjs` and `git diff --check`
 passed. `source` continues to return only the expected missing-module
 contract, and `runtime` remains fail-closed without attempting a connection.
+
+## Review round 2 evidence
+
+RED: after adding the second review set, the focused test command reported 27
+passing and 9 failing assertions. The failures covered a wrong-owner default
+PUBLIC revoke, later `INHERIT` and `SUPERUSER` role alterations, schema
+authorization, schema-wide multi-privilege grants, nested comments retaining a
+commented FORCE RLS directive, and an execute grant changed to the wrong
+overload.
+
+GREEN: `node --test scripts/neon/validate-canonical-neon-baseline.test.mjs`
+now reports 36/36 passed. The validator additionally requires a pre-creation
+default-function revoke scoped to `hotel_ld_migration_owner` when per-routine
+revokes are absent; rejects later `INHERIT`, SUPERUSER/CREATEDB/CREATEROLE/
+REPLICATION, and schema authorization/ownership for the runtime role; handles
+nested PostgreSQL block comments; rejects schema-wide multi-privilege grants;
+and compares granted public entrypoint signatures exactly against the manifest.
+
+Fresh `node --check` and `git diff --check` passed. No database connection was
+attempted.

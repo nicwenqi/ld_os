@@ -43,6 +43,7 @@ test("rejects SQL that would weaken the canonical security boundary", async (t) 
     ["application raw reads", "grant select on table public.properties to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE"],
     ["application raw ALL privileges", "grant all on table public.properties to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE"],
     ["application raw schema privileges", "grant select on all tables in schema public to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE"],
+    ["application raw schema multi-privileges", "grant select, insert on all tables in schema public to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE"],
     ["business seed DML", "insert into public.properties (id) values ('00000000-0000-0000-0000-000000000000');", "CANONICAL_NEON_BUSINESS_SEED_DML"],
     ["unqualified business seed DML", "insert into properties (id) values ('00000000-0000-0000-0000-000000000000');", "CANONICAL_NEON_BUSINESS_SEED_DML"],
     ["legacy import view", "create view public.import_staging as select 1 as id;", "CANONICAL_NEON_FORBIDDEN_OBJECT"],
@@ -75,10 +76,27 @@ test("requires an explicit PUBLIC execution revocation for every declared routin
   );
 });
 
+test("rejects default PUBLIC revocations scoped to the wrong role", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const people = await source(root, "002_people.sql");
+  const actor = await source(root, "003_actor_context.sql");
+  await replace(root, "002_people.sql", people.replace(/revoke all on function[^\n]+\n/g, ""));
+  await replace(root, "003_actor_context.sql", `${actor.replace(/revoke all on function[^\n]+\n/g, "")}\nalter default privileges for role wrong_owner revoke execute on functions from public;\n`);
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_PUBLIC_EXECUTE_DEFAULT",
+  );
+});
+
 test("enforces the runtime role's NOINHERIT, NOBYPASSRLS, and no-ownership boundary", async (t) => {
   const cases = [
     ["BYPASSRLS", "alter role hotel_ld_application bypassrls;", "CANONICAL_NEON_RUNTIME_ROLE_BYPASSRLS"],
+    ["INHERIT", "alter role hotel_ld_application inherit;", "CANONICAL_NEON_RUNTIME_ROLE_INHERIT"],
+    ["SUPERUSER", "alter role hotel_ld_application superuser;", "CANONICAL_NEON_RUNTIME_ROLE_ADMIN"],
     ["ownership", "alter table public.properties owner to hotel_ld_application;", "CANONICAL_NEON_APPLICATION_OWNERSHIP"],
+    ["schema authorization", "create schema app_private authorization hotel_ld_application;", "CANONICAL_NEON_APPLICATION_OWNERSHIP"],
   ];
   for (const [name, mutation, code] of cases) {
     await t.test(name, async (t) => {
@@ -103,6 +121,18 @@ test("requires transaction-local actor GUC writes", async (t) => {
   );
 });
 
+test("rejects actor GUC transaction-local expressions that are not exactly TRUE", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "003_actor_context.sql");
+  await replace(root, "003_actor_context.sql", sql.replace("p_user::text, true", "p_user::text, false::boolean"));
+
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_ACTOR_CONTEXT_NOT_LOCAL",
+  );
+});
+
 test("does not treat commented security directives as executable", async (t) => {
   const cases = [
     ["FORCE RLS", "alter table public.properties force row level security;", "CANONICAL_NEON_FORCE_RLS_REQUIRED"],
@@ -117,6 +147,17 @@ test("does not treat commented security directives as executable", async (t) => 
       await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === code);
     });
   }
+});
+
+test("does not let nested block comments satisfy FORCE RLS", async (t) => {
+  const root = await copiedFixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const sql = await source(root, "002_people.sql");
+  await replace(root, "002_people.sql", sql.replace(
+    "alter table public.properties force row level security;",
+    "/* outer /* inner */ alter table public.properties force row level security; */",
+  ));
+  await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_FORCE_RLS_REQUIRED");
 });
 
 test("validates declared schemas and entrypoint relationships", async (t) => {
@@ -142,6 +183,16 @@ test("validates declared schemas and entrypoint relationships", async (t) => {
     manifest.entrypoints = ["public.not_a_declared_routine"];
     await writeFile(path, JSON.stringify(manifest));
     await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_MANIFEST_ENTRYPOINT_DRIFT");
+  });
+  await t.test("entrypoint grant must keep its declared signature", async (t) => {
+    const root = await copiedFixture();
+    t.after(() => rm(root, { recursive: true, force: true }));
+    const sql = await source(root, "002_people.sql");
+    await replace(root, "002_people.sql", sql.replace(
+      "grant execute on function public.read_people(text) to hotel_ld_application;",
+      "grant execute on function public.read_people(integer) to hotel_ld_application;",
+    ));
+    await assert.rejects(validateCanonicalNeonSource({ root }), (error) => error?.code === "CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT");
   });
 });
 

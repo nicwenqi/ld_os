@@ -75,7 +75,7 @@ function validateManifest(manifest) {
       fail("CANONICAL_NEON_MODULE_ORDER", "manifest module inventory must be strictly ordered");
     }
   }
-  for (const key of ["schemas", "roles", "types", "tables", "routines", "entrypoints", "policies", "triggers"]) {
+  for (const key of ["schemas", "roles", "types", "tables", "routines", "entrypoints", "entrypointSignatures", "policies", "triggers"]) {
     asStringArray(manifest, key);
   }
   if (!manifest.exclusions || typeof manifest.exclusions !== "object" || Array.isArray(manifest.exclusions)) {
@@ -130,8 +130,18 @@ function stripSqlComments(source) {
       continue;
     }
     if (source.startsWith("/*", index)) {
-      const end = source.indexOf("*/", index + 2);
-      index = end === -1 ? source.length : end + 2;
+      let depth = 1;
+      index += 2;
+      while (index < source.length && depth > 0) {
+        if (source.startsWith("/*", index)) {
+          depth += 1;
+          index += 2;
+        } else if (source.startsWith("*/", index)) {
+          depth -= 1;
+          index += 2;
+        } else index += 1;
+      }
+      if (depth !== 0) fail("CANONICAL_NEON_INVALID_SQL_COMMENT", "unterminated block comment");
       continue;
     }
     if (source[index] === "'") {
@@ -175,7 +185,13 @@ function runtimeRoleSourceChecks(source, manifest) {
   if (!/\bnobypassrls\b/i.test(createStatement) || statements.some((statement) => /\bbypassrls\b/i.test(statement))) {
     fail("CANONICAL_NEON_RUNTIME_ROLE_BYPASSRLS", `${runtimeRole} must remain NOBYPASSRLS`);
   }
-  if (new RegExp(`\\balter\\s+(?:table|view|sequence|function|schema|type)\\s+[^;]+\\bowner\\s+to\\s+${escaped(runtimeRole)}\\b`, "i").test(source)) {
+  if (statements.some((statement) => /\binherit\b/i.test(statement))) {
+    fail("CANONICAL_NEON_RUNTIME_ROLE_INHERIT", `${runtimeRole} must remain NOINHERIT`);
+  }
+  if (statements.some((statement) => /\b(?:superuser|createdb|createrole|replication)\b/i.test(statement))) {
+    fail("CANONICAL_NEON_RUNTIME_ROLE_ADMIN", `${runtimeRole} cannot receive administrative role attributes`);
+  }
+  if (new RegExp(`\\b(?:create|alter)\\s+(?:table|view|sequence|function|schema|type)\\s+[^;]*(?:\\bowner\\s+to|\\bauthorization)\\s+${escaped(runtimeRole)}\\b`, "i").test(source)) {
     fail("CANONICAL_NEON_APPLICATION_OWNERSHIP", `${runtimeRole} cannot own business objects`);
   }
 }
@@ -192,7 +208,7 @@ function requireActorContextLocality(source) {
 }
 
 function requirePublicRevocations(source, routines) {
-  const defaultPrivilege = source.match(/\balter\s+default\s+privileges\b[\s\S]*?\brevoke\s+execute\s+on\s+functions\s+from\s+public\s*;/i);
+  const defaultPrivilege = source.match(/\balter\s+default\s+privileges\s+for\s+role\s+hotel_ld_migration_owner\b[\s\S]*?\brevoke\s+execute\s+on\s+functions\s+from\s+public\s*;/i);
   const firstFunction = source.search(/\bcreate\s+(?:or\s+replace\s+)?function\b/i);
   if (defaultPrivilege && (firstFunction === -1 || defaultPrivilege.index < firstFunction)) return;
   for (const routine of routines) {
@@ -204,6 +220,12 @@ function requirePublicRevocations(source, routines) {
 function grantedEntrypoints(source, runtimeRole) {
   const grants = [...source.matchAll(new RegExp(`\\bgrant\\s+execute\\s+on\\s+function\\s+([\\s\\S]*?)\\s+to\\s+${escaped(runtimeRole)}\\s*;`, "gi"))];
   return orderedUnique(grants.flatMap((grant) => [...grant[1].matchAll(new RegExp(`(public\\.${IDENTIFIER})\\s*\\(`, "gi"))].map((match) => normalizeIdentifier(match[1]))));
+}
+
+function grantedEntrypointSignatures(source, runtimeRole) {
+  const grants = [...source.matchAll(new RegExp(`\\bgrant\\s+execute\\s+on\\s+function\\s+([\\s\\S]*?)\\s+to\\s+${escaped(runtimeRole)}\\s*;`, "gi"))];
+  return orderedUnique(grants.flatMap((grant) => [...grant[1].matchAll(new RegExp(`(public\\.${IDENTIFIER})\\s*\\(([^()]*)\\)`, "gi"))]
+    .map((match) => `${normalizeIdentifier(match[1])}(${match[2].replace(/\\s+/g, "").toLowerCase()})`)));
 }
 
 function rejectUnsafeSource(source, manifest) {
@@ -227,7 +249,7 @@ function rejectUnsafeSource(source, manifest) {
   if (/\bgrant\s+(?:all(?:\s+privileges)?|(?:(?:select|insert|update|delete|truncate|references|trigger)\s*,?\s*))+\s+on\s+(?:table\s+)?(?:public\.)?[a-z_][a-z0-9_]*(?:\s*,\s*(?:public\.)?[a-z_][a-z0-9_]*)*\s+to\s+hotel_ld_application\b/i.test(source)) {
     fail("CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE", "hotel_ld_application cannot receive raw business-table privileges");
   }
-  if (/\bgrant\s+(?:all(?:\s+privileges)?|select|insert|update|delete|truncate|references|trigger)\s+on\s+all\s+tables\s+in\s+schema\s+public\s+to\s+hotel_ld_application\b/i.test(source)) {
+  if (/\bgrant\s+(?:all(?:\s+privileges)?|(?:(?:select|insert|update|delete|truncate|references|trigger)\s*,?\s*)+)\s+on\s+all\s+tables\s+in\s+schema\s+public\s+to\s+hotel_ld_application\b/i.test(source)) {
     fail("CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE", "hotel_ld_application cannot receive raw business-table privileges");
   }
   const topLevel = stripDollarQuotedBlocks(source);
@@ -280,10 +302,20 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
   }
   const routines = asStringArray(manifest, "routines");
   const entrypoints = asStringArray(manifest, "entrypoints");
+  const entrypointSignatures = asStringArray(manifest, "entrypointSignatures").map((signature) => signature.replace(/\s+/g, ""));
   if (entrypoints.some((entrypoint) => !routines.includes(entrypoint))) {
     fail("CANONICAL_NEON_MANIFEST_ENTRYPOINT_DRIFT", "every declared entrypoint must also be a declared routine");
   }
+  if (entrypointSignatures.map((signature) => signature.slice(0, signature.indexOf("("))).some((entrypoint) => !entrypoints.includes(entrypoint))) {
+    fail("CANONICAL_NEON_MANIFEST_ENTRYPOINT_DRIFT", "every declared entrypoint signature must name a declared entrypoint");
+  }
   compareInventory("entrypoints", grantedEntrypoints(source, manifest.security?.runtimeRole), entrypoints);
+  try {
+    compareInventory("entrypoint signatures", grantedEntrypointSignatures(source, manifest.security?.runtimeRole), entrypointSignatures);
+  } catch (error) {
+    if (error?.code === "CANONICAL_NEON_MANIFEST_DRIFT") fail("CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT", error.message);
+    throw error;
+  }
   runtimeRoleSourceChecks(source, manifest);
   requireActorContextLocality(source);
   requirePublicRevocations(source, routines);
