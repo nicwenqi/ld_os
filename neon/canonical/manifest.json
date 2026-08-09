@@ -196,6 +196,113 @@
     "public.update_neon_organization_department(text,uuid,bigint,text,text,integer,boolean)",
     "public.update_neon_organization_operational_unit(text,uuid,bigint,uuid,uuid,text,text,text,text,integer,boolean)"
   ],
+  "applicationContracts": [
+    {
+      "domain": "organization",
+      "repositories": [
+        {
+          "path": "app/repositories/contracts/department-repository.ts",
+          "interface": "DepartmentRepository",
+          "methods": [
+            "approveMapping",
+            "createNode",
+            "createOperationalUnit",
+            "getAncestors",
+            "getDescendants",
+            "getNode",
+            "listAliases",
+            "listOperationalUnits",
+            "listTree",
+            "moveNode",
+            "previewMove",
+            "saveOperationalUnit",
+            "setActive",
+            "updateNode"
+          ]
+        }
+      ],
+      "adapters": ["app/repositories/http/department-repository.ts"],
+      "apiRoutes": [
+        { "path": "app/api/organization/departments/[id]/ancestors/route.ts", "methods": ["GET"] },
+        { "path": "app/api/organization/departments/[id]/descendants/route.ts", "methods": ["GET"] },
+        { "path": "app/api/organization/departments/[id]/move-preview/route.ts", "methods": ["POST"] },
+        { "path": "app/api/organization/departments/[id]/move/route.ts", "methods": ["POST"] },
+        { "path": "app/api/organization/departments/[id]/route.ts", "methods": ["GET", "PATCH"] },
+        { "path": "app/api/organization/departments/aliases/[id]/resolution/route.ts", "methods": ["POST"] },
+        { "path": "app/api/organization/departments/aliases/route.ts", "methods": ["GET"] },
+        { "path": "app/api/organization/departments/route.ts", "methods": ["GET", "POST"] },
+        { "path": "app/api/organization/operational-units/[id]/route.ts", "methods": ["PATCH"] },
+        { "path": "app/api/organization/operational-units/route.ts", "methods": ["GET", "POST"] }
+      ]
+    },
+    {
+      "domain": "people",
+      "repositories": [
+        {
+          "path": "app/repositories/contracts/employee-repository.ts",
+          "interface": "EmployeeRepository",
+          "methods": [
+            "findByEmployeeNumber",
+            "getEmployee",
+            "listDepartmentEmployees",
+            "listEmployees",
+            "listEmployeesPage",
+            "listExternalIdentifiers"
+          ]
+        },
+        {
+          "path": "app/repositories/contracts/people-facet-repository.ts",
+          "interface": "PeopleFacetRepository",
+          "methods": ["listManagerFacets"]
+        },
+        {
+          "path": "app/repositories/contracts/employee-write-repository.ts",
+          "interface": "EmployeeWriteRepository",
+          "methods": ["saveEmployeeWithIdentifiers"]
+        }
+      ],
+      "adapters": [
+        "app/repositories/http/employee-repository.ts",
+        "app/repositories/http/people-facet-repository.ts"
+      ],
+      "apiRoutes": [
+        { "path": "app/api/people/employees/[id]/route.ts", "methods": ["GET"] },
+        { "path": "app/api/people/employees/route.ts", "methods": ["GET", "POST"] },
+        { "path": "app/api/people/employees/save/route.ts", "methods": ["POST"] },
+        { "path": "app/api/people/facets/route.ts", "methods": ["GET"] }
+      ]
+    },
+    {
+      "domain": "position",
+      "repositories": [
+        {
+          "path": "app/repositories/contracts/position-repository.ts",
+          "interface": "PositionRepository",
+          "methods": [
+            "approvePositionMapping",
+            "assignPositionToDepartments",
+            "listPositionFamilies",
+            "listPositions",
+            "listSourceLabels",
+            "previewSourceImpact",
+            "savePosition",
+            "savePositionFamily",
+            "savePositionWithDepartments"
+          ]
+        }
+      ],
+      "adapters": ["app/repositories/http/position-repository.ts"],
+      "apiRoutes": [
+        { "path": "app/api/organization/position-families/[id]/route.ts", "methods": ["PATCH"] },
+        { "path": "app/api/organization/position-families/route.ts", "methods": ["GET", "POST"] },
+        { "path": "app/api/organization/position-source-labels/[id]/impact/route.ts", "methods": ["GET"] },
+        { "path": "app/api/organization/position-source-labels/[id]/resolution/route.ts", "methods": ["POST"] },
+        { "path": "app/api/organization/position-source-labels/route.ts", "methods": ["GET"] },
+        { "path": "app/api/organization/positions/[id]/route.ts", "methods": ["PATCH"] },
+        { "path": "app/api/organization/positions/route.ts", "methods": ["GET", "POST"] }
+      ]
+    }
+  ],
   "policies": [
     "canonical_actor_context_scope",
     "canonical_audit_insert",

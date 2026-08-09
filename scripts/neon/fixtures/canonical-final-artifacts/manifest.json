@@ -1,0 +1,21 @@
+{
+  "applicationContracts": [
+    {
+      "domain": "example",
+      "repositories": [
+        {
+          "path": "app/repositories/contracts/example-repository.ts",
+          "interface": "ExampleRepository",
+          "methods": ["listThings"]
+        }
+      ],
+      "adapters": ["app/repositories/http/example-repository.ts"],
+      "apiRoutes": [
+        {
+          "path": "app/api/example/route.ts",
+          "methods": ["GET"]
+        }
+      ]
+    }
+  ]
+}
