@@ -21,8 +21,9 @@
   JSON transport text alone. A single oversized record fails before any
   staging SQL.
 - Source-label normalization follows PostgreSQL ordering precisely: U+0020
-  `btrim`, then NFKC normalization, then lowercase. It deliberately does not
-  pre-trim non-breaking spaces.
+  `btrim`, then NFKC normalization, then `COLLATE "C"` equivalent ASCII-only
+  lowercase. It deliberately does not pre-trim non-breaking spaces or apply
+  Unicode case folding.
 - Added the minimal server-only cleanup `operationId` correction. It matches
   the frozen 091 cleanup entrypoint signatures. Cleanup claim remains an
   array because 091 claims a bounded batch; operation IDs remain absent from
@@ -32,7 +33,8 @@
   limits, and raw-table/employee-mutation/query-alias/reflection rejection.
   The token audit permits only direct `database.query(<approved literal>,
   [typed values])` calls; function extraction, destructuring, database aliases,
-  bracket access, `call`/`apply`/`bind`, `Reflect`, and `Proxy` are fail-closed.
+  optional chaining, bracket/computed access, `Object.create`,
+  `call`/`apply`/`bind`, `Reflect`, and `Proxy` are fail-closed.
 
 ## Verification
 

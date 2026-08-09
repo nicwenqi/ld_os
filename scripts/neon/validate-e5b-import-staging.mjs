@@ -282,15 +282,15 @@ export function validateE5bImportStagingRepositorySource(source) {
   const queryReferences = [...value.matchAll(/\bdatabase\s*\.\s*query\b/g)];
   const queryCalls = [...value.matchAll(/database\s*\.\s*query(?:\s*<\s*PayloadRow\s*>)?\s*\(\s*(["'])([\s\S]*?)\1\s*,\s*\[/g)];
   const normalizedQueries = queryCalls.map(match => match[2].replace(/\s+/g, " ").trim());
-  const queryAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*database\s*(?:\.\s*query\b|\[\s*["']query["']\s*\])/;
-  const databaseAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*database\b/;
+  const queryAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*\(*\s*database\s*\)*\s*(?:\.\s*query\b|\[\s*["']query["']\s*\])/;
+  const databaseAlias = /(?:const|let|var)\s+(?:[A-Za-z_$][\w$]*|\{[^}]*\})\s*=\s*\(*\s*database\b/;
   if (queryReferences.length !== approvedQueries.size
     || queryCalls.length !== approvedQueries.size
     || new Set(normalizedQueries).size !== approvedQueries.size
     || normalizedQueries.some(query => !approvedQueries.has(query))
     || queryAlias.test(value)
     || databaseAlias.test(value)
-    || /\b(?:Reflect|Proxy)\b|database\s*\[\s*["']query["']\s*\]|database\s*\.\s*query\s*\.\s*(?:call|apply|bind)\b|Object\s*\.\s*(?:assign|defineProperty|getOwnPropertyDescriptor)\s*\([^)]*\bdatabase\b/.test(value)) {
+    || /\b(?:Reflect|Proxy)\b|database\s*\?\.\s*(?:query\b|\[)|database\s*\[|database\s*\.\s*query\s*\.\s*(?:call|apply|bind)\b|Object\s*\.\s*(?:assign|create|defineProperty|getOwnPropertyDescriptor)\s*\([^)]*\bdatabase\b/.test(value)) {
     failSource("E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION");
   }
   if (/public\.\$\{|from\s+public\.import_|join\s+public\.import_|insert\s+into\s+public\.import_|update\s+public\.import_|delete\s+from\s+public\.import_/i.test(value)

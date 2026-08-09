@@ -430,6 +430,20 @@ test("repository source validation rejects raw table access and dynamic entrypoi
     ),
     /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
   );
+  for (const indirect of [
+    'await database?.query("select 1", []);',
+    'await database["qu" + "ery"]("select 1", []);',
+    'const raw = (database).query; await raw("select 1", []);',
+    'await database?.["query"]("select 1", []);',
+    'await Object.create(database).query("select 1", []);',
+    'await Reflect.get(database, "qu" + "ery")("select 1", []);',
+    'await new Proxy(database, {}).query?.("select 1", []);',
+  ]) {
+    assert.throws(
+      () => validateE5bImportStagingRepositorySource(`${source}\n${indirect}`),
+      /E5B_IMPORT_STAGING_REPOSITORY_QUERY_ALLOWLIST_VIOLATION/,
+    );
+  }
 });
 
 test("source label normalization matches PostgreSQL btrim U+0020 ordering", async () => {
@@ -452,6 +466,28 @@ test("source label normalization matches PostgreSQL btrim U+0020 ordering", asyn
   });
   const label = JSON.parse(calls[5].values[2])[0];
   assert.equal(label.normalizedSourceLabel, " front desk ");
+});
+
+test("source label normalization uses PostgreSQL C-collation ASCII lowercase only", async () => {
+  const calls = [];
+  const input = evidence();
+  input.sourceLabels[0] = {
+    ...input.sourceLabels[0],
+    sourceLabel: "Ä TEAM",
+    normalizedSourceLabel: "Ä team",
+  };
+  input.sourceRows = input.sourceRows.map(row => ({
+    ...row,
+    normalizedValues: { ...row.normalizedValues, department_source_label: "Ä TEAM" },
+  }));
+
+  await repository(createDatabase(calls)).stageVerifiedWorkbook({
+    batchId: ids.batch,
+    expectedVersion: 7,
+    evidence: input,
+  });
+  const label = JSON.parse(calls[5].values[2])[0];
+  assert.equal(label.normalizedSourceLabel, "Ä team");
 });
 
 function postgresProjectionHash(value) {

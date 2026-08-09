@@ -561,7 +561,7 @@ function booleanValue(value: unknown, field: string): boolean { if (typeof value
 function enumValue<T extends string>(value: unknown, allowed: ReadonlySet<T>, field: string): T { if (typeof value !== "string" || !allowed.has(value as T)) invalid(field); return value as T; }
 function compareUtf8(left: string, right: string): number { const a = UTF8.encode(left); const b = UTF8.encode(right); for (let index = 0; index < Math.min(a.length, b.length); index += 1) if (a[index] !== b[index]) return a[index] - b[index]; return a.length - b.length; }
 function utf8ByteLength(value: string): number { return UTF8.encode(value).byteLength; }
-function normalizeImportSourceLabel(value: string): string { return trimAsciiSpace(value).normalize("NFKC").toLowerCase(); }
+function normalizeImportSourceLabel(value: string): string { return trimAsciiSpace(value).normalize("NFKC").replace(/[A-Z]/g, character => character.toLowerCase()); }
 function trimAsciiSpace(value: string): string { return value.replace(/^ +| +$/g, ""); }
 function recordTooLarge(): never { throw new Error("E5B_IMPORT_STAGING_RECORD_TOO_LARGE"); }
 function invalid(field: string): never { throw new Error(`NEON_IMPORT_STAGING_PAYLOAD_INVALID:${field}`); }
