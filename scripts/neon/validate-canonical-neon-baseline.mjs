@@ -33,9 +33,21 @@ export const REPLAY_NEON_TARGET = Object.freeze({
   postgresMajor: 18,
 });
 
+export const ACCEPTANCE_NEON_TARGET = Object.freeze({
+  projectName: "hotel-ld-os-neon-final-acceptance",
+  projectId: "delicate-wind-06430851",
+  branchName: "main",
+  branchId: "br-icy-scene-aukkzv69",
+  endpointId: "ep-frosty-math-audxlq88",
+  database: "neondb",
+  bootstrapRole: "neondb_owner",
+  postgresMajor: 18,
+});
+
 export const AUTHORIZED_NEON_TARGETS = Object.freeze([
   EXPECTED_NEON_TARGET,
   REPLAY_NEON_TARGET,
+  ACCEPTANCE_NEON_TARGET,
 ]);
 
 const FORBIDDEN_NEON_TARGETS = new Set([

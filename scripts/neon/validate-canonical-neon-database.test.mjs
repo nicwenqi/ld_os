@@ -25,6 +25,17 @@ const replayTarget = Object.freeze({
   postgresMajor: 18,
 });
 
+const acceptanceTarget = Object.freeze({
+  projectName: "hotel-ld-os-neon-final-acceptance",
+  projectId: "delicate-wind-06430851",
+  branchName: "main",
+  branchId: "br-icy-scene-aukkzv69",
+  endpointId: "ep-frosty-math-audxlq88",
+  database: "neondb",
+  bootstrapRole: "neondb_owner",
+  postgresMajor: 18,
+});
+
 function fixtureConnectionString(role, pooled = false, target = EXPECTED_NEON_TARGET) {
   const endpoint = `${target.endpointId}${pooled ? "-pooler" : ""}.fixture.neon.tech`;
   const url = new URL(["postgresql:", "", endpoint, target.database].join("/"));
@@ -159,8 +170,9 @@ test("rejects any non-canonical project metadata before constructing a pool", as
   assert.equal(constructed, 0);
 });
 
-test("accepts only either complete authorized target tuple without field mixing", async () => {
-  for (const target of [EXPECTED_NEON_TARGET, replayTarget]) {
+test("accepts only complete authorized target tuples without field mixing", async () => {
+  const authorizedTargets = [EXPECTED_NEON_TARGET, replayTarget, acceptanceTarget];
+  for (const target of authorizedTargets) {
     const pool = fakePool(bootstrapHandler);
     const result = await validateCanonicalNeon({
       mode: "dry-run",
@@ -173,10 +185,17 @@ test("accepts only either complete authorized target tuple without field mixing"
   }
 
   const differingKeys = ["projectName", "projectId", "branchId", "endpointId"];
-  for (let mask = 1; mask < (2 ** differingKeys.length) - 1; mask += 1) {
+  for (let combination = 0; combination < authorizedTargets.length ** differingKeys.length; combination += 1) {
+    let remaining = combination;
+    const selectedTargetIndexes = differingKeys.map(() => {
+      const targetIndex = remaining % authorizedTargets.length;
+      remaining = Math.floor(remaining / authorizedTargets.length);
+      return targetIndex;
+    });
+    if (selectedTargetIndexes.every((targetIndex) => targetIndex === selectedTargetIndexes[0])) continue;
     const mixedTarget = { ...EXPECTED_NEON_TARGET };
     differingKeys.forEach((key, index) => {
-      if (mask & (1 << index)) mixedTarget[key] = replayTarget[key];
+      mixedTarget[key] = authorizedTargets[selectedTargetIndexes[index]][key];
     });
     let constructed = 0;
     await assert.rejects(
@@ -199,27 +218,28 @@ test("accepts only either complete authorized target tuple without field mixing"
 });
 
 test("binds each authorized target tuple to its own endpoint", async () => {
-  for (const [target, connectionTarget] of [
-    [EXPECTED_NEON_TARGET, replayTarget],
-    [replayTarget, EXPECTED_NEON_TARGET],
-  ]) {
-    let constructed = 0;
-    await assert.rejects(
-      validateCanonicalNeon({
-        mode: "dry-run",
-        root: fixtureRoot,
-        target,
-        bootstrapConnectionString: fixtureConnectionString(target.bootstrapRole, false, connectionTarget),
-        dependencies: {
-          createBootstrapPool() {
-            constructed += 1;
-            throw new Error("must remain unreachable");
+  const authorizedTargets = [EXPECTED_NEON_TARGET, replayTarget, acceptanceTarget];
+  for (const target of authorizedTargets) {
+    for (const connectionTarget of authorizedTargets) {
+      if (connectionTarget === target) continue;
+      let constructed = 0;
+      await assert.rejects(
+        validateCanonicalNeon({
+          mode: "dry-run",
+          root: fixtureRoot,
+          target,
+          bootstrapConnectionString: fixtureConnectionString(target.bootstrapRole, false, connectionTarget),
+          dependencies: {
+            createBootstrapPool() {
+              constructed += 1;
+              throw new Error("must remain unreachable");
+            },
           },
-        },
-      }),
-      (error) => error?.code === "CANONICAL_NEON_BOOTSTRAP_CONNECTION_MISMATCH",
-    );
-    assert.equal(constructed, 0);
+        }),
+        (error) => error?.code === "CANONICAL_NEON_BOOTSTRAP_CONNECTION_MISMATCH",
+      );
+      assert.equal(constructed, 0);
+    }
   }
 });
 
