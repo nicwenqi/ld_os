@@ -4,8 +4,9 @@ import { access, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-export const E5B_CHILD_BRANCH = "br-aged-river-az1gke14";
-export const E5B_CHILD_ENDPOINT = "ep-sparkling-shape-az9gxtuh";
+export const E5B_PROJECT = "delicate-wind-06430851";
+export const E5B_CHILD_BRANCH = "br-icy-scene-aukkzv69";
+export const E5B_CHILD_ENDPOINT = "ep-frosty-math-audxlq88";
 export const E5B_PRODUCTION_BRANCH = "br-twilight-leaf-azmowo1k";
 export const E5B_PRODUCTION_ENDPOINT = "ep-wild-wave-azjmgdif";
 export const E5B_DATABASE = "neondb";
@@ -91,7 +92,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     Promise.all(serverPaths.map(path => readFile(path, "utf8"))),
     readFile(join(root, "app/api/import/inspect/route.ts"), "utf8"),
   ]);
-  const sql = migrations.join("\n");
+  const sql = stripSqlComments(migrations.join("\n"));
   const server = serverSources.join("\n");
 
   if (!/begin;[\s\S]*commit;\s*$/i.test(migrations[0])
@@ -100,7 +101,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     failSource("E5B_IMPORT_STAGING_TRANSACTION_BOUNDARY");
   }
   for (const signature of E5B_ENTRYPOINT_SIGNATURES) {
-    const routine = routineSource(sql, signature.split("(")[0]);
+    const routine = routineSource(sql, signature);
     if (!routine
       || !/security definer/i.test(routine)
       || !/set search_path\s*=\s*''/i.test(routine)
@@ -123,7 +124,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
       failSource("E5B_IMPORT_STAGING_FORCE_RLS_MISSING", table);
     }
   }
-  if (/grant\s+(?:select|insert|update|delete|all)\s+on\s+(?:table\s+)?(?:public|app_private)\.[\w_]+\s+to\s+hotel_ld_application/i.test(sql)) {
+  if (hasUnsafeRawApplicationPrivilege(sql)) {
     failSource("E5B_IMPORT_STAGING_RAW_APPLICATION_GRANT");
   }
   if (/create\s+schema\s+(?:auth|storage)\b|\b(?:auth|storage)\.(?:objects|users)\b/i.test(sql)
@@ -174,14 +175,81 @@ async function everyExists(paths) {
   return found.every(Boolean);
 }
 
-function routineSource(source, qualifiedName) {
-  const marker = new RegExp(`create\\s+(?:or\\s+replace\\s+)?function\\s+${escape(qualifiedName)}\\s*\\(`, "i");
-  const match = marker.exec(source);
-  if (!match) return "";
-  const following = /\ncreate\s+(?:or\s+replace\s+)?function\s+/gi;
-  following.lastIndex = match.index + match[0].length;
-  const next = following.exec(source);
-  return source.slice(match.index, next ? next.index : source.length);
+function routineSource(source, signature) {
+  const [qualifiedName, expectedArguments] = splitSignature(signature);
+  const marker = new RegExp(
+    `create\\s+(?:or\\s+replace\\s+)?function\\s+${escape(qualifiedName)}\\s*\\(([^)]*)\\)`,
+    "gi",
+  );
+  let match;
+  while ((match = marker.exec(source))) {
+    if (argumentIdentity(match[1]) !== expectedArguments) continue;
+    const following = /\ncreate\s+(?:or\s+replace\s+)?function\s+/gi;
+    following.lastIndex = marker.lastIndex;
+    const next = following.exec(source);
+    return source.slice(match.index, next ? next.index : source.length);
+  }
+  return "";
+}
+
+function splitSignature(signature) {
+  const opening = signature.indexOf("(");
+  return [
+    signature.slice(0, opening),
+    argumentIdentity(signature.slice(opening + 1, -1)),
+  ];
+}
+
+function argumentIdentity(argumentsSource) {
+  const knownTypes = new Set(["text", "uuid", "bigint", "integer", "jsonb", "timestamptz"]);
+  if (!argumentsSource.trim()) return "";
+  return argumentsSource.split(",").map(argument => {
+    const tokens = argument
+      .replace(/\s*=\s*[\s\S]*$/, "")
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    while (["in", "out", "inout", "variadic"].includes(tokens[0]?.toLowerCase())) tokens.shift();
+    if (tokens.length > 1 && knownTypes.has(tokens.at(-1)?.toLowerCase())) tokens.shift();
+    return tokens.join(" ").toLowerCase();
+  }).join(",");
+}
+
+/**
+ * Remove SQL line/block comments before source assertions. The canonical
+ * modules do not use nested block comments; preserving newlines keeps routine
+ * boundaries stable for the declaration matcher.
+ */
+function stripSqlComments(source) {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/--[^\r\n]*/g, "");
+}
+
+/**
+ * The application role must receive functions only. Scan complete GRANT
+ * statements so a comma list, schema/sequence grant, GROUP, or quoted role
+ * cannot hide a raw privilege from the validator.
+ */
+export function hasUnsafeRawApplicationPrivilege(source) {
+  const sql = stripSqlComments(source);
+  for (const statement of sql.match(/\bgrant\b[\s\S]*?;/gi) ?? []) {
+    const match = statement.match(/^\s*grant\s+[\s\S]*?\bon\s+(?:(table|sequence|schema)\s+)?([\s\S]*?)\s+\bto\b\s+([\s\S]*?);\s*$/i);
+    if (!match) continue;
+    const [, kind = "table", objects, grantees] = match;
+    if (!mentionsApplicationRole(grantees)) continue;
+    if (/^\s*function\b/i.test(objects) || /^\s*all\s+functions\b/i.test(objects)) continue;
+    if (kind.toLowerCase() === "schema") {
+      if (/(?:^|,)\s*"?(?:public|app_private)"?\s*(?:,|$)/i.test(objects)) return true;
+      continue;
+    }
+    if (objects.split(",").some(object => /^\s*"?(?:public|app_private)"?\s*\./i.test(object))) return true;
+  }
+  return false;
+}
+
+function mentionsApplicationRole(value) {
+  return /(?:^|[,\s])(?:group\s+|role\s+)?"?hotel_ld_application"?(?=$|[,\s])/i.test(value.trim());
 }
 
 function approvedConnection(raw, role, pooled, kind) {
@@ -206,6 +274,7 @@ function approvedConnection(raw, role, pooled, kind) {
       : "E5B_IMPORT_STAGING_DIRECT_BOOTSTRAP_REQUIRED");
   }
   return {
+    project: E5B_PROJECT,
     branch: E5B_CHILD_BRANCH,
     endpoint: E5B_CHILD_ENDPOINT,
     database: E5B_DATABASE,
@@ -236,7 +305,7 @@ function failSource(code, value = "") { throw new Error(`${code}${value ? `: ${v
 function output(command, assertions) {
   console.log(JSON.stringify({
     command,
-    child: { branch: E5B_CHILD_BRANCH, endpoint: E5B_CHILD_ENDPOINT, database: E5B_DATABASE },
+    child: { project: E5B_PROJECT, branch: E5B_CHILD_BRANCH, endpoint: E5B_CHILD_ENDPOINT, database: E5B_DATABASE },
     assertions,
   }));
 }

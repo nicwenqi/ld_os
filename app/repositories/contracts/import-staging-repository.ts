@@ -25,7 +25,43 @@ export type ImportVerificationStatus = "pending" | "passed" | "failed";
 
 /** A parsed cell value, never a database row or authorization payload. */
 export type ImportEvidenceValue = string | number | boolean | null;
-export type ImportEvidenceValues = Readonly<Record<string, ImportEvidenceValue>>;
+
+/** The parser may stage only these employee-master targets in E5B. */
+export type ImportEmployeeMasterTargetField =
+  | "employee_number"
+  | "name_zh"
+  | "name_en"
+  | "department_source_label"
+  | "position_source_label"
+  | "grade_or_band"
+  | "hire_date"
+  | "probation_or_confirmation_date"
+  | "employment_status";
+
+/** Raw evidence preserves one parsed source cell with its approved target. */
+export type ImportRawCellStagingEvidence = {
+  sourceColumnName: string;
+  targetField: ImportEmployeeMasterTargetField;
+  value: ImportEvidenceValue;
+};
+
+/** Normalized evidence has a closed set of employee-master fields. */
+export type ImportNormalizedEmployeeValues = Readonly<{
+  employee_number?: ImportEvidenceValue;
+  name_zh?: ImportEvidenceValue;
+  name_en?: ImportEvidenceValue;
+  department_source_label?: ImportEvidenceValue;
+  position_source_label?: ImportEvidenceValue;
+  grade_or_band?: ImportEvidenceValue;
+  hire_date?: ImportEvidenceValue;
+  probation_or_confirmation_date?: ImportEvidenceValue;
+  employment_status?: ImportEvidenceValue;
+}>;
+
+export type ImportTransformationRule = Readonly<{
+  trim: boolean;
+  preserveText: boolean;
+}>;
 
 export type ImportBatchStagingEvidence = {
   detectedSheetCount: number;
@@ -52,11 +88,8 @@ export type ImportFieldMappingStagingEvidence = {
   sheetId: string;
   sourceColumnName: string;
   sourceColumnIndex: number;
-  targetField: string;
-  transformationRule: Readonly<{
-    trim: boolean;
-    preserveText: boolean;
-  }>;
+  targetField: ImportEmployeeMasterTargetField;
+  transformationRule: ImportTransformationRule;
   isRequired: boolean;
 };
 
@@ -64,8 +97,8 @@ export type ImportSourceRowStagingEvidence = {
   id: string;
   sheetId: string;
   sourceRowNumber: number;
-  rawValues: ImportEvidenceValues;
-  normalizedValues: ImportEvidenceValues;
+  rawValues: readonly ImportRawCellStagingEvidence[];
+  normalizedValues: ImportNormalizedEmployeeValues;
   rowFingerprint: string;
   processingStatus: "staged" | "warning" | "error";
   proposedAction: "unresolved";
