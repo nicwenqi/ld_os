@@ -30,6 +30,8 @@
         "command": "select",
         "roles": ["hotel_ld_migration_owner"],
         "permissive": true,
+        "catalogUsing": "true",
+        "catalogWithCheck": "",
         "using": "true",
         "withCheck": ""
       }

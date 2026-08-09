@@ -5,6 +5,7 @@ import test from "node:test";
 
 import {
   EXPECTED_NEON_TARGET,
+  POLICY_CATALOG_DESCRIPTOR_SQL,
   assertExpectedSmokeRejection,
   runtimeSmokeValues,
   validateCanonicalNeon,
@@ -239,11 +240,20 @@ test("catalog binds every policy and trigger security descriptor, not names alon
   for (const field of ["polcmd", "polroles", "polpermissive", "pg_get_expr(policy.polqual", "pg_get_expr(policy.polwithcheck"]) {
     assert.equal(catalogQuery.text.includes(field), true, field);
   }
+  assert.equal(catalogQuery.text.includes("regexp_replace(pg_catalog.regexp_replace(pg_catalog.lower(coalesce(pg_catalog.pg_get_expr"), false);
+  assert.equal(catalogQuery.values[5].every((descriptor) => descriptor.includes("(") || descriptor.endsWith("|")), true);
   for (const field of ["tgenabled", "tgtype", "tgattr", "tgfoid", "routine_namespace.nspname"]) {
     assert.equal(catalogQuery.text.includes(field), true, field);
   }
   assert.equal(catalogQuery.values[5].every((descriptor) => descriptor.split("|").length === 6), true);
   assert.equal(catalogQuery.values[6].every((descriptor) => descriptor.split("|").length === 7), true);
+});
+
+test("policy catalog mapping query returns exact raw pg_get_expr descriptors without qualified special forms", () => {
+  assert.match(POLICY_CATALOG_DESCRIPTOR_SQL, /canonical_policy_catalog_descriptors/);
+  assert.match(POLICY_CATALOG_DESCRIPTOR_SQL, /pg_get_expr\(policy\.polqual,policy\.polrelid\)/);
+  assert.match(POLICY_CATALOG_DESCRIPTOR_SQL, /pg_get_expr\(policy\.polwithcheck,policy\.polrelid\)/);
+  assert.doesNotMatch(POLICY_CATALOG_DESCRIPTOR_SQL, /\bpg_catalog\.(?:coalesce|greatest|least|nullif|current_date|current_user|session_user)\b/i);
 });
 
 test("entrypoint smoke rejects structural, catalog, internal, and permission errors unconditionally", () => {

@@ -142,8 +142,12 @@ After the live matrix above, a connection-free review round tightened the final
 source further. It did not connect to or modify Neon:
 
 - The manifest now freezes all 31 policy descriptors, including command, roles,
-  permissive/restrictive mode, `USING`, and `WITH CHECK`. Source validation and
-  catalog validation independently derive the same complete inventory and fail
+  permissive/restrictive mode, `USING`, and `WITH CHECK`. Source descriptors use
+  token-preserving canonicalization that ignores only lexical formatting while
+  retaining boolean grouping, casts, operators, string values, and quoted
+  identifier case. Separate catalog descriptors freeze the exact PostgreSQL 18
+  `pg_get_expr` output, including server-added casts and parentheses. Source and
+  catalog validation independently derive their complete inventories and fail
   closed on drift.
 - All 15 trigger descriptors now freeze enabled state, timing, events, update
   columns, level, and exact trigger-function identity. Append-only audit checks
@@ -158,6 +162,10 @@ source further. It did not connect to or modify Neon:
   every canonical `public`/`app_private` routine from `pg_get_functiondef` after
   the complete dependency graph exists. The earlier `off` setting remains local
   only to forward-reference modules.
+- The PostgreSQL special-form gate now covers validator SQL as well as all seven
+  modules. The first read-only descriptor-mapping query was rejected with 42883
+  because its ad-hoc text schema-qualified `coalesce`; the corrected unqualified
+  query returned exactly 31 catalog descriptors and performed no write.
 
 The earlier live results therefore document the applied staging revision and
 runtime behavior, while the review-hardened final source must complete the fresh
@@ -212,8 +220,8 @@ npm run build
 git diff --check
 ```
 
-Final connection-free verdicts were 98/98 Task 3 tests (56 source-validator
-tests plus 42 database/bootstrap contract tests), 201/201 application tests,
+Final connection-free verdicts were 100/100 Task 3 tests (56 source-validator
+tests plus 44 database/bootstrap contract tests), 201/201 application tests,
 1/1 rendered-HTML test, a successful source gate, a successful production
 build, and a clean diff check.
 

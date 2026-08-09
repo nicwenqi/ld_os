@@ -64,22 +64,41 @@ function asStringArray(manifest, key) {
   return manifest[key].map(normalizeIdentifier);
 }
 
-function normalizePolicyExpression(value) {
-  return String(value ?? "")
-    .toLowerCase()
-    .replace(/::[a-z_][a-z0-9_.]*(?:\[\])?/g, "")
-    .replace(/[\s()\"]/g, "");
+function normalizePolicySourceExpression(value) {
+  return tokenizeSql(String(value ?? "")).map((token) => {
+    if (token.type === "identifier" && token.raw.startsWith('"')) return `quoted-identifier:${JSON.stringify(token.raw)}`;
+    if (token.type === "identifier") return `identifier:${token.value}`;
+    if (token.type === "string") return `string:${JSON.stringify(token.value)}`;
+    return `symbol:${token.value}`;
+  }).join(" ");
 }
 
-function policyDescriptorValue(descriptor) {
+function policyDescriptorCore(descriptor) {
   const roles = orderedUnique(descriptor.roles.map(normalizeIdentifier));
   return [
     `${normalizeIdentifier(descriptor.schema)}.${normalizeIdentifier(descriptor.table)}:${normalizeIdentifier(descriptor.name)}`,
     normalizeIdentifier(descriptor.command),
     roles.join(","),
     descriptor.permissive ? "permissive" : "restrictive",
-    normalizePolicyExpression(descriptor.using),
-    normalizePolicyExpression(descriptor.withCheck),
+  ];
+}
+
+function policySourceDescriptorValue(descriptor) {
+  return [
+    ...policyDescriptorCore(descriptor),
+    normalizePolicySourceExpression(descriptor.using),
+    normalizePolicySourceExpression(descriptor.withCheck),
+  ].join("|");
+}
+
+function policyCatalogDescriptorValue(descriptor) {
+  if (descriptor.catalogUsing.includes("|") || descriptor.catalogWithCheck.includes("|")) {
+    fail("CANONICAL_NEON_INVALID_MANIFEST", "catalog policy expressions cannot contain descriptor delimiters");
+  }
+  return [
+    ...policyDescriptorCore(descriptor),
+    descriptor.catalogUsing,
+    descriptor.catalogWithCheck,
   ].join("|");
 }
 
@@ -95,14 +114,14 @@ function triggerDescriptorValue(descriptor) {
   ].join("|");
 }
 
-function securityDescriptorInventory(manifest, kind) {
+function securityDescriptorInventory(manifest, kind, representation = "source") {
   const key = kind === "policy" ? "policyDescriptors" : "triggerDescriptors";
   const descriptors = manifest.security?.[key];
   if (!Array.isArray(descriptors) || descriptors.length === 0) {
     fail("CANONICAL_NEON_INVALID_MANIFEST", `manifest.security.${key} must be a non-empty array`);
   }
   const expectedKeys = kind === "policy"
-    ? ["command", "name", "permissive", "roles", "schema", "table", "using", "withCheck"]
+    ? ["catalogUsing", "catalogWithCheck", "command", "name", "permissive", "roles", "schema", "table", "using", "withCheck"]
     : ["enabled", "events", "function", "level", "name", "schema", "table", "timing", "updateColumns"];
   for (const descriptor of descriptors) {
     if (!descriptor || typeof descriptor !== "object" || Array.isArray(descriptor)
@@ -119,7 +138,8 @@ function securityDescriptorInventory(manifest, kind) {
       fail("CANONICAL_NEON_INVALID_MANIFEST", `manifest.security.${key} descriptor fields have invalid types`);
     }
   }
-  return orderedUnique(descriptors.map(kind === "policy" ? policyDescriptorValue : triggerDescriptorValue));
+  if (kind === "trigger") return orderedUnique(descriptors.map(triggerDescriptorValue));
+  return orderedUnique(descriptors.map(representation === "catalog" ? policyCatalogDescriptorValue : policySourceDescriptorValue));
 }
 
 async function exists(path) {
@@ -226,7 +246,7 @@ export function canonicalPolicyDescriptors(source) {
     const match = header.match(/^create\s+policy\s+([a-z_][a-z0-9_]*)\s+on\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)(?:\s+as\s+(permissive|restrictive))?(?:\s+for\s+(all|select|insert|update|delete))?(?:\s+to\s+(.+?))?$/i);
     if (!match) fail("CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT", "cannot parse canonical policy descriptor");
     const roles = (match[6] ?? "public").split(",").map((role) => role.trim()).filter(Boolean);
-    return policyDescriptorValue({
+    return policySourceDescriptorValue({
       schema: match[2], table: match[3], name: match[1], command: match[5] ?? "all",
       roles, permissive: (match[4] ?? "permissive").toLowerCase() === "permissive",
       using: parenthesizedSqlClause(statement, ["using"]),
@@ -694,7 +714,8 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
     fail("CANONICAL_NEON_MISSING_MODULE", `canonical module inventory is incomplete: ${missingPaths.join(", ")}`);
   }
   const sources = await Promise.all(modules.map(({ path }) => readFile(join(canonicalRoot, path), "utf8")));
-  const source = normalizeQuotedIdentifiers(stripSqlComments(sources.join("\n")));
+  const descriptorSource = stripSqlComments(sources.join("\n"));
+  const source = normalizeQuotedIdentifiers(descriptorSource);
   rejectUnsafeSource(source, manifest);
   const actual = objectInventory(source);
   const declaredSchemas = asStringArray(manifest, "schemas");
@@ -703,7 +724,7 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
     compareInventory(kind, actual[kind], asStringArray(manifest, kind));
   }
   try {
-    compareInventory("policy descriptors", canonicalPolicyDescriptors(source), securityDescriptorInventory(manifest, "policy"));
+    compareInventory("policy descriptors", canonicalPolicyDescriptors(descriptorSource), securityDescriptorInventory(manifest, "policy", "source"));
   } catch (error) {
     if (error?.code === "CANONICAL_NEON_MANIFEST_DRIFT") fail("CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT", error.message);
     throw error;
@@ -882,6 +903,26 @@ const CATALOG_BOOLEAN_FIELDS = [
   "rows_empty",
 ];
 
+export const POLICY_CATALOG_DESCRIPTOR_SQL = `
+  /* canonical_policy_catalog_descriptors */
+  select coalesce(pg_catalog.jsonb_agg(pg_catalog.jsonb_build_object(
+    'schema',namespace.nspname,
+    'table',relation.relname,
+    'name',policy.polname,
+    'command',case policy.polcmd when 'r' then 'select' when 'a' then 'insert' when 'w' then 'update' when 'd' then 'delete' else 'all' end,
+    'roles',coalesce((select pg_catalog.jsonb_agg(coalesce(role_record.rolname,'public') order by coalesce(role_record.rolname,'public'))
+      from pg_catalog.unnest(policy.polroles) as policy_role(role_oid)
+      left join pg_catalog.pg_roles as role_record on role_record.oid=policy_role.role_oid),'[]'::jsonb),
+    'permissive',policy.polpermissive,
+    'catalogUsing',coalesce(pg_catalog.pg_get_expr(policy.polqual,policy.polrelid),''),
+    'catalogWithCheck',coalesce(pg_catalog.pg_get_expr(policy.polwithcheck,policy.polrelid),'')
+  ) order by namespace.nspname,relation.relname,policy.polname),'[]'::jsonb) as descriptors
+  from pg_catalog.pg_policy as policy
+  join pg_catalog.pg_class as relation on relation.oid=policy.polrelid
+  join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+  where namespace.nspname in ('public','app_private')
+`;
+
 const CATALOG_MATRIX_SQL = `
   /* canonical_catalog_matrix */
   with expected as (
@@ -914,8 +955,8 @@ const CATALOG_MATRIX_SQL = `
             from pg_catalog.unnest(policy.polroles) as policy_role(role_oid)
             left join pg_catalog.pg_roles as role_record on role_record.oid=policy_role.role_oid),'')||'|'||
           case when policy.polpermissive then 'permissive' else 'restrictive' end||'|'||
-          pg_catalog.regexp_replace(pg_catalog.regexp_replace(pg_catalog.lower(coalesce(pg_catalog.pg_get_expr(policy.polqual,policy.polrelid),'')),'::[a-z_][a-z0-9_.]*','','g'),'[[:space:]()\"]','','g')||'|'||
-          pg_catalog.regexp_replace(pg_catalog.regexp_replace(pg_catalog.lower(coalesce(pg_catalog.pg_get_expr(policy.polwithcheck,policy.polrelid),'')),'::[a-z_][a-z0-9_.]*','','g'),'[[:space:]()\"]','','g')
+          coalesce(pg_catalog.pg_get_expr(policy.polqual,policy.polrelid),'')||'|'||
+          coalesce(pg_catalog.pg_get_expr(policy.polwithcheck,policy.polrelid),'')
           order by namespace.nspname,relation.relname,policy.polname)
         from pg_catalog.pg_policy as policy join pg_catalog.pg_class as relation on relation.oid=policy.polrelid
         join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
@@ -1044,7 +1085,7 @@ function catalogInventories(bundle) {
     asStringArray(bundle.manifest, "tables").sort(),
     asStringArray(bundle.manifest, "routines").sort(),
     asStringArray(bundle.manifest, "entrypointSignatures").map((value) => value.replace(/\s+/g, "")).sort(),
-    securityDescriptorInventory(bundle.manifest, "policy"),
+    securityDescriptorInventory(bundle.manifest, "policy", "catalog"),
     securityDescriptorInventory(bundle.manifest, "trigger"),
     asStringArray(bundle.manifest, "tables").filter((value) => value.startsWith("app_private.")).sort(),
   ];

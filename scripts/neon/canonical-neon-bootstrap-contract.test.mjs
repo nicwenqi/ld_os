@@ -197,6 +197,8 @@ test("canonical modules never schema-qualify PostgreSQL special expression forms
     const source = await readFile(join(canonicalRoot, name), "utf8");
     assert.deepEqual([...source.matchAll(qualifiedSpecialForm)].map((match) => match[0]), [], name);
   }
+  const validator = await readFile(resolve(canonicalRoot, "../../scripts/neon/validate-canonical-neon-baseline.mjs"), "utf8");
+  assert.deepEqual([...validator.matchAll(qualifiedSpecialForm)].map((match) => match[0]), [], "validator SQL");
 });
 
 test("the canonical manifest retains final append-only E2-E5A audit capability", async () => {
@@ -215,7 +217,10 @@ test("the security contract freezes every policy and trigger descriptor", async 
   assert.equal(manifest.security.policyDescriptors.length, 31);
   assert.equal(manifest.security.triggerDescriptors.length, 15);
   for (const descriptor of manifest.security.policyDescriptors) {
-    assert.deepEqual(Object.keys(descriptor).sort(), ["command", "name", "permissive", "roles", "schema", "table", "using", "withCheck"].sort());
+    assert.deepEqual(Object.keys(descriptor).sort(), [
+      "catalogUsing", "catalogWithCheck", "command", "name", "permissive",
+      "roles", "schema", "table", "using", "withCheck",
+    ].sort());
   }
   for (const descriptor of manifest.security.triggerDescriptors) {
     assert.deepEqual(Object.keys(descriptor).sort(), ["enabled", "events", "function", "level", "name", "schema", "table", "timing", "updateColumns"].sort());
@@ -248,6 +253,42 @@ test("source validation fails closed when a policy or trigger descriptor drifts"
   await assert.rejects(
     validateCanonicalNeonSource({ root }),
     (error) => error?.code === "CANONICAL_NEON_TRIGGER_DESCRIPTOR_DRIFT",
+  );
+});
+
+test("policy source descriptors preserve boolean grouping and casts", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "canonical-policy-semantics-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await cp(canonicalRoot, root, { recursive: true });
+  const path = join(root, "070_security_postflight.sql");
+  const security = await readFile(path, "utf8");
+  const actor = "app_private.actor_uuid_setting_or_null('app.actor_property_id')";
+
+  await writeFile(path, security.replace(
+    `using (session_user='hotel_ld_application' and (${actor} is null or id=${actor}))`,
+    `using ((session_user='hotel_ld_application' and ${actor} is null) or id=${actor})`,
+  ));
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT",
+  );
+
+  await writeFile(path, security.replace(
+    "session_user='hotel_ld_application' and property_id=app_private.current_actor_property_id()",
+    "session_user='hotel_ld_application'::name and property_id=app_private.current_actor_property_id()",
+  ));
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT",
+  );
+
+  await writeFile(path, security.replace(
+    "and property_id=app_private.current_actor_property_id()",
+    "and \"PROPERTY_ID\"=app_private.current_actor_property_id()",
+  ));
+  await assert.rejects(
+    validateCanonicalNeonSource({ root }),
+    (error) => error?.code === "CANONICAL_NEON_POLICY_DESCRIPTOR_DRIFT",
   );
 });
 
