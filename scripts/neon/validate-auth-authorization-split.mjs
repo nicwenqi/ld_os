@@ -67,6 +67,9 @@ function auditActiveSourceSurface(source, sourceName) {
   if (hasInvalidActorFactoryUse(sourceFile, provenance)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
+  if (sourceName === "neonImportStagingAuthorization" && hasSpoofedStorageAdapterBoundary(sourceFile)) {
+    throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
+  }
   const approvedStorageSource = isApprovedStorageAdapterSource(sourceFile, sourceName) &&
     hasApprovedActorStorageInput(sourceFile, provenance);
   if (approvedStorageSource) {
@@ -332,6 +335,16 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
       return;
     }
     found = true;
+  });
+  return found;
+}
+
+function hasSpoofedStorageAdapterBoundary(sourceFile) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found || !ts.isFunctionDeclaration(node) || node.name?.text !== "createActorStorageGateway") return;
+    if (node.parent !== sourceFile ||
+        !node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) found = true;
   });
   return found;
 }
@@ -858,12 +871,19 @@ function isApprovedStorageAdapterSource(sourceFile, sourceName) {
 }
 
 function hasApprovedActorStorageInput(sourceFile, provenance) {
+  const approvedDeclaration = sourceFile.statements.find(statement =>
+    ts.isFunctionDeclaration(statement) && statement.name?.text === "createActorStorageGateway" &&
+    statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword),
+  );
+  const approvedSymbol = approvedDeclaration?.name && provenance.checker.getSymbolAtLocation(approvedDeclaration.name);
   let found = false;
   visitNodes(sourceFile, node => {
     if (found || !ts.isCallExpression(node) ||
         !ts.isIdentifier(unwrapExpression(node.expression)) ||
         unwrapExpression(node.expression).text !== "createActorStorageGateway" ||
-        node.arguments.length !== 1) return;
+        node.arguments.length !== 1 || !approvedSymbol) return;
+    const callSymbol = provenance.checker.getSymbolAtLocation(unwrapExpression(node.expression));
+    if (!callSymbol || symbolBindingRoot(callSymbol) !== symbolBindingRoot(approvedSymbol)) return;
     found = isActorClientExpression(node.arguments[0], provenance);
   });
   return found;
@@ -890,7 +910,9 @@ function sourceHasServerOnlyImport(sourceFile) {
 function isInsideApprovedStorageAdapter(node) {
   let current = node.parent;
   while (current) {
-    if (ts.isFunctionDeclaration(current) && current.name?.text === "createActorStorageGateway") {
+    if (ts.isFunctionDeclaration(current) && current.name?.text === "createActorStorageGateway" &&
+        current.parent && ts.isSourceFile(current.parent) &&
+        current.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
       return true;
     }
     if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
