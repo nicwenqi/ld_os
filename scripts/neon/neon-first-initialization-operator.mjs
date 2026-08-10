@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { NEON_FIRST_INITIALIZATION_STEP_KEYS, validateInitializationFixture, validateInitializationTarget } from "./neon-first-initialization-contract.mjs";
+import { APPROVED_NEON_FIRST_INITIALIZATION_TARGETS } from "./neon-first-initialization-targets.mjs";
 
 const { Pool } = pg;
 const ALLOWED_URL_QUERY_KEYS = new Set(["sslmode", "channel_binding"]);
@@ -108,8 +109,8 @@ export function validateDirectBootstrapConnection(connectionString, target) {
   return true;
 }
 
-export async function initializeNeonFirstEnvironment({ connectionString, target, fixture, authUserId, client, pool, environment = process.env, requestId = randomUUID(), now = new Date(), dryRun = false }) {
-  validateInitializationTarget(target, environment);
+export async function initializeNeonFirstEnvironment({ connectionString, target, fixture, authUserId, client, pool, environment = process.env, approvedTargets = APPROVED_NEON_FIRST_INITIALIZATION_TARGETS, requestId = randomUUID(), now = new Date(), dryRun = false }) {
+  validateInitializationTarget(target, environment, approvedTargets);
   validateInitializationFixture(fixture, authUserId);
   validateDirectBootstrapConnection(connectionString, target);
   if (!(client || pool)) pool = new Pool({ connectionString, max: 1, ssl: { rejectUnauthorized: true }, application_name: "neon-first-initialization" });

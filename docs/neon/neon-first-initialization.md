@@ -14,7 +14,7 @@ The command does not create Auth users, receive a password/token/JWT, call Supab
 
 ## Inputs
 
-Create a non-secret target file outside the repository, for example `/private/tmp/neon-first-target.json`:
+First add the exact non-production tuple to `scripts/neon/neon-first-initialization-targets.mjs` through code review. The initial allowlist is intentionally empty. Then create a non-secret target file outside the repository, for example `/private/tmp/neon-first-target.json`:
 
 ```json
 {
@@ -59,6 +59,12 @@ node scripts/neon/initialize-neon-first-environment.mjs \
 ```
 
 The command is idempotent only for the exact same fixture. Mismatched records fail closed and roll back; it never updates or deletes existing business rows.
+
+Before either mode, run the connection-free boundary gate:
+
+```bash
+node scripts/neon/validate-neon-first-initialization.mjs source
+```
 
 ## Result
 

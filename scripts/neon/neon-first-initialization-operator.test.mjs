@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { initializeNeonFirstEnvironment } from "./neon-first-initialization-operator.mjs";
-import { authUserId, fixture, target } from "./neon-first-initialization-contract.test.mjs";
+import { authUserId, fixture, target } from "./fixtures/neon-first-initialization-test-fixture.mjs";
 
 const directConnectionString = "postgresql://neondb_owner:fixture@ep-fresh-neon.c-10.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require";
 
@@ -19,7 +19,7 @@ test("operator rolls back the entire initialization when an immutable tenant val
   };
 
   await assert.rejects(
-    initializeNeonFirstEnvironment({ connectionString: directConnectionString, target, fixture, authUserId, client, environment: { APP_ENV: "development" } }),
+    initializeNeonFirstEnvironment({ connectionString: directConnectionString, target, fixture, authUserId, client, environment: { APP_ENV: "development" }, approvedTargets: [target] }),
     /NEON_FIRST_INIT_ROW_CONFLICT/
   );
   assert.deepEqual(calls.map(({ text }) => text), ["begin", "select id, code, name, status from public.tenants where id = $1 or code = $2 order by id", "select id, code, name, status from public.tenants where id = $1 or code = $2 order by id", "rollback"]);
@@ -67,7 +67,7 @@ test("operator creates the minimum runnable graph atomically and records no Auth
     },
   };
 
-  const result = await initializeNeonFirstEnvironment({ connectionString: directConnectionString, target, fixture, authUserId, client, environment: { APP_ENV: "development" }, requestId: "13131313-1313-4131-8131-131313131313" });
+  const result = await initializeNeonFirstEnvironment({ connectionString: directConnectionString, target, fixture, authUserId, client, environment: { APP_ENV: "development" }, approvedTargets: [target], requestId: "13131313-1313-4131-8131-131313131313" });
   assert.equal(result.status, "created");
   assert.deepEqual(result.created, ["tenant", "property", "propertyDomain", "profile", "userAccount", "tenantMembership", "propertyMembership", "role", "roleAssignment", "propertySettings", "initializationSteps", "department", "positionFamily", "position", "positionDepartmentAssignment", "employee", "employeeIdentifier"]);
   assert.equal(calls.at(-1).text, "commit");

@@ -26,7 +26,7 @@ function assertText(value, code, max = 200) {
   if (typeof value !== "string" || value.length === 0 || value.length > max || value !== value.trim()) fail(code);
 }
 
-export function validateInitializationTarget(target, environment = process.env) {
+export function validateInitializationTarget(target, environment = process.env, approvedTargets = []) {
   assertExactKeys(target, TARGET_KEYS, "NEON_FIRST_INIT_TARGET_INVALID");
   if (!['development', 'staging'].includes(target.environment) || environment.APP_ENV === 'production' || target.projectId.toLowerCase().includes('production') || target.branchId.toLowerCase().includes('production')) {
     fail("NEON_FIRST_INIT_TARGET_FORBIDDEN");
@@ -34,6 +34,7 @@ export function validateInitializationTarget(target, environment = process.env) 
   for (const key of ["projectId", "branchId", "endpointId", "database", "directHostPrefix"]) assertText(target[key], "NEON_FIRST_INIT_TARGET_INVALID", 200);
   if (target.database !== "neondb" || !target.directHostPrefix.startsWith(`${target.endpointId}.`) || target.directHostPrefix.includes("-pooler.")) fail("NEON_FIRST_INIT_TARGET_INVALID");
   if (environment.DATABASE_URL || environment.NEON_RUNTIME_DATABASE_URL) fail("NEON_FIRST_INIT_RUNTIME_URL_FORBIDDEN");
+  if (!Array.isArray(approvedTargets) || !approvedTargets.some((candidate) => TARGET_KEYS.every((key) => candidate?.[key] === target[key]))) fail("NEON_FIRST_INIT_TARGET_UNAPPROVED");
   return true;
 }
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { createInitializationEvidence, parseInitializationArgs, runInitializationCommand } from "./initialize-neon-first-environment.mjs";
-import { authUserId, fixture, target } from "./neon-first-initialization-contract.test.mjs";
+import { authUserId, fixture, target } from "./fixtures/neon-first-initialization-test-fixture.mjs";
 
 test("CLI requires a verified Auth user and confines evidence to protected temporary storage", () => {
   assert.throws(() => parseInitializationArgs(["--target-file", "/private/tmp/target.json", "--fixture", "/private/tmp/fixture.json"]), /NEON_FIRST_INIT_AUTH_USER_REQUIRED/);
