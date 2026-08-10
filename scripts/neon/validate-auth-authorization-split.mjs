@@ -342,9 +342,14 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
 function hasSpoofedStorageAdapterBoundary(sourceFile) {
   let found = false;
   visitNodes(sourceFile, node => {
-    if (found || !ts.isFunctionDeclaration(node) || node.name?.text !== "createActorStorageGateway") return;
-    if (node.parent !== sourceFile ||
-        !node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) found = true;
+    if (found) return;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "createActorStorageGateway") {
+      if (node.parent !== sourceFile ||
+          !node.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) found = true;
+      return;
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) &&
+        node.name.text === "createActorStorageGateway") found = true;
   });
   return found;
 }
@@ -918,7 +923,10 @@ function isInsideApprovedStorageAdapter(node) {
     if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
         ts.isVariableDeclaration(current.parent) &&
         ts.isIdentifier(current.parent.name) &&
-        current.parent.name.text === "createActorStorageGateway") {
+        current.parent.name.text === "createActorStorageGateway" &&
+        current.parent.parent && ts.isVariableStatement(current.parent.parent) &&
+        current.parent.parent.parent && ts.isSourceFile(current.parent.parent.parent) &&
+        current.parent.parent.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword)) {
       return true;
     }
     current = current.parent;

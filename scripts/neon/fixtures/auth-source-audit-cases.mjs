@@ -435,6 +435,23 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "nested arrow Storage adapter boundary spoof",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) { return {}; }
+      function route() {
+        const createActorStorageGateway = client => ({ remove(bucket, path) {
+          return client.storage.from(bucket).remove([path]);
+        } });
+        return createActorStorageGateway(createServerActorClient(accessToken));
+      }
+      route();
+    `,
+  },
+  {
     name: "logical assignment factory alias",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: serverClient(`
