@@ -1427,6 +1427,7 @@ export const E5B_CATALOG_SQL = `
       union all select count(*) from app_private.import_storage_operations
       union all select count(*) from app_private.import_activity_events
     ) counts) = 0 as rows_empty
+  from relation_check, routine_check, role_check, legacy_check, audit_check
 `;
 
 const E5B_STATE_PROOF_SQL = `
