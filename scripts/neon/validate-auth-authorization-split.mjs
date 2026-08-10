@@ -73,6 +73,9 @@ function auditActiveSourceSurface(source, sourceName) {
   const approvedStorageBinding = isApprovedStorageAdapterSource(sourceFile, sourceName)
     ? getApprovedStorageAdapterBinding(sourceFile, provenance)
     : null;
+  if (isApprovedStorageAdapterSource(sourceFile, sourceName) && !approvedStorageBinding?.valid) {
+    throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
+  }
   const approvedStorageSource = Boolean(approvedStorageBinding?.valid);
   if (approvedStorageSource) {
     if (hasAdapterAliasFlow(sourceFile, approvedStorageBinding.parameterRoots) ||
@@ -927,7 +930,7 @@ function getApprovedStorageAdapterBinding(sourceFile, provenance) {
     if (!callSymbol || symbolBindingRoot(callSymbol) !== symbolBindingRoot(approvedSymbol)) return;
     found = isActorClientExpression(node.arguments[0], provenance);
   });
-  return { valid: found, parameterRoots };
+  return { valid: found && parameterRoots.size > 0, parameterRoots };
 }
 
 function hasInvalidActorFactoryUse(sourceFile, provenance) {

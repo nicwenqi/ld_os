@@ -497,6 +497,19 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "Storage adapter without a bound receiver parameter",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway() {
+        return client.storage.from("business").remove(["path"]);
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
     name: "Storage token alias is undefined",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     sourceName: "neonImportStagingAuthorization",
