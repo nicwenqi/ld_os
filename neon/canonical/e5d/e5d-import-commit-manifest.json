@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "modules": [
+    "095_import_commit_schema.sql",
+    "096_import_commit_entrypoints.sql"
+  ],
+  "entrypoints": [
+    "public.commit_neon_import_batch(text,uuid,bigint,bigint,text,boolean)",
+    "public.preview_neon_import_revert(text,uuid)",
+    "public.revert_neon_import_batch(text,uuid,bigint,boolean)"
+  ],
+  "forbidden": [
+    "employee delete",
+    "raw staged evidence mutation",
+    "http employee save",
+    "storage replacement",
+    "auth migration"
+  ]
+}
