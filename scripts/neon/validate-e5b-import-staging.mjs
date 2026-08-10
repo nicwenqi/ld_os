@@ -1512,6 +1512,10 @@ async function applyE5bMigrationBodies(client, migrationSources) {
       throw error;
     }
   }
+  // Each module uses SET LOCAL ROLE for ownership. Return to the bootstrap
+  // session role before catalog reads so FORCE RLS inspection uses the
+  // validated bootstrap BYPASSRLS role, never an application role.
+  await client.query("reset role");
 }
 
 export async function runE5bRuntimeMatrix({ runtimeClient, runtimePool }) {
