@@ -64,6 +64,25 @@ function auditActiveSourceSurface(source, sourceName) {
   if (hasUnsupportedSupabaseAuthUse(sourceFile, provenance)) {
     throw new Error(`SUPABASE_AUTH_METHOD_DRIFT:${sourceName}`);
   }
+  if (hasInvalidActorFactoryUse(sourceFile, provenance)) {
+    throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
+  }
+  const approvedStorageSource = isApprovedStorageAdapterSource(sourceFile, sourceName) &&
+    hasApprovedActorStorageInput(sourceFile, provenance);
+  if (approvedStorageSource) {
+    if (hasAdapterAliasFlow(sourceFile) ||
+        hasUnprovenSupabaseFlow(sourceFile, provenance) ||
+        hasUnknownProvenanceAccess(sourceFile, provenance) ||
+        hasUnknownImportedSupabaseSurface(sourceFile, provenance) ||
+        hasUnknownImportedClientWrapperUse(sourceFile, provenance) ||
+        hasInvalidApprovedStorageClientSurface(sourceFile) ||
+        hasUnsupportedSupabaseStorageUse(sourceFile, provenance, sourceName) ||
+        hasSupabaseBusinessUse(sourceFile, provenance) ||
+        hasUnsupportedSupabaseClientSurface(sourceFile, provenance)) {
+      throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
+    }
+    return;
+  }
   const hasBusinessDrift = hasUnknownProvenanceAccess(sourceFile, provenance) ||
       hasUnknownImportedSupabaseSurface(sourceFile, provenance) ||
       hasUnknownImportedClientWrapperUse(sourceFile, provenance) ||
@@ -86,6 +105,17 @@ function hasUnprovenSupabaseFlow(sourceFile, provenance) {
   visitNodes(sourceFile, node => {
     if (found) return;
 
+    if (ts.isCallExpression(node) &&
+        !isFactoryReference(node.expression, provenance) &&
+        !isGlobalPromiseAllCall(node, provenance.checker) &&
+        !isApprovedStorageInputCall(node, sourceFile, provenance) &&
+        !isApprovedStorageOperationCall(node, sourceFile) &&
+        !isApprovedAuthDependencyCall(node, sourceFile) &&
+        node.arguments.some(argument => valueCarriesProvenance(argument, provenance))) {
+      mark(node);
+      return;
+    }
+
     if (ts.isBinaryExpression(node) &&
         [ts.SyntaxKind.BarBarEqualsToken, ts.SyntaxKind.AmpersandAmpersandEqualsToken,
           ts.SyntaxKind.QuestionQuestionEqualsToken].includes(node.operatorToken.kind) &&
@@ -104,7 +134,7 @@ function hasUnprovenSupabaseFlow(sourceFile, provenance) {
         return;
       }
       if (expressionHasTrackedProvenance(receiver, provenance) &&
-          ["pop", "shift", "unshift", "push", "at", "slice", "concat", "flat", "flatMap",
+          ["pop", "shift", "unshift", "push", "reverse", "splice", "at", "slice", "concat", "flat", "flatMap",
             "map", "filter", "find", "findLast", "findIndex", "reduce", "reduceRight",
             "forEach", "entries", "values", "keys", "toReversed", "toSorted", "toSpliced"]
             .includes(member)) {
@@ -140,64 +170,236 @@ function hasUnprovenSupabaseFlow(sourceFile, provenance) {
     if ((ts.isPropertyDeclaration(node) || ts.isPropertyAssignment(node) ||
          ts.isPropertySignature(node) || ts.isParameter(node) || ts.isBindingElement(node)) &&
         node.initializer && valueCarriesProvenance(node.initializer, provenance) &&
-        !(ts.isPropertyAssignment(node) && isDirectFactoryCall(node.initializer, provenance))) {
+        !(ts.isPropertyAssignment(node) && isDirectFactoryCall(node.initializer, provenance) &&
+          isApprovedAuthDependencyProperty(node, sourceFile)) &&
+        !(ts.isPropertyAssignment(node) && isApprovedStorageOperationProperty(node, sourceFile))) {
       mark(node);
       return;
     }
 
     if (ts.isReturnStatement(node) && node.expression &&
-        directlyCarriesSupabaseProvenance(node.expression, provenance)) {
+        directlyCarriesSupabaseProvenance(node.expression, provenance) &&
+        !isApprovedStorageResponseReturn(node, sourceFile)) {
+      mark(node);
+      return;
+    }
+
+    if ((ts.isArrowFunction(node) || ts.isFunctionExpression(node)) &&
+        node.body && !ts.isBlock(node.body) &&
+        directlyCarriesSupabaseProvenance(node.body, provenance)) {
       mark(node);
       return;
     }
 
     if (ts.isVariableDeclaration(node) && node.initializer &&
-        isFactoryReference(node.initializer, provenance) &&
-        !isDirectFactoryCall(node.initializer, provenance)) {
+        ((isFactoryReference(node.initializer, provenance) &&
+          !isDirectFactoryCall(node.initializer, provenance)) ||
+          (valueCarriesProvenance(node.initializer, provenance) &&
+            !isDirectFactoryCall(node.initializer, provenance) &&
+            !ts.isCallExpression(unwrapExpression(node.initializer))))) {
       mark(node);
       return;
     }
 
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        isFactoryReference(node.right, provenance) && !isDirectFactoryCall(node.right, provenance)) {
+        valueCarriesProvenance(node.right, provenance) &&
+        !isDirectFactoryCall(node.right, provenance)) {
       mark(node);
       return;
     }
 
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        isMemberAccess(node.left) && valueCarriesProvenance(node.right, provenance)) {
-      mark(node);
+        isMemberAccess(node.left) && valueCarriesProvenance(node.right, provenance)) mark(node);
+  });
+  return found;
+}
+
+function isGlobalPromiseAllCall(call, checker) {
+  if (!ts.isCallExpression(call) || !isMemberAccess(call.expression) ||
+      accessName(call.expression) !== "all") return false;
+  const receiver = unwrapExpression(call.expression.expression);
+  return ts.isIdentifier(receiver) && receiver.text === "Promise" &&
+    !checker.getSymbolAtLocation(receiver);
+}
+
+function isApprovedAuthDependencyCall(node, sourceFile) {
+  if (sourceFile.fileName !== "/authenticationService.ts" ||
+      !ts.isIdentifier(unwrapExpression(node.expression)) ||
+      unwrapExpression(node.expression).text !== "resolveLoginWith") return false;
+  return isInsideNamedFunction(node, "resolveAccountForLogin");
+}
+
+function isApprovedStorageInputCall(node, sourceFile, provenance) {
+  if (sourceFile.fileName !== "/neonImportStagingAuthorization.ts" ||
+      !ts.isIdentifier(unwrapExpression(node.expression)) ||
+      unwrapExpression(node.expression).text !== "createActorStorageGateway" ||
+      node.arguments.length !== 1) return false;
+  return isActorFactoryReference(node.arguments[0].expression, provenance) &&
+    ts.isCallExpression(unwrapExpression(node.arguments[0])) &&
+    hasActorTokenArgument(unwrapExpression(node.arguments[0]));
+}
+
+function isApprovedStorageOperationCall(node, sourceFile) {
+  return sourceFile.fileName === "/neonImportStagingAuthorization.ts" &&
+    ts.isIdentifier(unwrapExpression(node.expression)) &&
+    unwrapExpression(node.expression).text === "operation" &&
+    node.arguments.length === 1 &&
+    ts.isObjectLiteralExpression(unwrapExpression(node.arguments[0])) &&
+    unwrapExpression(node.arguments[0]).properties.some(property =>
+      propertyNameText(property.name) === "storage",
+    ) &&
+    isInsideNamedFunction(node, "runAuthorizedNeonImportStaging");
+}
+
+function isApprovedAuthDependencyProperty(node, sourceFile) {
+  let current = node.parent;
+  while (current && current !== sourceFile) {
+    if (ts.isCallExpression(current)) return isApprovedAuthDependencyCall(current, sourceFile);
+    current = current.parent;
+  }
+  return false;
+}
+
+function isApprovedStorageOperationProperty(node, sourceFile) {
+  if (sourceFile.fileName !== "/neonImportStagingAuthorization.ts" || !ts.isPropertyAssignment(node)) return false;
+  let current = node.parent;
+  while (current && current !== sourceFile) {
+    if (ts.isCallExpression(current) && isApprovedStorageOperationCall(current, sourceFile)) return true;
+    current = current.parent;
+  }
+  return false;
+}
+
+function isApprovedStorageResponseReturn(node, sourceFile) {
+  if (sourceFile.fileName !== "/neonImportStagingAuthorization.ts" || !ts.isReturnStatement(node) ||
+      !ts.isObjectLiteralExpression(unwrapExpression(node.expression))) return false;
+  const properties = unwrapExpression(node.expression).properties;
+  return isInsideNamedFunction(node, "runAuthorizedNeonImportStaging") &&
+    properties.length === 2 &&
+    properties.some(property => propertyNameText(property.name) === "data") &&
+    properties.some(property => propertyNameText(property.name) === "headers");
+}
+
+function hasAdapterAliasFlow(sourceFile) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found) return;
+    if (ts.isVariableDeclaration(node) && node.initializer &&
+        ts.isIdentifier(unwrapExpression(node.initializer)) &&
+        unwrapExpression(node.initializer).text === "client") {
+      found = true;
+      return;
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        ts.isIdentifier(unwrapExpression(node.right)) && unwrapExpression(node.right).text === "client") {
+      found = true;
     }
   });
   return found;
 }
 
-function hasRecursiveClientLikeUse(sourceFile, provenance) {
-  const recursiveNames = new Set();
+function hasInvalidApprovedStorageClientSurface(sourceFile) {
+  let found = false;
   visitNodes(sourceFile, node => {
-    if (!ts.isFunctionDeclaration(node) || !node.name) return;
-    if (functionReturnExpressions(node).some(expression => {
-      const value = unwrapExpression(expression);
-      return ts.isCallExpression(value) && ts.isIdentifier(value.expression) &&
-        value.expression.text === node.name.text;
-    })) recursiveNames.add(node.name.text);
+    if (found || !isInsideApprovedStorageAdapter(node)) return;
+    if (ts.isElementAccessExpression(node) && expressionContainsIdentifier(node.expression, "client")) {
+      found = true;
+      return;
+    }
+    if (!ts.isPropertyAccessExpression(node) || !expressionContainsIdentifier(node.expression, "client")) return;
+    const receiver = unwrapExpression(node.expression);
+    const member = node.name.text;
+    if (ts.isIdentifier(receiver) && receiver.text === "client") {
+      if (member !== "storage") found = true;
+      return;
+    }
+    if (ts.isPropertyAccessExpression(receiver) &&
+        ts.isIdentifier(unwrapExpression(receiver.expression)) &&
+        unwrapExpression(receiver.expression).text === "client" &&
+        receiver.name.text === "storage") {
+      if (member !== "from") found = true;
+      return;
+    }
+    if (ts.isCallExpression(receiver) && ts.isPropertyAccessExpression(receiver.expression) &&
+        receiver.expression.name.text === "from" &&
+        ts.isPropertyAccessExpression(receiver.expression.expression) &&
+        ts.isIdentifier(unwrapExpression(receiver.expression.expression.expression)) &&
+        unwrapExpression(receiver.expression.expression.expression).text === "client" &&
+        receiver.expression.expression.name.text === "storage") {
+      if (!(member === "upload" || member === "download" || member === "remove")) found = true;
+      return;
+    }
+    found = true;
   });
-  if (recursiveNames.size === 0) return false;
+  return found;
+}
+
+function expressionContainsIdentifier(node, name) {
+  let found = false;
+  visitNodes(node, child => {
+    if (ts.isIdentifier(child) && child.text === name) found = true;
+  });
+  return found;
+}
+
+function hasRecursiveClientLikeUse(sourceFile, provenance) {
+  const callableRoots = new Map();
+  visitNodes(sourceFile, node => {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      const symbol = provenance.checker.getSymbolAtLocation(node.name);
+      if (symbol) callableRoots.set(symbolBindingRoot(symbol), node);
+      return;
+    }
+    if (ts.isVariableDeclaration(node) && node.initializer &&
+        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+        ts.isIdentifier(node.name)) {
+      const symbol = provenance.checker.getSymbolAtLocation(node.name);
+      if (symbol) callableRoots.set(symbolBindingRoot(symbol), node.initializer);
+    }
+  });
+
+  const edges = new Map();
+  for (const [root, callable] of callableRoots) {
+    const callees = new Set();
+    for (const expression of functionReturnExpressions(callable)) {
+      const value = unwrapExpression(expression);
+      if (!ts.isCallExpression(value) || !ts.isIdentifier(value.expression)) continue;
+      const symbol = provenance.checker.getSymbolAtLocation(value.expression);
+      const calleeRoot = symbol && symbolBindingRoot(symbol);
+      if (calleeRoot && callableRoots.has(calleeRoot)) callees.add(calleeRoot);
+    }
+    edges.set(root, callees);
+  }
+
+  const cyclic = new Set();
+  for (const start of edges.keys()) {
+    const path = [];
+    const seen = new Map();
+    let current = start;
+    while (edges.has(current)) {
+      if (seen.has(current)) {
+        for (let index = seen.get(current); index < path.length; index++) cyclic.add(path[index]);
+        break;
+      }
+      seen.set(current, path.length);
+      path.push(current);
+      const next = edges.get(current).values().next().value;
+      if (!next) break;
+      current = next;
+    }
+  }
+  if (cyclic.size === 0) return false;
+
   let found = false;
   visitNodes(sourceFile, node => {
     if (found || !isMemberAccess(node) ||
         !["from", "rpc", "auth", "storage"].includes(accessName(node))) return;
     const receiver = unwrapExpression(node.expression);
-    if (ts.isCallExpression(receiver) && ts.isIdentifier(receiver.expression) &&
-        recursiveNames.has(receiver.expression.text)) found = true;
+    if (!ts.isCallExpression(receiver) || !ts.isIdentifier(receiver.expression)) return;
+    const symbol = provenance.checker.getSymbolAtLocation(receiver.expression);
+    if (symbol && cyclic.has(symbolBindingRoot(symbol))) found = true;
   });
-  return found || [...recursiveNames].some(name => {
-    const declaration = [...provenance.checker.getSymbolsInScope(sourceFile, ts.SymbolFlags.Value)]
-      .find(symbol => symbol.name === name);
-    return Boolean(declaration && [...provenanceBindingMaps(provenance)].some(bindings =>
-      identityHasBinding(bindings, { root: symbolBindingRoot(declaration), path: "[]" }, true),
-    ));
-  });
+  return found;
 }
 
 function isDirectFactoryCall(node, provenance) {
@@ -213,8 +415,7 @@ function directlyCarriesSupabaseProvenance(node, provenance) {
     if (initializer && ts.isCallExpression(unwrapExpression(initializer))) {
       const call = unwrapExpression(initializer);
       return isFactoryReference(call.expression, provenance) ||
-        isActorFactoryReference(call.expression, provenance) ||
-        localCallReturns(call, returned => directlyCarriesSupabaseProvenance(returned, provenance), provenance);
+        isActorFactoryReference(call.expression, provenance);
     }
   }
   if (isFactoryReference(expression, provenance) ||
@@ -300,7 +501,11 @@ function hasForbiddenSupabaseImport(sourceFile, checker) {
       return;
     }
     if (ts.isImportEqualsDeclaration(node)) {
-      found = true;
+      const importEqualsModule = importedModuleName(node, checker);
+      if (importEqualsModule &&
+          (isAllowedServerClientModule(importEqualsModule) || isForbiddenSupabaseModule(importEqualsModule))) {
+        found = true;
+      }
       return;
     }
     if (ts.isImportDeclaration(node) &&
@@ -388,6 +593,7 @@ function hasUnapprovedServerAdminImportShape(importClause) {
 }
 
 function isExactApprovedDynamicFactoryImport(node, sourceFile) {
+  if (sourceFile.fileName !== "/authenticationService.ts") return false;
   if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword ||
       node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]) ||
       !isAllowedServerClientModule(node.arguments[0].text)) {
@@ -399,12 +605,25 @@ function isExactApprovedDynamicFactoryImport(node, sourceFile) {
       const promiseAll = current.parent.expression;
       const receiver = isMemberAccess(promiseAll) ? unwrapExpression(promiseAll.expression) : null;
       if (isMemberAccess(promiseAll) && accessName(promiseAll) === "all" &&
-          ts.isIdentifier(receiver) && receiver.text === "Promise") return true;
+          ts.isIdentifier(receiver) && receiver.text === "Promise" &&
+          isInsideNamedFunction(node, "resolveAccountForLogin")) return true;
     }
     if (ts.isAwaitExpression(current) && current.parent &&
         (ts.isVariableDeclaration(current.parent) || ts.isPropertyAssignment(current.parent))) {
       return false;
     }
+    current = current.parent;
+  }
+  return false;
+}
+
+function isInsideNamedFunction(node, functionName) {
+  let current = node.parent;
+  while (current) {
+    if (ts.isFunctionDeclaration(current) && current.name?.text === functionName) return true;
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+        ts.isVariableDeclaration(current.parent) &&
+        ts.isIdentifier(current.parent.name) && current.parent.name.text === functionName) return true;
     current = current.parent;
   }
   return false;
@@ -465,7 +684,6 @@ function collectSupabaseClientProvenance(sourceFile, checker) {
     actorReceivers,
     unknownImports,
     unresolvedAliases: false,
-    returnInference: new Set(),
   };
 
   visitNodes(sourceFile, node => {
@@ -519,71 +737,10 @@ function collectSupabaseClientProvenance(sourceFile, checker) {
           node.initializer) {
         changed = propagateBinding(node.name, node.initializer, provenance) || changed;
       }
-      if (ts.isCallExpression(node)) {
-        changed = propagateCallArguments(node, provenance) || changed;
-      }
     });
   }
 
   return provenance;
-}
-
-function propagateCallArguments(call, provenance) {
-  if (call.expression.kind === ts.SyntaxKind.ImportKeyword || isGlobalPromiseAllCall(call, provenance.checker)) {
-    return false;
-  }
-  if (isFactoryReference(call.expression, provenance)) return false;
-  const callable = localCallableForCall(call, provenance.checker);
-  if (!callable) {
-    if (call.arguments.some(argument => valueCarriesProvenance(argument, provenance))) {
-      provenance.unresolvedAliases = true;
-    }
-    return false;
-  }
-  let changed = false;
-  callable.parameters.forEach((parameter, index) => {
-    if (parameter.dotDotDotToken) {
-      if (call.arguments.slice(index).some(argument => valueCarriesProvenance(argument, provenance))) {
-        provenance.unresolvedAliases = true;
-      }
-      return;
-    }
-    const argument = call.arguments[index];
-    if (argument) changed = propagateBinding(parameter.name, argument, provenance) || changed;
-  });
-  if (call.arguments.slice(callable.parameters.length).some(argument =>
-    valueCarriesProvenance(argument, provenance),
-  )) {
-    provenance.unresolvedAliases = true;
-  }
-  return changed;
-}
-
-function localCallableForCall(call, checker) {
-  const expression = unwrapExpression(call.expression);
-  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return expression;
-  const symbol = ts.isIdentifier(expression)
-    ? checker.getSymbolAtLocation(expression)
-    : isMemberAccess(expression)
-      ? checker.getSymbolAtLocation(ts.isPropertyAccessExpression(expression) ? expression.name : expression.argumentExpression)
-      : null;
-  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
-  if (!declaration) return null;
-  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration) ||
-      ts.isFunctionExpression(declaration) || ts.isArrowFunction(declaration)) {
-    return declaration;
-  }
-  if ((ts.isVariableDeclaration(declaration) || ts.isPropertyAssignment(declaration)) && declaration.initializer &&
-      (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
-    return declaration.initializer;
-  }
-  return null;
-}
-
-function isGlobalPromiseAllCall(call, checker) {
-  if (!isMemberAccess(call.expression) || accessName(call.expression) !== "all") return false;
-  const receiver = unwrapExpression(call.expression.expression);
-  return ts.isIdentifier(receiver) && receiver.text === "Promise" && !checker.getSymbolAtLocation(receiver);
 }
 
 function hasSupabaseBusinessUse(sourceFile, provenance) {
@@ -706,6 +863,16 @@ function hasApprovedActorStorageInput(sourceFile, provenance) {
         unwrapExpression(node.expression).text !== "createActorStorageGateway" ||
         node.arguments.length !== 1) return;
     found = isActorClientExpression(node.arguments[0], provenance);
+  });
+  return found;
+}
+
+function hasInvalidActorFactoryUse(sourceFile, provenance) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found || !ts.isCallExpression(node) ||
+        !isActorFactoryReference(node.expression, provenance)) return;
+    if (!hasActorTokenArgument(node)) found = true;
   });
   return found;
 }
@@ -879,13 +1046,6 @@ function isSupabaseClientExpression(node, provenance) {
   )) {
     return true;
   }
-  if (ts.isCallExpression(expression) && localCallReturns(
-    expression,
-    returned => isSupabaseClientExpression(returned, provenance),
-    provenance,
-  )) {
-    return true;
-  }
   return expressionAlternatives(expression).some(alternative =>
     isSupabaseClientExpression(alternative, provenance),
   );
@@ -897,13 +1057,6 @@ function isActorClientExpression(node, provenance) {
   if (ts.isCallExpression(expression) &&
       hasActorTokenArgument(expression) &&
       isActorFactoryReference(expression.expression, provenance)) return true;
-  if (ts.isCallExpression(expression) && localCallReturns(
-    expression,
-    returned => isActorClientExpression(returned, provenance),
-    provenance,
-  )) {
-    return true;
-  }
   return expressionAlternatives(expression).some(alternative =>
     isActorClientExpression(alternative, provenance),
   );
@@ -912,19 +1065,13 @@ function isActorClientExpression(node, provenance) {
 function hasActorTokenArgument(call) {
   if (call.arguments.length !== 1) return false;
   const token = unwrapExpression(call.arguments[0]);
-  if ([
-    ts.SyntaxKind.NullKeyword,
-    ts.SyntaxKind.TrueKeyword,
-    ts.SyntaxKind.FalseKeyword,
-  ].includes(token.kind)) {
-    return false;
+  if (ts.isIdentifier(token)) {
+    return /^(?:access[_]?token|actor[_]?token)$/i.test(token.text);
   }
-  if (ts.isNumericLiteral(token) || ts.isBigIntLiteral(token)) return false;
-  if (ts.isVoidExpression(token)) return false;
-  if (ts.isIdentifier(token) && ["undefined", "NaN", "Infinity"].includes(token.text)) {
-    return false;
+  if (isMemberAccess(token)) {
+    return /^(?:access[_]?token|actor[_]?token)$/i.test(accessName(token) ?? "");
   }
-  return !(ts.isStringLiteralLike(token) && token.text.trim() === "");
+  return false;
 }
 
 function isFactoryReference(node, provenance) {
@@ -933,13 +1080,6 @@ function isFactoryReference(node, provenance) {
   if (isMemberAccess(expression) &&
       isServerClientFactoryName(accessName(expression)) &&
       isNamespaceExpression(expression.expression, provenance)) {
-    return true;
-  }
-  if (ts.isCallExpression(expression) && localCallReturns(
-    expression,
-    returned => isFactoryReference(returned, provenance),
-    provenance,
-  )) {
     return true;
   }
   return expressionAlternatives(expression).some(alternative =>
@@ -955,13 +1095,6 @@ function isActorFactoryReference(node, provenance) {
       isNamespaceExpression(expression.expression, provenance)) {
     return true;
   }
-  if (ts.isCallExpression(expression) && localCallReturns(
-    expression,
-    returned => isActorFactoryReference(returned, provenance),
-    provenance,
-  )) {
-    return true;
-  }
   return expressionAlternatives(expression).some(alternative =>
     isActorFactoryReference(alternative, provenance),
   );
@@ -973,28 +1106,9 @@ function isNamespaceExpression(node, provenance) {
       isAllowedServerClientImportExpression(expression, provenance.checker)) {
     return true;
   }
-  if (ts.isCallExpression(expression) && localCallReturns(
-    expression,
-    returned => isNamespaceExpression(returned, provenance),
-    provenance,
-  )) {
-    return true;
-  }
   return expressionAlternatives(expression).some(alternative =>
     isNamespaceExpression(alternative, provenance),
   );
-}
-
-function localCallReturns(call, predicate, provenance) {
-  const callable = localCallableForCall(call, provenance.checker);
-  if (!callable) return false;
-  if (provenance.returnInference.has(callable)) return false;
-  provenance.returnInference.add(callable);
-  try {
-    return functionReturnExpressions(callable).some(predicate);
-  } finally {
-    provenance.returnInference.delete(callable);
-  }
 }
 
 function functionReturnExpressions(callable) {
@@ -1686,6 +1800,7 @@ async function main() {
     loginRoute,
     sessionRoute,
     initializationAccess,
+    neonImportStagingAuthorization,
     browserRegistry,
   ] = await Promise.all([
     read(root, "app/services/authentication-service.ts"),
@@ -1694,6 +1809,7 @@ async function main() {
     read(root, "app/api/auth/login/route.ts"),
     read(root, "app/api/auth/session/route.ts"),
     read(root, "app/api/initialization/access/route.ts"),
+    read(root, "app/services/neon-import-staging-authorization.ts"),
     read(root, "app/repositories/runtime/neon-domain-registry.ts"),
   ]);
   console.log(JSON.stringify(validateAuthAuthorizationSplitSources({
@@ -1703,6 +1819,7 @@ async function main() {
     loginRoute,
     sessionRoute,
     initializationAccess,
+    neonImportStagingAuthorization,
     browserRegistry,
   })));
 }
