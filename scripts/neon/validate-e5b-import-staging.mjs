@@ -4,6 +4,7 @@ import { access, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
+import { createInterface } from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 
@@ -1648,7 +1649,9 @@ async function main() {
   const source = await validateE5bImportStagingSource();
   if (command === "source") return output(command, source);
 
-  const values = await environmentValues();
+  const values = process.argv.includes("--credentials-stdin")
+    ? await credentialsFromStdin()
+    : await environmentValues();
   if (DATABASE_COMMANDS.has(command)) {
     return output(command, await runE5bDatabaseCommand(
       command,
@@ -1672,6 +1675,31 @@ async function main() {
     status: "deferred",
     reason: "storage_runtime_requires_approved_synthetic_adapter",
   });
+}
+
+async function credentialsFromStdin() {
+  let parsed;
+  try {
+    const input = createInterface({ input: process.stdin, terminal: false });
+    let line;
+    for await (const candidate of input) {
+      line = candidate;
+      input.close();
+      break;
+    }
+    parsed = JSON.parse(line ?? "");
+  } catch {
+    throw new Error("E5B_IMPORT_STAGING_CREDENTIAL_INPUT_INVALID");
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)
+    || typeof parsed.NEON_BOOTSTRAP_DATABASE_URL !== "string"
+    || typeof parsed.DATABASE_URL !== "string") {
+    throw new Error("E5B_IMPORT_STAGING_CREDENTIAL_INPUT_INVALID");
+  }
+  return {
+    NEON_BOOTSTRAP_DATABASE_URL: parsed.NEON_BOOTSTRAP_DATABASE_URL,
+    DATABASE_URL: parsed.DATABASE_URL,
+  };
 }
 
 async function everyExists(paths) {
