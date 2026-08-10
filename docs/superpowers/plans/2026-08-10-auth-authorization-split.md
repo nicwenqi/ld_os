@@ -4,7 +4,7 @@
 
 **Goal:** Make Supabase a pure Authentication adapter while canonical Neon resolves every session authorization fact.
 
-**Architecture:** Login first resolves an internal identity through a constrained Neon pre-auth entrypoint, then verifies the exact returned Auth user through Supabase password sign-in. Every authenticated request verifies the Supabase Auth token, resolves the hostname and property in Neon, installs the existing transaction-local Actor Context, and obtains its account/membership/role/scope projection from one constrained Neon entrypoint.
+**Architecture:** Login deterministically derives a server-only internal Auth email from the validated login ID and trusted property hostname, then verifies the real Supabase Auth session user through `getUser`. Every authenticated request verifies the Supabase Auth token, resolves the hostname and property in Neon, installs the existing transaction-local Actor Context, and obtains its account/membership/role/scope projection from one constrained Neon entrypoint. There is no actor-free Neon account lookup.
 
 **Tech Stack:** TypeScript, React server routes, `pg` pooled Neon application role, Supabase Auth SDK, PostgreSQL 18 canonical migrations, Node test runner.
 
@@ -24,11 +24,11 @@
 
 | File | Responsibility |
 |---|---|
-| `neon/canonical/085_auth_authorization.sql` | Exact pre-auth and actor-scoped authorization entrypoints, grants, audits, and no new RLS policy. |
-| `neon/canonical/canonical-neon-manifest.json` | Adds module 085, public entrypoint signatures, and catalog inventory. |
-| `app/lib/neon/pre-auth-authorization.ts` | Runs a short application-role transaction with no actor GUCs and calls only the pre-auth entrypoint. |
+| `neon/canonical/085_auth_authorization.sql` | Exact actor-scoped authorization-session entrypoint, grants, audits, and no new RLS policy. |
+| `neon/canonical/manifest.json` | Adds module 085, public entrypoint signature, and catalog inventory. |
+| `app/lib/auth/deterministic-login-identity.ts` | Server-only deterministic internal Auth email derivation; no database access. |
 | `app/repositories/neon/authorization-session-repository.ts` | Maps exact Neon JSON projections into server-only authorization facts. |
-| `app/services/authentication-service.ts` | Replaces Supabase business lookup with Neon pre-auth lookup and session authority. |
+| `app/services/authentication-service.ts` | Replaces Supabase business lookup with deterministic Auth login and Neon session authority. |
 | `app/services/request-authentication.ts` | Carries private Neon tenant/property authorization facts with the verified Auth session. |
 | `app/services/production-authorization.ts` | Validates property manager authority from Neon facts, not Supabase `properties`. |
 | `scripts/neon/validate-auth-authorization-split.mjs` | Rejects Supabase business calls in active Auth/session paths and verifies browser boundary sources. |
@@ -47,18 +47,12 @@
 **Produces:** The fixed interfaces used by later tasks:
 
 ```ts
-export type NeonPreAuthLoginIdentity = Readonly<{
-  authUserId: string;
-  email: string;
-}>;
-
 export type NeonAuthorizationFacts = Readonly<{
   session: AuthSession;
   tenantId: string | null;
 }>;
 
 export type NeonAuthorizationRepository = Readonly<{
-  resolveLoginIdentity(hostname: string, loginId: string): Promise<NeonPreAuthLoginIdentity | null>;
   readSessionAuthority(hostname: string): Promise<NeonAuthorizationFacts>;
 }>;
 ```
@@ -104,28 +98,32 @@ git add tests/auth-authorization-split.test.mjs scripts/neon/validate-auth-autho
 git commit -m "test(auth): define Neon authorization split contract"
 ```
 
-### Task 2: Neon pre-auth identity and authorization-session entrypoints
+### Task 2: Deterministic login identity and authorization-session entrypoint
 
 **Files:**
 - Create: `neon/canonical/085_auth_authorization.sql`
-- Modify: `neon/canonical/canonical-neon-manifest.json`
+- Modify: `neon/canonical/manifest.json`
 - Modify: `scripts/neon/validate-canonical-neon-baseline.mjs`
 - Modify: `scripts/neon/canonical-neon-bootstrap-contract.test.mjs`
 - Modify: `tests/auth-authorization-split.test.mjs`
+- Create: `app/lib/auth/deterministic-login-identity.ts`
 
-**Consumes:** `public.resolve_neon_property_context`, existing `user_accounts`, `profiles`, membership, role-assignment, trainer-scope, department path, actor assertion, and People read-audit surfaces.
+**Consumes:** validated login-ID syntax, the trusted property hostname, existing `user_accounts`, `profiles`, membership, role-assignment, trainer-scope, department path, actor assertion, and People read-audit surfaces.
 
 **Produces:**
 
+```ts
+deriveDeterministicAuthEmail(loginId: string, hostname: string): string
+```
+
 ```sql
-public.resolve_neon_login_identity(p_hostname text, p_login_id text) returns jsonb
 public.read_neon_authorization_session(p_hostname text) returns jsonb
 ```
 
 - [ ] **Step 1: Add failing migration/source contracts**
 
 ```js
-test('canonical authorization migration declares only constrained exact entrypoints', () => {
+test('canonical authorization migration declares only the constrained session entrypoint', () => {
   const result = validateCanonicalAuthAuthorizationSource(readFixture('missing-entrypoints'));
   assert.match(result.error.message, /AUTHORIZATION_ENTRYPOINT_MISSING/);
 });
@@ -152,12 +150,6 @@ Create one transaction-framed canonical module that:
 begin;
 set local role hotel_ld_migration_owner;
 
-create function public.resolve_neon_login_identity(p_hostname text, p_login_id text)
-returns jsonb language plpgsql volatile security definer set search_path = '' as $$
--- resolve only active verified hostname, active account/profile and normalized login ID;
--- return auth_user_id and email only to the application role; return null when absent.
-$$;
-
 create function public.read_neon_authorization_session(p_hostname text)
 returns jsonb language plpgsql volatile security definer set search_path = '' as $$
 -- assert hostname equals current Actor Context property; derive active account,
@@ -165,14 +157,19 @@ returns jsonb language plpgsql volatile security definer set search_path = '' as
 -- append existing People read audit and return a browser-safe session projection.
 $$;
 
-revoke all on function public.resolve_neon_login_identity(text,text) from public;
 revoke all on function public.read_neon_authorization_session(text) from public;
-grant execute on function public.resolve_neon_login_identity(text,text) to hotel_ld_application;
 grant execute on function public.read_neon_authorization_session(text) to hotel_ld_application;
 commit;
 ```
 
-Do not add a table, policy, raw grant, broad role, persistent GUC, or Auth-schema reference. Add both exact signatures to the canonical manifest and catalog source assertions.
+Implement `deriveDeterministicAuthEmail` before the migration. It must accept only
+the existing normalized login-ID character set, normalize both parts to lower
+case, reject ports, paths, and whitespace, and produce exactly
+`<login-id>@<property-hostname>`. It must make no Auth, Neon, or Supabase call
+and is server-only. Do not add a table, policy, raw grant, broad role,
+persistent GUC, Auth-schema reference, actor-free lookup, identity mirror, or
+index. Add the one exact SQL signature to the canonical manifest and catalog
+source assertions.
 
 - [ ] **Step 4: Make migration contracts GREEN**
 
@@ -183,14 +180,13 @@ Expected: PASS; mutation fixtures prove fixed empty search path, explicit PUBLIC
 - [ ] **Step 5: Commit entrypoints**
 
 ```bash
-git add neon/canonical/085_auth_authorization.sql neon/canonical/canonical-neon-manifest.json scripts/neon/validate-canonical-neon-baseline.mjs scripts/neon/canonical-neon-bootstrap-contract.test.mjs tests/auth-authorization-split.test.mjs
-git commit -m "feat(neon): add authorization session entrypoints"
+git add app/lib/auth/deterministic-login-identity.ts neon/canonical/085_auth_authorization.sql neon/canonical/manifest.json scripts/neon/validate-canonical-neon-baseline.mjs scripts/neon/canonical-neon-bootstrap-contract.test.mjs tests/auth-authorization-split.test.mjs
+git commit -m "feat(auth): add deterministic login and Neon session entrypoint"
 ```
 
 ### Task 3: Server-only Neon authorization repository and session bootstrap
 
 **Files:**
-- Create: `app/lib/neon/pre-auth-authorization.ts`
 - Create: `app/repositories/neon/authorization-session-repository.ts`
 - Modify: `app/services/authentication-service.ts`
 - Modify: `app/services/request-authentication.ts`
@@ -198,7 +194,7 @@ git commit -m "feat(neon): add authorization session entrypoints"
 - Modify: `app/api/auth/session/route.ts`
 - Test: `tests/auth-authorization-split.test.mjs`
 
-**Consumes:** Exact Task 2 entrypoints, `createNeonPool`, `withNeonResolvedActorContext`, Supabase Auth `signInWithPassword`, `getUser`, and refresh.
+**Consumes:** Task 2 deterministic identity helper and exact session entrypoint, `createNeonPool`, `withNeonResolvedActorContext`, Supabase Auth `signInWithPassword`, `getUser`, and refresh.
 
 **Produces:** `resolveNeonAuthorizationForAuthUser(authUserId, hostname, requestId)` and a login flow that does not read Supabase business data.
 
@@ -235,18 +231,17 @@ Expected: FAIL because login still calls Supabase `.from()` and session resoluti
 
 - [ ] **Step 3: Implement the minimal server-only repository**
 
-`pre-auth-authorization.ts` must open a short application-role transaction, prove no actor GUC is installed before/after, invoke only `resolve_neon_login_identity`, and release the pooled client. It must not set an Actor Context or use raw SQL tables.
-
-`authorization-session-repository.ts` must call only the two Task 2 exact signatures. For a verified Auth user, call `withNeonResolvedActorContext` with the existing hostname/property resolver, then call `read_neon_authorization_session`. Map JSON into the existing `AuthSession`; keep `tenantId` in a server-only companion result.
+`authorization-session-repository.ts` must call only the Task 2 exact signature. For a verified Auth user, call `withNeonResolvedActorContext` with the existing hostname/property resolver, then call `read_neon_authorization_session`. Map JSON into the existing `AuthSession`; keep `tenantId` in a server-only companion result.
 
 Replace `authentication-service.ts` code in this order:
 
 ```ts
-const identity = await neon.resolveLoginIdentity(hostname, normalizedLoginId);
-if (!identity) throw genericLoginError();
-const auth = await supabaseAuth.signInWithPassword({ email: identity.email, password });
-if (!auth.user || auth.user.id !== identity.authUserId || !auth.session) throw genericLoginError();
-const authorization = await resolveNeonAuthorizationForAuthUser(auth.user.id, hostname, requestId);
+const email = deriveDeterministicAuthEmail(normalizedLoginId, hostname);
+const auth = await supabaseAuth.signInWithPassword({ email, password });
+if (!auth.user || !auth.session) throw genericLoginError();
+const verified = await supabaseAuth.getUser(auth.session.access_token);
+if (!verified.user || verified.user.id !== auth.user.id) throw genericLoginError();
+const authorization = await resolveNeonAuthorizationForAuthUser(verified.user.id, hostname, requestId);
 ```
 
 `resolveRequestAuthIdentity()` continues to perform only Auth `getUser` and refresh. Session and login API routes preserve generic browser errors and cookie behavior.
@@ -260,7 +255,7 @@ Expected: PASS; fakes throw if any Supabase `.from()` or `.rpc()` is reached.
 - [ ] **Step 5: Commit session bootstrap**
 
 ```bash
-git add app/lib/neon/pre-auth-authorization.ts app/repositories/neon/authorization-session-repository.ts app/services/authentication-service.ts app/services/request-authentication.ts app/api/auth/login/route.ts app/api/auth/session/route.ts tests/auth-authorization-split.test.mjs
+git add app/repositories/neon/authorization-session-repository.ts app/services/authentication-service.ts app/services/request-authentication.ts app/api/auth/login/route.ts app/api/auth/session/route.ts tests/auth-authorization-split.test.mjs
 git commit -m "feat(auth): resolve sessions through Neon authority"
 ```
 
@@ -396,5 +391,5 @@ git commit -m "test(auth): validate Neon authorization authority"
 
 - Spec coverage: Tasks 2–4 cover all four approved phases; Task 5 covers the required source, catalog, runtime, browser, test, and build evidence.
 - Constraints: every task preserves the Auth adapter, Actor Context semantics, raw privilege boundary, Storage, Production, and legacy fallback repositories.
-- Type consistency: `NeonPreAuthLoginIdentity`, `NeonAuthorizationFacts`, and `NeonAuthorizationRepository` are introduced in Task 1 and consumed unchanged by Tasks 2–4.
+- Type consistency: the deterministic internal Auth email is a server-only value; `NeonAuthorizationFacts` and `NeonAuthorizationRepository` are consumed unchanged by Tasks 2–4.
 - No placeholder scan: the plan contains exact file names, signatures, tests, commands, and commit scopes.

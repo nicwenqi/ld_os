@@ -20,18 +20,28 @@ effective role, department scope, and property context.
 
 ## Chosen architecture
 
-### 1. Pre-auth login identity lookup
+### 1. Deterministic Auth login identity
 
 The login page accepts a hotel login ID, while Supabase password sign-in needs
-an email. A constrained Neon entrypoint,
-`resolve_neon_login_identity(p_hostname text, p_login_id text)`, resolves an
-active property domain and active Neon account to the internal email and Auth
-user ID. It is called only by server code through a short, actor-free
-application-role transaction. It returns no response to the browser.
+an email. In the Neon-first environment no legacy account lookup is required
+before authentication. Server code normalizes the already-valid login ID and
+the trusted property hostname, then derives the internal Auth address as:
 
-The server then calls Supabase `signInWithPassword` and requires the returned
-Auth user ID to exactly match the Neon lookup. Every client-visible failure is
-the existing generic login failure, preventing account enumeration.
+```
+lowercase(loginId) + "@" + normalizedPropertyHostname
+```
+
+The property hostname is the property Auth domain. This is a deterministic
+initialization convention: the initialization operator creates the Supabase
+Auth user with that address and creates the matching Neon business identity.
+The derived address is never returned to the browser.
+
+The server calls Supabase `signInWithPassword`, verifies the resulting session
+with Supabase `getUser(accessToken)`, and requires the returned Auth user ID to
+match the sign-in user ID. Only then does it resolve Neon authorization. An
+Auth user with no active Neon mapping or membership receives the existing
+generic login failure. There is no actor-free Neon account lookup, no new RLS
+policy, and no identity mirror or index.
 
 ### 2. Actor-scoped authorization session
 
@@ -66,8 +76,9 @@ current application behavior.
 boundary. `resolveAccountForLogin()` becomes:
 
 ```
-login ID + hostname → Neon pre-auth lookup → Supabase signIn → exact Auth ID check
-→ Neon Actor Context → Neon authorization session
+login ID + trusted property hostname → deterministic internal Auth email
+→ Supabase signIn → getUser Auth ID verification → Neon Actor Context
+→ Neon authorization session
 ```
 
 `resolveAuthenticatedRequest()` derives its session from the Neon projection.
