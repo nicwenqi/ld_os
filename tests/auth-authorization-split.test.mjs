@@ -10,6 +10,7 @@ import * as canonicalValidator from "../scripts/neon/validate-canonical-neon-bas
 
 const authentication = await import("../app/services/authentication-service.ts");
 const requestAuthentication = await import("../app/services/request-authentication.ts");
+const productionAuthorization = await import("../app/services/production-authorization.ts");
 
 const hostname = "hotel.example.test";
 const loginId = "property-manager";
@@ -86,14 +87,24 @@ test("hostname property mismatch produces no authenticated business session", as
   assert.equal(resolved.session.authenticated, false);
 });
 
-test("source gate requires the exported Neon contract and server-only resolver factories", () => {
+test("property manager authorization keeps the private Neon tenant and property scope together", async () => {
+  assert.equal(typeof productionAuthorization.requirePropertyManagerWith, "function");
+
+  const actor = await productionAuthorization.requirePropertyManagerWith(fakeNeonManagerRequest());
+
+  assert.deepEqual(
+    { tenantId: actor.tenantId, propertyId: actor.propertyId },
+    { tenantId: "tenant-a", propertyId: "property-a" },
+  );
+});
+
+test("source gate requires the deterministic Neon contract and server-only resolver factories", () => {
   assert.deepEqual(validateAuthAuthorizationSplitSources({
     authenticationService: `
-      export type NeonPreAuthLoginIdentity = Readonly<{ authUserId: string; email: string }>;
-      export type NeonAuthorizationFacts = Readonly<{ session: AuthSession; tenantId: string | null }>;
+      const email = deriveDeterministicAuthEmail(loginId, hostname);
+      export type { NeonAuthorizationFacts } from "../repositories/neon/authorization-session-repository.ts";
       export type NeonAuthorizationRepository = Readonly<{
-        resolveLoginIdentity(hostname: string, loginId: string): Promise<NeonPreAuthLoginIdentity | null>;
-        readSessionAuthority(hostname: string): Promise<NeonAuthorizationFacts>;
+        resolveAuthorizationForAuthUser(authUserId: string, hostname: string, requestId: string): Promise<NeonAuthorizationFacts>;
       }>;
       export function createLoginResolutionDependencies() {}
       export async function resolveLoginWith() {}
@@ -101,14 +112,40 @@ test("source gate requires the exported Neon contract and server-only resolver f
     requestAuthentication: `
       export function createSessionResolutionDependencies() {}
       export async function resolveSessionWith() {}
+      export async function resolveAuthenticatedRequestWithAuthority() {}
     `,
     browserRegistry: "export type RuntimeDomainRegistry = {};",
+    productionAuthorization: "",
+    loginRoute: "",
+    sessionRoute: "",
+    initializationAccess: "",
   }), {
+    deterministicLoginContract: true,
     neonAuthorizationContract: true,
     loginResolverFactory: true,
     sessionResolverFactory: true,
+    serverOnlySupabaseBoundary: true,
     browserRegistryGate: true,
   });
+});
+
+test("source gate rejects Supabase business calls from active auth and control-plane sources", () => {
+  const input = legacyAuthorizationSourceFixture();
+
+  assert.throws(
+    () => validateAuthAuthorizationSplitSources({
+      ...input,
+      authenticationService: `${input.authenticationService}\nclient.from("user_accounts")`,
+    }),
+    /SUPABASE_BUSINESS_AUTH_DRIFT/,
+  );
+  assert.throws(
+    () => validateAuthAuthorizationSplitSources({
+      ...input,
+      initializationAccess: 'admin.from("role_assignments")',
+    }),
+    /SUPABASE_BUSINESS_AUTH_DRIFT/,
+  );
 });
 
 test("deterministic Auth email normalizes an existing valid login ID and trusted hostname", async (t) => {
@@ -368,4 +405,42 @@ function fakeUnauthorizedAuthority() {
 
 function fakeCrossPropertyAuthority() {
   return fakeUnauthorizedAuthority();
+}
+
+function fakeNeonManagerRequest() {
+  return {
+    hostname: "hotel.example.test",
+    environment: { appEnv: "production", dataMode: "neon" },
+    resolved: {
+      session: { ...managerSession, propertyId: "property-a" },
+      tenantId: "tenant-a",
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      refreshed: false,
+    },
+  };
+}
+
+function legacyAuthorizationSourceFixture() {
+  return {
+    authenticationService: `
+      export type NeonPreAuthLoginIdentity = Readonly<{ authUserId: string; email: string }>;
+      export type NeonAuthorizationFacts = Readonly<{ session: AuthSession; tenantId: string | null }>;
+      export type NeonAuthorizationRepository = Readonly<{
+        resolveLoginIdentity(hostname: string, loginId: string): Promise<NeonPreAuthLoginIdentity | null>;
+        readSessionAuthority(hostname: string): Promise<NeonAuthorizationFacts>;
+      }>;
+      export function createLoginResolutionDependencies() {}
+      export async function resolveLoginWith() {}
+    `,
+    requestAuthentication: `
+      export function createSessionResolutionDependencies() {}
+      export async function resolveSessionWith() {}
+    `,
+    browserRegistry: "export type RuntimeDomainRegistry = {};",
+    productionAuthorization: "",
+    loginRoute: "",
+    sessionRoute: "",
+    initializationAccess: "",
+  };
 }

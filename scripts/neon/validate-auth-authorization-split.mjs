@@ -1,14 +1,22 @@
+const activeSources = [
+  "authenticationService",
+  "requestAuthentication",
+  "productionAuthorization",
+  "loginRoute",
+  "sessionRoute",
+  "initializationAccess",
+];
+
 export function validateAuthAuthorizationSplitSources(input) {
+  validateNoSupabaseBusinessDrift(input);
+
   const contract = input.authenticationService;
-  if (!/export\s+type\s+NeonPreAuthLoginIdentity\b/.test(contract) ||
-      !/authUserId\s*:\s*string/.test(contract) ||
-      !/email\s*:\s*string/.test(contract) ||
-      !/export\s+type\s+NeonAuthorizationFacts\b/.test(contract) ||
-      !/session\s*:\s*AuthSession/.test(contract) ||
-      !/tenantId\s*:\s*string\s*\|\s*null/.test(contract) ||
-      !/export\s+type\s+NeonAuthorizationRepository\b/.test(contract) ||
-      !/resolveLoginIdentity\s*\(\s*hostname\s*:\s*string\s*,\s*loginId\s*:\s*string\s*\)/.test(contract) ||
-      !/readSessionAuthority\s*\(\s*hostname\s*:\s*string\s*\)/.test(contract)) {
+  if (/\b(?:NeonPreAuthLoginIdentity|resolveLoginIdentity|readSessionAuthority)\b/.test(contract)) {
+    throw new Error("RETIRED_PRE_AUTH_LOGIN_CONTRACT_DRIFT");
+  }
+  if (!/deriveDeterministicAuthEmail\s*\(/.test(contract) ||
+      !/export\s+type\s*\{\s*NeonAuthorizationFacts\s*\}/.test(contract) ||
+      !/resolveAuthorizationForAuthUser\s*\(\s*authUserId\s*:\s*string\s*,\s*hostname\s*:\s*string\s*,\s*requestId\s*:\s*string\s*\)/.test(contract)) {
     throw new Error("NEON_AUTHORIZATION_CONTRACT_DRIFT");
   }
   if (!/export\s+function\s+createLoginResolutionDependencies\b/.test(contract) ||
@@ -16,18 +24,36 @@ export function validateAuthAuthorizationSplitSources(input) {
     throw new Error("LOGIN_RESOLUTION_FACTORY_DRIFT");
   }
   if (!/export\s+function\s+createSessionResolutionDependencies\b/.test(input.requestAuthentication) ||
-      !/export\s+async\s+function\s+resolveSessionWith\b/.test(input.requestAuthentication)) {
+      !/export\s+async\s+function\s+resolveSessionWith\b/.test(input.requestAuthentication) ||
+      !/resolveAuthenticatedRequestWithAuthority\b/.test(input.requestAuthentication)) {
     throw new Error("SESSION_RESOLUTION_FACTORY_DRIFT");
   }
   if (!/RuntimeDomainRegistry/.test(input.browserRegistry)) {
     throw new Error("BROWSER_REGISTRY_GATE_DRIFT");
   }
   return {
+    deterministicLoginContract: true,
     neonAuthorizationContract: true,
     loginResolverFactory: true,
     sessionResolverFactory: true,
+    serverOnlySupabaseBoundary: true,
     browserRegistryGate: true,
   };
+}
+
+function validateNoSupabaseBusinessDrift(input) {
+  for (const sourceName of activeSources) {
+    const source = input[sourceName] ?? "";
+    if (/\.\s*(?:from|rpc)\s*\(/.test(source) ||
+        /repositories\/supabase\//.test(source) ||
+        /(?:lib\/supabase\/(?:browser|client)|createBrowserClient|createClientComponentClient)/.test(source)) {
+      throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
+    }
+    const authMethods = [...source.matchAll(/\.auth\.(\w+)\s*\(/g)].map(match => match[1]);
+    if (authMethods.some(method => !["signInWithPassword", "getUser", "refreshSession"].includes(method))) {
+      throw new Error(`SUPABASE_AUTH_METHOD_DRIFT:${sourceName}`);
+    }
+  }
 }
 
 async function main() {
@@ -35,14 +61,30 @@ async function main() {
     throw new Error("AUTHORIZATION_SPLIT_SOURCE_VALIDATION_ONLY");
   }
   const root = new URL("../../", import.meta.url);
-  const [authenticationService, requestAuthentication, browserRegistry] = await Promise.all([
+  const [
+    authenticationService,
+    requestAuthentication,
+    productionAuthorization,
+    loginRoute,
+    sessionRoute,
+    initializationAccess,
+    browserRegistry,
+  ] = await Promise.all([
     read(root, "app/services/authentication-service.ts"),
     read(root, "app/services/request-authentication.ts"),
+    read(root, "app/services/production-authorization.ts"),
+    read(root, "app/api/auth/login/route.ts"),
+    read(root, "app/api/auth/session/route.ts"),
+    read(root, "app/api/initialization/access/route.ts"),
     read(root, "app/repositories/runtime/neon-domain-registry.ts"),
   ]);
   console.log(JSON.stringify(validateAuthAuthorizationSplitSources({
     authenticationService,
     requestAuthentication,
+    productionAuthorization,
+    loginRoute,
+    sessionRoute,
+    initializationAccess,
     browserRegistry,
   })));
 }

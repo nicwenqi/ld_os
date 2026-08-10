@@ -2,7 +2,7 @@ import { parseAppEnvironment } from "../lib/environment.ts";
 import { resolveRequestHostname } from "../lib/request-hostname.ts";
 import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
 import type { AuthSession } from "../repositories/contracts/auth-repository.ts";
-import { resolveSessionForAuthUser } from "./authentication-service.ts";
+import { resolveNeonAuthorizationForAuthUser, resolveSessionForAuthUser } from "./authentication-service.ts";
 import type { NeonAuthorizationFacts, NeonAuthorizationRepository } from "./authentication-service.ts";
 import { readCookie, readRefreshCookie } from "../api/auth/cookies.ts";
 
@@ -12,6 +12,8 @@ export type AuthenticatedRequest = {
   refreshToken: string | null;
   refreshed: boolean;
 };
+
+export type AuthenticatedAuthorizationRequest = AuthenticatedRequest & Pick<NeonAuthorizationFacts, "tenantId">;
 
 export type RequestAuthIdentity = Omit<AuthenticatedRequest, "session"> & { userId: string; hostname: string };
 
@@ -132,6 +134,12 @@ export async function resolveAuthenticatedRequest(request: Request): Promise<Aut
   return resolveBackendRequest(request, false);
 }
 
+export async function resolveAuthenticatedRequestWithAuthority(
+  request: Request,
+): Promise<AuthenticatedAuthorizationRequest | null> {
+  return resolveBackendAuthorizationRequest(request, false);
+}
+
 export async function resolvePasswordChangeRequest(request: Request): Promise<AuthenticatedRequest | null> {
   return resolveBackendRequest(request, true);
 }
@@ -140,10 +148,30 @@ async function resolveBackendRequest(
   request: Request,
   allowPasswordChangeRequired: boolean,
 ): Promise<AuthenticatedRequest | null> {
+  const resolved = await resolveBackendAuthorizationRequest(request, allowPasswordChangeRequired);
+  if (!resolved) return null;
+  const { tenantId: _tenantId, ...requestWithoutAuthority } = resolved;
+  return requestWithoutAuthority;
+}
+
+async function resolveBackendAuthorizationRequest(
+  request: Request,
+  allowPasswordChangeRequired: boolean,
+): Promise<AuthenticatedAuthorizationRequest | null> {
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) return null;
-  const session = await resolveSessionForAuthUser(identity.userId, identity.hostname);
-  if (!isApprovedBackendSession(session)) return null;
-  if (!allowPasswordChangeRequired && session.mustChangePassword) return null;
-  return { session, accessToken: identity.accessToken, refreshToken: identity.refreshToken, refreshed: identity.refreshed };
+  const authorization = await resolveNeonAuthorizationForAuthUser(
+    identity.userId,
+    identity.hostname,
+    crypto.randomUUID(),
+  );
+  if (!isApprovedBackendSession(authorization.session)) return null;
+  if (!allowPasswordChangeRequired && authorization.session.mustChangePassword) return null;
+  return {
+    session: authorization.session,
+    tenantId: authorization.tenantId,
+    accessToken: identity.accessToken,
+    refreshToken: identity.refreshToken,
+    refreshed: identity.refreshed,
+  };
 }
