@@ -457,6 +457,129 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "renamed Storage adapter receiver exposes business surface",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(storage) {
+        return storage.from("business");
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
+    name: "renamed Storage adapter receiver lists objects",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(actor) {
+        return { list(bucket) { return actor.storage.from(bucket).list(); } };
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
+    name: "renamed Storage adapter receiver uses non-Storage surface",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(actor) {
+        actor.channel("room");
+        return { remove(bucket, path) { return actor.storage.from(bucket).remove([path]); } };
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
+    name: "Storage token alias is undefined",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return { remove(bucket, path) { return client.storage.from(bucket).remove([path]); } };
+      }
+      const token = undefined;
+      createActorStorageGateway(createServerActorClient(token));
+    `,
+  },
+  {
+    name: "Storage token alias is false",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return { remove(bucket, path) { return client.storage.from(bucket).remove([path]); } };
+      }
+      const token = false;
+      createActorStorageGateway(createServerActorClient(token));
+    `,
+  },
+  {
+    name: "Storage token alias is empty",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return { remove(bucket, path) { return client.storage.from(bucket).remove([path]); } };
+      }
+      const token = "";
+      createActorStorageGateway(createServerActorClient(token));
+    `,
+  },
+  {
+    name: "Storage token alias is NaN",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return { remove(bucket, path) { return client.storage.from(bucket).remove([path]); } };
+      }
+      const token = NaN;
+      createActorStorageGateway(createServerActorClient(token));
+    `,
+  },
+  {
+    name: "Storage token alias through a cast is false",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return { remove(bucket, path) { return client.storage.from(bucket).remove([path]); } };
+      }
+      const token = false as unknown as string;
+      createActorStorageGateway(createServerActorClient(token));
+    `,
+  },
+  {
+    name: "approved Storage adapter has zero-argument remove",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return { remove(bucket) { return client.storage.from(bucket).remove(); } };
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
     name: "nested Storage adapter boundary spoof",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     sourceName: "neonImportStagingAuthorization",
@@ -607,6 +730,25 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "dynamic template server-admin import",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      const [{ createServerPasswordClient }] = await Promise.all([
+        import(\`../lib/supabase/server-admin.ts\`),
+      ]);
+      createServerPasswordClient().from("users");
+    `,
+  },
+  {
+    name: "dynamic interpolated server-admin import",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      const moduleName = "server-admin";
+      const admin = await import(\`../lib/supabase/\${moduleName}.ts\`);
+      admin.createServerPasswordClient().from("users");
+    `,
+  },
+  {
     name: "dynamic require server-admin client",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: `
@@ -648,8 +790,9 @@ export const rejectedAuthSourceAuditCases = [
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: serverClient(`
       let first, second;
-      first = second;
+      first = createServerPasswordClient();
       second = first;
+      first = second;
       first.from("users");
     `),
   },
@@ -671,6 +814,39 @@ export const rejectedAuthSourceAuditCases = [
     `),
   },
   {
+    name: "multi-return recursive client aliases",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: serverClient(`
+      function recursiveClient(flag) {
+        if (flag) return recursiveClient(false);
+        return recursiveClient(true);
+      }
+      recursiveClient(true).from("users");
+    `),
+  },
+  {
+    name: "recursive client through local function",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: serverClient(`
+      function local() { return recursiveClient(); }
+      function recursiveClient() { return local(); }
+      recursiveClient().rpc("operation");
+    `),
+  },
+  {
+    name: "recursive multi-return cycle after benign branch",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: serverClient(`
+      function benign() { return {}; }
+      function recursiveClient(flag) {
+        if (flag) return benign();
+        return local();
+      }
+      function local() { return recursiveClient(false); }
+      recursiveClient(false).from("users");
+    `),
+  },
+  {
     name: "unknown imported client wrapper method",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: `
@@ -685,6 +861,34 @@ export const rejectedAuthSourceAuditCases = [
       import { make } from "../unrelated/factory.ts";
       function get() { return make(); }
       get().from("users");
+    `,
+  },
+  {
+    name: "unknown imported wrapper conditional return",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      import { make } from "../unrelated/factory.ts";
+      function get(flag) { if (flag) return make(); return make(); }
+      get(true).from("users");
+    `,
+  },
+  {
+    name: "unknown imported wrapper function chain",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      import { make } from "../unrelated/factory.ts";
+      function first() { return make(); }
+      function second() { return first(); }
+      second().rpc("operation");
+    `,
+  },
+  {
+    name: "unknown imported wrapper object method holder",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      import { make } from "../unrelated/factory.ts";
+      const holder = { get() { return make(); } };
+      holder.get().from("users");
     `,
   },
   {
@@ -804,6 +1008,18 @@ export const allowedAuthSourceAuditCases = [
     source: `
       import nodePath = require("node:path");
       nodePath.join("a", "b");
+    `,
+  },
+  {
+    name: "cross-scope alias names remain benign",
+    source: `
+      function readLocal() {
+        let first, second;
+        first = second;
+        second = first;
+        return first.from("local");
+      }
+      readLocal();
     `,
   },
 ];

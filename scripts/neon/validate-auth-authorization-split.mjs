@@ -70,16 +70,18 @@ function auditActiveSourceSurface(source, sourceName) {
   if (sourceName === "neonImportStagingAuthorization" && hasSpoofedStorageAdapterBoundary(sourceFile)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
-  const approvedStorageSource = isApprovedStorageAdapterSource(sourceFile, sourceName) &&
-    hasApprovedActorStorageInput(sourceFile, provenance);
+  const approvedStorageBinding = isApprovedStorageAdapterSource(sourceFile, sourceName)
+    ? getApprovedStorageAdapterBinding(sourceFile, provenance)
+    : null;
+  const approvedStorageSource = Boolean(approvedStorageBinding?.valid);
   if (approvedStorageSource) {
-    if (hasAdapterAliasFlow(sourceFile) ||
+    if (hasAdapterAliasFlow(sourceFile, approvedStorageBinding.parameterRoots) ||
         hasUnprovenSupabaseFlow(sourceFile, provenance) ||
         hasUnknownProvenanceAccess(sourceFile, provenance) ||
         hasUnknownImportedSupabaseSurface(sourceFile, provenance) ||
         hasUnknownImportedClientWrapperUse(sourceFile, provenance) ||
         hasUnknownImportedWrapperFlow(sourceFile, provenance) ||
-        hasInvalidApprovedStorageClientSurface(sourceFile) ||
+        hasInvalidApprovedStorageClientSurface(sourceFile, approvedStorageBinding.parameterRoots) ||
         hasUnsupportedSupabaseStorageUse(sourceFile, provenance, sourceName) ||
         hasSupabaseBusinessUse(sourceFile, provenance) ||
         hasUnsupportedSupabaseClientSurface(sourceFile, provenance)) {
@@ -241,7 +243,7 @@ function isApprovedStorageInputCall(node, sourceFile, provenance) {
       node.arguments.length !== 1) return false;
   return isActorFactoryReference(node.arguments[0].expression, provenance) &&
     ts.isCallExpression(unwrapExpression(node.arguments[0])) &&
-    hasActorTokenArgument(unwrapExpression(node.arguments[0]));
+    hasActorTokenArgument(unwrapExpression(node.arguments[0]), provenance);
 }
 
 function isApprovedStorageOperationCall(node, sourceFile) {
@@ -285,40 +287,39 @@ function isApprovedStorageResponseReturn(node, sourceFile) {
     properties.some(property => propertyNameText(property.name) === "headers");
 }
 
-function hasAdapterAliasFlow(sourceFile) {
+function hasAdapterAliasFlow(sourceFile, parameterRoots = new Set()) {
   let found = false;
   visitNodes(sourceFile, node => {
     if (found) return;
     if (ts.isVariableDeclaration(node) && node.initializer &&
-        ts.isIdentifier(unwrapExpression(node.initializer)) &&
-        unwrapExpression(node.initializer).text === "client") {
+        expressionHasBindingRoot(node.initializer, parameterRoots)) {
       found = true;
       return;
     }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        ts.isIdentifier(unwrapExpression(node.right)) && unwrapExpression(node.right).text === "client") {
+        expressionHasBindingRoot(node.right, parameterRoots)) {
       found = true;
     }
   });
   return found;
 }
 
-function hasInvalidApprovedStorageClientSurface(sourceFile) {
+function hasInvalidApprovedStorageClientSurface(sourceFile, parameterRoots = new Set()) {
   let found = false;
   visitNodes(sourceFile, node => {
     if (found || !isInsideApprovedStorageAdapter(node)) return;
-    if (ts.isElementAccessExpression(node) && expressionContainsIdentifier(node.expression, "client")) {
+    if (ts.isElementAccessExpression(node) && expressionHasBindingRoot(node.expression, parameterRoots)) {
       found = true;
       return;
     }
-    if (!ts.isPropertyAccessExpression(node) || !expressionContainsIdentifier(node.expression, "client")) return;
+    if (!ts.isPropertyAccessExpression(node) || !expressionHasBindingRoot(node.expression, parameterRoots)) return;
     const receiver = unwrapExpression(node.expression);
     const member = node.name.text;
     if (node.questionDotToken) {
       found = true;
       return;
     }
-    if (ts.isIdentifier(receiver) && receiver.text === "client") {
+    if (expressionHasBindingRoot(receiver, parameterRoots) && ts.isIdentifier(receiver)) {
       if (member !== "storage") {
         found = true;
       } else {
@@ -329,8 +330,7 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
       return;
     }
     if (ts.isPropertyAccessExpression(receiver) &&
-        ts.isIdentifier(unwrapExpression(receiver.expression)) &&
-        unwrapExpression(receiver.expression).text === "client" &&
+        expressionHasBindingRoot(receiver.expression, parameterRoots) &&
         receiver.name.text === "storage") {
       if (member !== "from") {
         found = true;
@@ -341,23 +341,29 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
         if (!ts.isCallExpression(fromInvocation) || fromInvocation.expression !== node || fromInvocation.questionDotToken ||
             !ts.isPropertyAccessExpression(terminalAccess) || terminalAccess.expression !== fromInvocation || terminalAccess.questionDotToken ||
             !["upload", "download", "remove"].includes(terminalAccess.name.text) ||
-            !ts.isCallExpression(terminalInvocation) || terminalInvocation.expression !== terminalAccess || terminalInvocation.questionDotToken) found = true;
+            !ts.isCallExpression(terminalInvocation) || terminalInvocation.expression !== terminalAccess || terminalInvocation.questionDotToken ||
+            !hasApprovedStorageTerminalArguments(terminalInvocation, terminalAccess.name.text)) found = true;
       }
       return;
     }
     if (ts.isCallExpression(receiver) && ts.isPropertyAccessExpression(receiver.expression) &&
         receiver.expression.name.text === "from" &&
         ts.isPropertyAccessExpression(receiver.expression.expression) &&
-        ts.isIdentifier(unwrapExpression(receiver.expression.expression.expression)) &&
-        unwrapExpression(receiver.expression.expression.expression).text === "client" &&
+        expressionHasBindingRoot(receiver.expression.expression.expression, parameterRoots) &&
         receiver.expression.expression.name.text === "storage") {
       if (!(member === "upload" || member === "download" || member === "remove") ||
-          !ts.isCallExpression(node.parent) || node.parent.expression !== node || node.parent.questionDotToken) found = true;
+          !ts.isCallExpression(node.parent) || node.parent.expression !== node || node.parent.questionDotToken ||
+          !hasApprovedStorageTerminalArguments(node.parent, member)) found = true;
       return;
     }
     found = true;
   });
   return found;
+}
+
+function hasApprovedStorageTerminalArguments(call, member) {
+  if (member === "remove" || member === "download") return call.arguments.length === 1;
+  return member === "upload" && call.arguments.length >= 2;
 }
 
 function hasSpoofedStorageAdapterBoundary(sourceFile) {
@@ -375,12 +381,12 @@ function hasSpoofedStorageAdapterBoundary(sourceFile) {
   return found;
 }
 
-function expressionContainsIdentifier(node, name) {
-  let found = false;
-  visitNodes(node, child => {
-    if (ts.isIdentifier(child) && child.text === name) found = true;
-  });
-  return found;
+function expressionHasBindingRoot(node, roots) {
+  if (!roots || roots.size === 0) return false;
+  const expression = unwrapExpression(node);
+  const identity = expressionIdentity(expression, roots.checker);
+  if (identity && roots.has(identity.root)) return true;
+  return false;
 }
 
 function hasRecursiveClientLikeUse(sourceFile, provenance) {
@@ -416,18 +422,19 @@ function hasRecursiveClientLikeUse(sourceFile, provenance) {
   for (const start of edges.keys()) {
     const path = [];
     const seen = new Map();
-    let current = start;
-    while (edges.has(current)) {
+    const visit = current => {
       if (seen.has(current)) {
         for (let index = seen.get(current); index < path.length; index++) cyclic.add(path[index]);
-        break;
+        return;
       }
+      if (!edges.has(current)) return;
       seen.set(current, path.length);
       path.push(current);
-      const next = edges.get(current).values().next().value;
-      if (!next) break;
-      current = next;
-    }
+      for (const next of edges.get(current)) visit(next);
+      path.pop();
+      seen.delete(current);
+    };
+    visit(start);
   }
   if (cyclic.size === 0) return false;
 
@@ -481,42 +488,36 @@ function containsSupabaseValue(node, provenance) {
 
 function hasCyclicAliasGraph(sourceFile, provenance) {
   const edges = new Map();
-  const suspicious = new Set();
   visitNodes(sourceFile, node => {
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
         ts.isIdentifier(unwrapExpression(node.left)) && ts.isIdentifier(unwrapExpression(node.right))) {
-      const left = unwrapExpression(node.left).text;
-      const right = unwrapExpression(node.right).text;
-      edges.set(left, right);
-    }
-    if (isMemberAccess(node) && ["from", "rpc", "auth", "storage"].includes(accessName(node)) &&
-        ts.isIdentifier(unwrapExpression(node.expression))) {
-      suspicious.add(unwrapExpression(node.expression).text);
+      const left = provenance.checker.getSymbolAtLocation(unwrapExpression(node.left));
+      const right = provenance.checker.getSymbolAtLocation(unwrapExpression(node.right));
+      if (left && right) edges.set(symbolBindingRoot(left), symbolBindingRoot(right));
     }
   });
   const cyclic = new Set();
   for (const start of edges.keys()) {
     const path = [];
     const seen = new Map();
-    let current = start;
-    while (edges.has(current)) {
+    const visit = current => {
       if (seen.has(current)) {
         for (let index = seen.get(current); index < path.length; index++) cyclic.add(path[index]);
-        break;
+        return;
       }
+      if (!edges.has(current)) return;
       seen.set(current, path.length);
       path.push(current);
-      current = edges.get(current);
-    }
+      const next = edges.get(current);
+      if (next) visit(next);
+      path.pop();
+      seen.delete(current);
+    };
+    visit(start);
   }
-  return [...cyclic].some(name => suspicious.has(name)) ||
-    [...cyclic].some(name => {
-      const declaration = [...provenance.checker.getSymbolsInScope(
-        sourceFile,
-        ts.SymbolFlags.Value,
-      )].find(symbol => symbol.name === name);
-      return declaration && [...provenanceBindingMaps(provenance)].some(bindings =>
-        identityHasBinding(bindings, { root: symbolBindingRoot(declaration), path: "[]" }, true),
+  return [...cyclic].some(root => {
+      return [...provenanceBindingMaps(provenance)].some(bindings =>
+        identityHasBinding(bindings, { root, path: "[]" }, true),
       );
     });
 }
@@ -526,6 +527,13 @@ function hasForbiddenSupabaseImport(sourceFile, checker) {
   visitNodes(sourceFile, node => {
     if (found) return;
     const moduleName = importedModuleName(node, checker);
+    if (ts.isCallExpression(node) && node.arguments.length === 1 &&
+        (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+         (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
+        !ts.isStringLiteralLike(node.arguments[0])) {
+      found = true;
+      return;
+    }
     if (moduleName && ts.isCallExpression(node) &&
         (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
          (ts.isIdentifier(node.expression) && node.expression.text === "require")) &&
@@ -828,7 +836,7 @@ function hasUnsupportedSupabaseClientSurface(sourceFile, provenance) {
 function hasUnsupportedSupabaseStorageUse(sourceFile, provenance, sourceName) {
   const serverOnly = sourceHasServerOnlyImport(sourceFile);
   const approvedAdapter = isApprovedStorageAdapterSource(sourceFile, sourceName) &&
-    hasApprovedActorStorageInput(sourceFile, provenance);
+    getApprovedStorageAdapterBinding(sourceFile, provenance).valid;
   let found = false;
   visitNodes(sourceFile, node => {
     if (found) return;
@@ -896,12 +904,19 @@ function isApprovedStorageAdapterSource(sourceFile, sourceName) {
   );
 }
 
-function hasApprovedActorStorageInput(sourceFile, provenance) {
+function getApprovedStorageAdapterBinding(sourceFile, provenance) {
   const approvedDeclaration = sourceFile.statements.find(statement =>
     ts.isFunctionDeclaration(statement) && statement.name?.text === "createActorStorageGateway" &&
     statement.modifiers?.some(modifier => modifier.kind === ts.SyntaxKind.ExportKeyword),
   );
   const approvedSymbol = approvedDeclaration?.name && provenance.checker.getSymbolAtLocation(approvedDeclaration.name);
+  const parameterRoots = new Set();
+  parameterRoots.checker = provenance.checker;
+  const parameter = approvedDeclaration?.parameters?.[0];
+  if (parameter?.name && ts.isIdentifier(parameter.name)) {
+    const parameterSymbol = provenance.checker.getSymbolAtLocation(parameter.name);
+    if (parameterSymbol) parameterRoots.add(symbolBindingRoot(parameterSymbol));
+  }
   let found = false;
   visitNodes(sourceFile, node => {
     if (found || !ts.isCallExpression(node) ||
@@ -912,7 +927,7 @@ function hasApprovedActorStorageInput(sourceFile, provenance) {
     if (!callSymbol || symbolBindingRoot(callSymbol) !== symbolBindingRoot(approvedSymbol)) return;
     found = isActorClientExpression(node.arguments[0], provenance);
   });
-  return found;
+  return { valid: found, parameterRoots };
 }
 
 function hasInvalidActorFactoryUse(sourceFile, provenance) {
@@ -920,7 +935,7 @@ function hasInvalidActorFactoryUse(sourceFile, provenance) {
   visitNodes(sourceFile, node => {
     if (found || !ts.isCallExpression(node) ||
         !isActorFactoryReference(node.expression, provenance)) return;
-    if (!hasActorTokenArgument(node)) found = true;
+    if (!hasActorTokenArgument(node, provenance)) found = true;
   });
   return found;
 }
@@ -1043,33 +1058,53 @@ function hasUnknownImportedClientWrapperUse(sourceFile, provenance) {
 }
 
 function hasUnknownImportedWrapperFlow(sourceFile, provenance) {
-  const wrapperRoots = new Set();
+  const callableRoots = new Map();
   visitNodes(sourceFile, node => {
-    if (ts.isFunctionDeclaration(node) && node.name) {
-      if (functionReturnExpressions(node).some(expression =>
-        ts.isCallExpression(unwrapExpression(expression)) &&
-        isUnknownImportedExpression(unwrapExpression(expression).expression, provenance))) {
-        const symbol = provenance.checker.getSymbolAtLocation(node.name);
-        if (symbol) wrapperRoots.add(symbolBindingRoot(symbol));
-      }
-      return;
+    let callable = null;
+    let name = null;
+    if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && node.name) {
+      callable = node;
+      name = node.name;
+    } else if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
+        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer))) {
+      callable = node.initializer;
+      name = node.name;
     }
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
-        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
-        functionReturnExpressions(node.initializer).some(expression =>
-          ts.isCallExpression(unwrapExpression(expression)) &&
-          isUnknownImportedExpression(unwrapExpression(expression).expression, provenance))) {
-      const symbol = provenance.checker.getSymbolAtLocation(node.name);
-      if (symbol) wrapperRoots.add(symbolBindingRoot(symbol));
-    }
+    if (!callable || !name) return;
+    const symbol = provenance.checker.getSymbolAtLocation(name);
+    if (symbol) callableRoots.set(symbolBindingRoot(symbol), callable);
   });
+  const wrapperRoots = new Set();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const [root, callable] of callableRoots) {
+      if (wrapperRoots.has(root)) continue;
+      const isWrapper = functionReturnExpressions(callable).some(expression => {
+        const value = unwrapExpression(expression);
+        if (!ts.isCallExpression(value)) return false;
+        if (isUnknownImportedExpression(value.expression, provenance)) return true;
+        const callee = value.expression;
+        if (ts.isIdentifier(callee) || isMemberAccess(callee)) {
+          const symbol = provenance.checker.getSymbolAtLocation(callee);
+          return Boolean(symbol && wrapperRoots.has(symbolBindingRoot(symbol)));
+        }
+        return false;
+      });
+      if (isWrapper) {
+        wrapperRoots.add(root);
+        changed = true;
+      }
+    }
+  }
   if (wrapperRoots.size === 0) return false;
   let found = false;
   visitNodes(sourceFile, node => {
     if (found || !isMemberAccess(node) ||
         !["from", "rpc", "auth", "storage"].includes(accessName(node))) return;
     const receiver = unwrapExpression(node.expression);
-    if (!ts.isCallExpression(receiver) || !ts.isIdentifier(receiver.expression)) return;
+    if (!ts.isCallExpression(receiver) ||
+        (!ts.isIdentifier(receiver.expression) && !isMemberAccess(receiver.expression))) return;
     const symbol = provenance.checker.getSymbolAtLocation(receiver.expression);
     if (symbol && wrapperRoots.has(symbolBindingRoot(symbol))) found = true;
   });
@@ -1142,18 +1177,29 @@ function isActorClientExpression(node, provenance) {
   const expression = unwrapExpression(node);
   if (hasExpressionBinding(provenance.actorReceivers, expression, provenance.checker)) return true;
   if (ts.isCallExpression(expression) &&
-      hasActorTokenArgument(expression) &&
+      hasActorTokenArgument(expression, provenance) &&
       isActorFactoryReference(expression.expression, provenance)) return true;
   return expressionAlternatives(expression).some(alternative =>
     isActorClientExpression(alternative, provenance),
   );
 }
 
-function hasActorTokenArgument(call) {
+function hasActorTokenArgument(call, provenance) {
   if (call.arguments.length !== 1) return false;
-  const token = unwrapExpression(call.arguments[0]);
+  return isViableActorToken(call.arguments[0], provenance, new Set());
+}
+
+function isViableActorToken(value, provenance, seen) {
+  const token = unwrapExpression(value);
   if (ts.isIdentifier(token)) {
-    return /^(?:access[_]?token|actor[_]?token)$/i.test(token.text);
+    if (!/^(?:access[_]?token|actor[_]?token)$/i.test(token.text)) return false;
+    const symbol = provenance?.checker?.getSymbolAtLocation(token);
+    const declaration = symbol?.valueDeclaration;
+    if (!declaration || !ts.isVariableDeclaration(declaration) || !declaration.initializer) return true;
+    const root = symbolBindingRoot(symbol);
+    if (seen.has(root)) return false;
+    seen.add(root);
+    return isViableActorToken(declaration.initializer, provenance, seen);
   }
   if (isMemberAccess(token)) {
     return /^(?:access[_]?token|actor[_]?token)$/i.test(accessName(token) ?? "");
