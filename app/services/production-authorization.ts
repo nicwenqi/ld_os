@@ -57,7 +57,7 @@ export async function requirePropertyManagerWith(
       ? authCookies(
           resolved.accessToken,
           resolved.refreshToken,
-          environment.appEnv !== "local",
+          input.environment.appEnv !== "local",
         )
       : [],
   };

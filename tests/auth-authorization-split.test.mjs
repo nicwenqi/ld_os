@@ -98,6 +98,17 @@ test("property manager authorization keeps the private Neon tenant and property 
   );
 });
 
+test("property manager authorization emits refreshed cookies with the supplied environment", async () => {
+  const request = fakeNeonManagerRequest();
+  request.environment.appEnv = "local";
+  request.resolved.refreshed = true;
+
+  const actor = await productionAuthorization.requirePropertyManagerWith(request);
+
+  assert.equal(actor.refreshedCookies.length, 2);
+  assert.equal(actor.refreshedCookies.every(cookie => !cookie.includes("; Secure")), true);
+});
+
 test("source gate requires the deterministic Neon contract and server-only resolver factories", () => {
   assert.deepEqual(validateAuthAuthorizationSplitSources({
     authenticationService: `
@@ -130,7 +141,7 @@ test("source gate requires the deterministic Neon contract and server-only resol
 });
 
 test("source gate rejects Supabase business calls from active auth and control-plane sources", () => {
-  const input = legacyAuthorizationSourceFixture();
+  const input = deterministicAuthorizationSourceFixture();
 
   assert.throws(
     () => validateAuthAuthorizationSplitSources({
@@ -146,6 +157,69 @@ test("source gate rejects Supabase business calls from active auth and control-p
     }),
     /SUPABASE_BUSINESS_AUTH_DRIFT/,
   );
+});
+
+test("source gate fails closed for direct, optional, and aliased Supabase bypasses", () => {
+  for (const { name, sourceName, appended, error } of [
+    {
+      name: "direct Supabase client imports",
+      sourceName: "authenticationService",
+      appended: 'import { createClient } from "@supabase/supabase-js"; createClient("url", "key");',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "optional unsupported Auth methods",
+      sourceName: "sessionRoute",
+      appended: "client.auth?.signOut();",
+      error: /SUPABASE_AUTH_METHOD_DRIFT/,
+    },
+    {
+      name: "destructured business methods",
+      sourceName: "loginRoute",
+      appended: 'const { from } = client; from("user_accounts");',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "aliased business methods",
+      sourceName: "productionAuthorization",
+      appended: 'const { rpc: invoke } = client; invoke("business_operation");',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "direct RPC calls",
+      sourceName: "initializationAccess",
+      appended: 'client.rpc("business_operation");',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "browser Supabase client imports",
+      sourceName: "requestAuthentication",
+      appended: 'import { createBrowserClient } from "../lib/supabase/browser.ts";',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "legacy Supabase business repository imports",
+      sourceName: "sessionRoute",
+      appended: 'import { legacy } from "../repositories/supabase/auth-repository.ts";',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "retired pre-auth lookup references",
+      sourceName: "loginRoute",
+      appended: "resolveLoginIdentity(hostname, loginId);",
+      error: /RETIRED_PRE_AUTH_LOGIN_CONTRACT_DRIFT/,
+    },
+  ]) {
+    const input = deterministicAuthorizationSourceFixture();
+    assert.throws(
+      () => validateAuthAuthorizationSplitSources({
+        ...input,
+        [sourceName]: `${input[sourceName]}\n${appended}`,
+      }),
+      error,
+      name,
+    );
+  }
 });
 
 test("deterministic Auth email normalizes an existing valid login ID and trusted hostname", async (t) => {
@@ -421,14 +495,13 @@ function fakeNeonManagerRequest() {
   };
 }
 
-function legacyAuthorizationSourceFixture() {
+function deterministicAuthorizationSourceFixture() {
   return {
     authenticationService: `
-      export type NeonPreAuthLoginIdentity = Readonly<{ authUserId: string; email: string }>;
-      export type NeonAuthorizationFacts = Readonly<{ session: AuthSession; tenantId: string | null }>;
+      const email = deriveDeterministicAuthEmail(loginId, hostname);
+      export type { NeonAuthorizationFacts } from "../repositories/neon/authorization-session-repository.ts";
       export type NeonAuthorizationRepository = Readonly<{
-        resolveLoginIdentity(hostname: string, loginId: string): Promise<NeonPreAuthLoginIdentity | null>;
-        readSessionAuthority(hostname: string): Promise<NeonAuthorizationFacts>;
+        resolveAuthorizationForAuthUser(authUserId: string, hostname: string, requestId: string): Promise<NeonAuthorizationFacts>;
       }>;
       export function createLoginResolutionDependencies() {}
       export async function resolveLoginWith() {}
@@ -436,6 +509,7 @@ function legacyAuthorizationSourceFixture() {
     requestAuthentication: `
       export function createSessionResolutionDependencies() {}
       export async function resolveSessionWith() {}
+      export async function resolveAuthenticatedRequestWithAuthority() {}
     `,
     browserRegistry: "export type RuntimeDomainRegistry = {};",
     productionAuthorization: "",
