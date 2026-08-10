@@ -108,7 +108,7 @@ export function validateDirectBootstrapConnection(connectionString, target) {
   return true;
 }
 
-export async function initializeNeonFirstEnvironment({ connectionString, target, fixture, authUserId, client, pool, environment = process.env, requestId = randomUUID(), now = new Date() }) {
+export async function initializeNeonFirstEnvironment({ connectionString, target, fixture, authUserId, client, pool, environment = process.env, requestId = randomUUID(), now = new Date(), dryRun = false }) {
   validateInitializationTarget(target, environment);
   validateInitializationFixture(fixture, authUserId);
   validateDirectBootstrapConnection(connectionString, target);
@@ -143,8 +143,8 @@ export async function initializeNeonFirstEnvironment({ connectionString, target,
     await dbClient.query(SQL.organizationAudit, [requestId, authUserId, fixture.manager.profileId, fixture.tenant.id, fixture.property.id, fixture.developmentSeed.departmentId, details]);
     await dbClient.query(SQL.propertyAudit, [requestId, authUserId, fixture.tenant.id, fixture.property.id, fixture.property.id, details]);
     await dbClient.query(SQL.initializationAudit, [requestId, authUserId, fixture.tenant.id, fixture.property.id, details]);
-    await dbClient.query("commit");
-    return { status: created.length === 0 ? "already_present" : "created", created, requestId, authUserId, tenantId: fixture.tenant.id, propertyId: fixture.property.id, profileId: fixture.manager.profileId, roleAssignmentId: fixture.manager.roleAssignmentId, seedVersion: fixture.seedVersion, committedAt: now.toISOString() };
+    await dbClient.query(dryRun ? "rollback" : "commit");
+    return { status: dryRun ? "dry_run" : created.length === 0 ? "already_present" : "created", created, requestId, authUserId, tenantId: fixture.tenant.id, propertyId: fixture.property.id, profileId: fixture.manager.profileId, roleAssignmentId: fixture.manager.roleAssignmentId, seedVersion: fixture.seedVersion, committedAt: now.toISOString() };
   } catch (error) {
     try { await dbClient.query("rollback"); } catch { /* preserve original failure */ }
     throw error;
