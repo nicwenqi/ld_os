@@ -2,11 +2,12 @@ begin;
 -- E5B evidence is sealed with SHA-256. pgcrypto is an infrastructure
 -- extension, not a Supabase compatibility schema, and is required by the
 -- canonical empty-database bootstrap before any staging function can run.
--- This executes as the bootstrap database owner; hotel_ld_migration_owner is
--- deliberately NOCREATEDB and must never receive database CREATE authority.
+set local role hotel_ld_migration_owner;
+-- The migration owner owns the canonical public schema and may install the
+-- allowlisted extension there; it remains NOCREATEDB and receives no database
+-- CREATE authority.
 create extension if not exists pgcrypto with schema public;
 
-set local role hotel_ld_migration_owner;
 set local check_function_bodies = off;
 
 create function app_private.neon_import_staging_lock_key(p_batch_id uuid)

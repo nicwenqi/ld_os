@@ -93,14 +93,17 @@ test("E5B catalog inventory requires pgcrypto for database-side evidence sealing
   );
 });
 
-test("E5B installs pgcrypto before dropping bootstrap owner privileges", async () => {
+test("E5B installs pgcrypto as the schema-owning migration role", async () => {
   const source = await readFile(sourceUrl, "utf8");
 
+  assert.doesNotThrow(
+    () => validateE5bImportStagingEntrypoints(source),
+  );
   assert.throws(
     () => validateE5bImportStagingEntrypoints(
       source.replace(
-        "create extension if not exists pgcrypto with schema public;\n\nset local role hotel_ld_migration_owner;",
-        "set local role hotel_ld_migration_owner;\n\ncreate extension if not exists pgcrypto with schema public;",
+        "set local role hotel_ld_migration_owner;\n-- The migration owner owns the canonical public schema and may install the",
+        "create extension if not exists pgcrypto with schema public;\nset local role hotel_ld_migration_owner;\n-- The migration owner owns the canonical public schema and may install the",
       ),
     ),
     /E5B_IMPORT_STAGING_PGCRYPTO_BOOTSTRAP_ORDER_INVALID/,

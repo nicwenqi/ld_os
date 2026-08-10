@@ -972,7 +972,7 @@ export function validateE5bImportStagingEntrypoints(source, manifest = null) {
     || (manifest && !manifest.extensions?.includes("pgcrypto"))) {
     failSource("E5B_IMPORT_STAGING_PGCRYPTO_MANIFEST_MISSING");
   }
-  if (migrationRole < 0 || pgcryptoInstall > migrationRole) {
+  if (migrationRole < 0 || pgcryptoInstall < migrationRole) {
     failSource("E5B_IMPORT_STAGING_PGCRYPTO_BOOTSTRAP_ORDER_INVALID");
   }
   if (/\b(?:commit_neon_import|revert_neon_import|employee_external_identifiers|insert\s+into\s+public\.employees)\b/i.test(sql)
