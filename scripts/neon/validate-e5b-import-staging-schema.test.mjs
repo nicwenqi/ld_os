@@ -190,7 +190,7 @@ function validSchemaManifest() {
       "app_private.enforce_neon_import_selected_sheet",
       "app_private.neon_import_storage_transition_allowed",
       "app_private.neon_import_workbook_transition_allowed",
-      "app_private.reject_import_activity_mutation",
+      "app_private.reject_import_activity_audit_mutation",
     ],
     schemaPolicies: [
       "canonical_import_activity_events_insert",
@@ -244,8 +244,8 @@ create table public.import_batches (id uuid primary key, tenant_id uuid not null
 ${publicTables.slice(1).map(table => `create table public.${table} (id uuid primary key, tenant_id uuid not null, property_id uuid not null, batch_id uuid not null, foreign key (batch_id, tenant_id, property_id) references public.import_batches(id, tenant_id, property_id));`).join("\n")}
 create table app_private.import_storage_operations (id uuid primary key, tenant_id uuid not null, property_id uuid not null, batch_id uuid not null, object_path text not null, cleanup_state public.import_cleanup_state not null, claim_id uuid, lease_expires_at timestamptz, last_attempt_at timestamptz, constraint import_storage_operations_cleanup_lease_check check (cleanup_state <> 'cleanup_in_progress' or (claim_id is not null and lease_expires_at is not null and last_attempt_at is not null and lease_expires_at > last_attempt_at)), constraint import_storage_operations_cleanup_completion_check check (true), foreign key (batch_id, tenant_id, property_id, object_path) references public.import_batches(id, tenant_id, property_id, object_path));
 create table app_private.import_activity_events (id bigint generated always as identity primary key, tenant_id uuid not null, property_id uuid not null, batch_id uuid not null, foreign key (batch_id, tenant_id, property_id) references public.import_batches(id, tenant_id, property_id));
-create function app_private.reject_import_activity_mutation() returns trigger language plpgsql security invoker set search_path = '' as $$ begin raise exception using errcode = '42501'; end $$;
-create trigger import_activity_events_append_only before update or delete on app_private.import_activity_events for each row execute function app_private.reject_import_activity_mutation();
+create function app_private.reject_import_activity_audit_mutation() returns trigger language plpgsql security invoker set search_path = '' as $$ begin raise exception using errcode = '42501'; end $$;
+create trigger import_activity_events_append_only before update or delete on app_private.import_activity_events for each row execute function app_private.reject_import_activity_audit_mutation();
 create function app_private.neon_import_storage_transition_allowed() returns boolean language sql as $$ select true; $$;
 create function app_private.neon_import_workbook_transition_allowed() returns boolean language sql as $$ select true; $$;
 create function app_private.enforce_neon_import_batch_lifecycle_transition() returns trigger language plpgsql as $$ begin if new.source_system is distinct from old.source_system or new.object_path is distinct from old.object_path then raise exception; end if; return new; end $$;

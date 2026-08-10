@@ -436,7 +436,7 @@ begin
 end
 $function$;
 
-create function app_private.reject_import_activity_mutation()
+create function app_private.reject_import_activity_audit_mutation()
 returns trigger language plpgsql volatile security invoker set search_path = ''
 as $function$
 begin
@@ -460,7 +460,7 @@ for each row execute function app_private.enforce_neon_import_selected_sheet();
 
 create trigger import_activity_events_append_only
 before update or delete on app_private.import_activity_events
-for each row execute function app_private.reject_import_activity_mutation();
+  for each row execute function app_private.reject_import_activity_audit_mutation();
 
 create index import_batches_property_history_idx
   on public.import_batches (property_id, created_at desc, id);
@@ -501,7 +501,7 @@ alter function app_private.neon_import_storage_transition_allowed(public.import_
 alter function app_private.neon_import_workbook_transition_allowed(public.import_workbook_lifecycle, public.import_workbook_lifecycle) owner to hotel_ld_migration_owner;
 alter function app_private.enforce_neon_import_batch_lifecycle_transition() owner to hotel_ld_migration_owner;
 alter function app_private.enforce_neon_import_selected_sheet() owner to hotel_ld_migration_owner;
-alter function app_private.reject_import_activity_mutation() owner to hotel_ld_migration_owner;
+alter function app_private.reject_import_activity_audit_mutation() owner to hotel_ld_migration_owner;
 
 alter table public.import_batches enable row level security;
 alter table public.import_batches force row level security;
@@ -557,7 +557,7 @@ revoke all on function app_private.neon_import_storage_transition_allowed(public
 revoke all on function app_private.neon_import_workbook_transition_allowed(public.import_workbook_lifecycle, public.import_workbook_lifecycle) from public;
 revoke all on function app_private.enforce_neon_import_batch_lifecycle_transition() from public;
 revoke all on function app_private.enforce_neon_import_selected_sheet() from public;
-revoke all on function app_private.reject_import_activity_mutation() from public;
+revoke all on function app_private.reject_import_activity_audit_mutation() from public;
 
 set local check_function_bodies = on;
 commit;

@@ -34,7 +34,7 @@
     "app_private.enforce_neon_import_selected_sheet",
     "app_private.neon_import_storage_transition_allowed",
     "app_private.neon_import_workbook_transition_allowed",
-    "app_private.reject_import_activity_mutation"
+    "app_private.reject_import_activity_audit_mutation"
   ],
   "schemaPolicies": [
     "canonical_import_activity_events_insert",

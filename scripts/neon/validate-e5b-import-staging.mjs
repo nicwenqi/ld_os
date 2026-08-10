@@ -1139,7 +1139,7 @@ export function validateE5bImportStagingSchema(source, manifest = null) {
   if (!/cleanup_state\s*<>\s*'cleanup_in_progress'\s+or\s*\(\s*claim_id\s+is\s+not\s+null\s+and\s+lease_expires_at\s+is\s+not\s+null\s+and\s+last_attempt_at\s+is\s+not\s+null\s+and\s+lease_expires_at\s*>\s*last_attempt_at/i.test(cleanupLease)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_INVARIANT_MISSING", "cleanup_lease_guard");
   }
-  if (!/create\s+function\s+app_private\.reject_import_activity_mutation\s*\(/i.test(sql)
+  if (!/create\s+function\s+app_private\.reject_import_activity_audit_mutation\s*\(/i.test(sql)
     || !/create\s+trigger\s+import_activity_events_append_only\s+before\s+update\s+or\s+delete\s+on\s+app_private\.import_activity_events/i.test(sql)) {
     failSource("E5B_IMPORT_STAGING_SCHEMA_AUDIT_TRIGGER_MISSING");
   }
