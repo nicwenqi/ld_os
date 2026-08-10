@@ -1,13 +1,7 @@
 begin;
--- E5B evidence is sealed with SHA-256. pgcrypto is an infrastructure
--- extension, not a Supabase compatibility schema, and is required by the
--- canonical empty-database bootstrap before any staging function can run.
+-- E5B evidence is sealed with PostgreSQL 18's built-in SHA-256 function;
+-- no extension or compatibility schema is required.
 set local role hotel_ld_migration_owner;
--- The migration owner owns the canonical public schema and may install the
--- allowlisted extension there; it remains NOCREATEDB and receives no database
--- CREATE authority.
-create extension if not exists pgcrypto with schema public;
-
 set local check_function_bodies = off;
 
 create function app_private.neon_import_staging_lock_key(p_batch_id uuid)
@@ -82,15 +76,14 @@ $function$;
 create function app_private.neon_import_sha256(p_value text)
 returns text language sql immutable security invoker set search_path = ''
 as $function$
-  select pg_catalog.encode(public.digest(
+  select pg_catalog.sha256(
     pg_catalog.convert_to(
       'e5b-utf8-frame-v1:'
       || pg_catalog.octet_length(pg_catalog.convert_to(p_value, 'UTF8'))::text
       || ':' || p_value,
       'UTF8'
-    ),
-    'sha256'
-  ), 'hex');
+    )
+  );
 $function$;
 
 create function app_private.neon_import_normalize_source_label(p_value text)

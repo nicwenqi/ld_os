@@ -961,19 +961,14 @@ export function validateE5bImportStagingEntrypoints(source, manifest = null) {
   const normalization = functionSource(sql, "app_private.neon_import_normalize_source_label");
   if (!/e5b-utf8-frame-v1/i.test(hash)
     || !/pg_catalog\.octet_length\(pg_catalog\.convert_to/i.test(hash)
-    || !/public\.digest/i.test(hash)
+    || !/pg_catalog\.sha256\(\s*pg_catalog\.convert_to/i.test(hash)
+    || /public\.digest|create\s+extension/i.test(hash)
     || !/pg_catalog\.normalize\(pg_catalog\.btrim\(p_value\),\s*'NFKC'\)/i.test(normalization)
     || !/collate\s+"C"/i.test(normalization)) {
     failSource("E5B_IMPORT_STAGING_CANONICAL_JSON_ENCODING_MISSING");
   }
-  const pgcryptoInstall = sql.search(/create\s+extension\s+if\s+not\s+exists\s+pgcrypto\s+with\s+schema\s+public/i);
-  const migrationRole = sql.search(/set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i);
-  if (pgcryptoInstall < 0
-    || (manifest && !manifest.extensions?.includes("pgcrypto"))) {
-    failSource("E5B_IMPORT_STAGING_PGCRYPTO_MANIFEST_MISSING");
-  }
-  if (migrationRole < 0 || pgcryptoInstall < migrationRole) {
-    failSource("E5B_IMPORT_STAGING_PGCRYPTO_BOOTSTRAP_ORDER_INVALID");
+  if (manifest && (!Array.isArray(manifest.extensions) || manifest.extensions.length !== 0)) {
+    failSource("E5B_IMPORT_STAGING_UNAPPROVED_EXTENSION");
   }
   if (/\b(?:commit_neon_import|revert_neon_import|employee_external_identifiers|insert\s+into\s+public\.employees)\b/i.test(sql)
     || hasUnsafeRawApplicationPrivilege(sql)

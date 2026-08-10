@@ -86,28 +86,14 @@ test("E5B evidence hashing uses canonical JSON and UTF-8 length framing", async 
   );
 });
 
-test("E5B catalog inventory requires pgcrypto for database-side evidence sealing", () => {
-  assert.throws(
-    () => validateE5bImportStagingCatalog({ extensions: [] }, { extensions: ["pgcrypto"] }),
-    /E5B_IMPORT_STAGING_CATALOG_EXTENSION_MISSING: pgcrypto/,
-  );
-});
-
-test("E5B installs pgcrypto as the schema-owning migration role", async () => {
+test("E5B uses PostgreSQL 18 built-in SHA-256 without extensions", async () => {
   const source = await readFile(sourceUrl, "utf8");
 
   assert.doesNotThrow(
     () => validateE5bImportStagingEntrypoints(source),
   );
-  assert.throws(
-    () => validateE5bImportStagingEntrypoints(
-      source.replace(
-        "set local role hotel_ld_migration_owner;\n-- The migration owner owns the canonical public schema and may install the",
-        "create extension if not exists pgcrypto with schema public;\nset local role hotel_ld_migration_owner;\n-- The migration owner owns the canonical public schema and may install the",
-      ),
-    ),
-    /E5B_IMPORT_STAGING_PGCRYPTO_BOOTSTRAP_ORDER_INVALID/,
-  );
+  assert.match(source, /pg_catalog\.sha256\(\s*pg_catalog\.convert_to/);
+  assert.doesNotMatch(source, /create extension|public\.digest/i);
 });
 
 test("E5B staging entrypoints reject a finalizer without canonical evidence sealing", async () => {
