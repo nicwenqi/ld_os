@@ -13,11 +13,10 @@ type ModePayload = {
   };
 };
 
-let pending: Promise<RuntimeDomainRegistry> | null = null;
+const loadCachedRuntimeDomainRegistry = createRetriableRuntimeDomainRegistryLoader(load);
 
 export function loadRuntimeDomainRegistry(): Promise<RuntimeDomainRegistry> {
-  pending ??= load();
-  return pending;
+  return loadCachedRuntimeDomainRegistry();
 }
 
 export function usesFallbackDomainRegistry(
@@ -78,4 +77,19 @@ export async function loadRuntimeDomainRegistryWith(
     return loaders.createMock();
   }
   return loaders.createSupabase();
+}
+
+export function createRetriableRuntimeDomainRegistryLoader(
+  loader: () => Promise<RuntimeDomainRegistry>,
+) {
+  let pending: Promise<RuntimeDomainRegistry> | null = null;
+  return () => {
+    pending ??= Promise.resolve()
+      .then(loader)
+      .catch(error => {
+        pending = null;
+        throw error;
+      });
+    return pending;
+  };
 }

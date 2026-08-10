@@ -5,7 +5,10 @@ import { parseAppEnvironment } from "../app/lib/environment.ts";
 import {
   resolveRuntimeDomainSelection,
 } from "../app/lib/runtime-rehearsal-mode.ts";
-import { loadRuntimeDomainRegistryWith } from "../app/repositories/runtime/load-domain-registry.ts";
+import {
+  createRetriableRuntimeDomainRegistryLoader,
+  loadRuntimeDomainRegistryWith,
+} from "../app/repositories/runtime/load-domain-registry.ts";
 
 const realData = {
   NEXT_PUBLIC_SUPABASE_URL: "https://auth-adapter.example.test",
@@ -103,4 +106,18 @@ test("a Neon registry failure stays visible and never invokes the Supabase loade
   );
 
   assert.equal(supabaseLoads, 0);
+});
+
+test("a later retry creates a fresh loader attempt after a rejected runtime selection", async () => {
+  let attempts = 0;
+  const registry = { source: "neon" };
+  const load = createRetriableRuntimeDomainRegistryLoader(async () => {
+    attempts += 1;
+    if (attempts === 1) throw new Error("Neon unavailable");
+    return registry;
+  });
+
+  await assert.rejects(load, /Neon unavailable/);
+  assert.equal(await load(), registry);
+  assert.equal(attempts, 2);
 });
