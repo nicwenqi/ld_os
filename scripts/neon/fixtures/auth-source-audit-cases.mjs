@@ -606,6 +606,15 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "unknown imported wrapper returned through a local function",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      import { make } from "../unrelated/factory.ts";
+      function get() { return make(); }
+      get().from("users");
+    `,
+  },
+  {
     name: "spoofed Storage adapter in active route",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: `

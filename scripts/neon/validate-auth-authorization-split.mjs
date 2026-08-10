@@ -75,6 +75,7 @@ function auditActiveSourceSurface(source, sourceName) {
         hasUnknownProvenanceAccess(sourceFile, provenance) ||
         hasUnknownImportedSupabaseSurface(sourceFile, provenance) ||
         hasUnknownImportedClientWrapperUse(sourceFile, provenance) ||
+        hasUnknownImportedWrapperFlow(sourceFile, provenance) ||
         hasInvalidApprovedStorageClientSurface(sourceFile) ||
         hasUnsupportedSupabaseStorageUse(sourceFile, provenance, sourceName) ||
         hasSupabaseBusinessUse(sourceFile, provenance) ||
@@ -86,6 +87,7 @@ function auditActiveSourceSurface(source, sourceName) {
   const hasBusinessDrift = hasUnknownProvenanceAccess(sourceFile, provenance) ||
       hasUnknownImportedSupabaseSurface(sourceFile, provenance) ||
       hasUnknownImportedClientWrapperUse(sourceFile, provenance) ||
+      hasUnknownImportedWrapperFlow(sourceFile, provenance) ||
       hasUnprovenSupabaseFlow(sourceFile, provenance) ||
       hasRecursiveClientLikeUse(sourceFile, provenance) ||
       hasUnsupportedSupabaseClientSurface(sourceFile, provenance) ||
@@ -985,6 +987,40 @@ function hasUnknownImportedClientWrapperUse(sourceFile, provenance) {
         /^create(?:Browser|Client|Server|Supabase)/.test(accessName(node) ?? "")) {
       found = true;
     }
+  });
+  return found;
+}
+
+function hasUnknownImportedWrapperFlow(sourceFile, provenance) {
+  const wrapperRoots = new Set();
+  visitNodes(sourceFile, node => {
+    if (ts.isFunctionDeclaration(node) && node.name) {
+      if (functionReturnExpressions(node).some(expression =>
+        ts.isCallExpression(unwrapExpression(expression)) &&
+        isUnknownImportedExpression(unwrapExpression(expression).expression, provenance))) {
+        const symbol = provenance.checker.getSymbolAtLocation(node.name);
+        if (symbol) wrapperRoots.add(symbolBindingRoot(symbol));
+      }
+      return;
+    }
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer &&
+        (ts.isArrowFunction(node.initializer) || ts.isFunctionExpression(node.initializer)) &&
+        functionReturnExpressions(node.initializer).some(expression =>
+          ts.isCallExpression(unwrapExpression(expression)) &&
+          isUnknownImportedExpression(unwrapExpression(expression).expression, provenance))) {
+      const symbol = provenance.checker.getSymbolAtLocation(node.name);
+      if (symbol) wrapperRoots.add(symbolBindingRoot(symbol));
+    }
+  });
+  if (wrapperRoots.size === 0) return false;
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found || !isMemberAccess(node) ||
+        !["from", "rpc", "auth", "storage"].includes(accessName(node))) return;
+    const receiver = unwrapExpression(node.expression);
+    if (!ts.isCallExpression(receiver) || !ts.isIdentifier(receiver.expression)) return;
+    const symbol = provenance.checker.getSymbolAtLocation(receiver.expression);
+    if (symbol && wrapperRoots.has(symbolBindingRoot(symbol))) found = true;
   });
   return found;
 }
