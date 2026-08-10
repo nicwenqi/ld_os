@@ -15,32 +15,75 @@ const hostname = "hotel.example.test";
 const loginId = "property-manager";
 const password = "HotelDemo2026";
 
-test("login rejects a Supabase Auth user ID that differs from Neon identity", async () => {
+test("login rejects a Supabase Auth user ID that is not verified from its access token", async () => {
   assert.equal(typeof authentication.resolveLoginWith, "function");
 
   const result = await authentication.resolveLoginWith({
     hostname,
     loginId,
     password,
-    neon: fakeNeonIdentity("11111111-1111-4111-8111-111111111111"),
-    auth: fakeAuthSignIn("22222222-2222-4222-8222-222222222222"),
+    neon: fakeManagerAuthority(),
+    auth: fakeAuthSignIn({
+      signedInUserId: "22222222-2222-4222-8222-222222222222",
+      verifiedUserId: "11111111-1111-4111-8111-111111111111",
+    }),
+    deriveAuthEmail(loginId, receivedHostname) {
+      assert.equal(loginId, "property-manager");
+      assert.equal(receivedHostname, hostname);
+      return "property-manager@hotel.example.test";
+    },
   });
 
   assert.deepEqual(result, { kind: "generic-login-failure" });
 });
 
-test("session authority never invokes Supabase from or rpc", async () => {
+test("manager session is derived from a Neon authority projection", async () => {
   assert.equal(typeof requestAuthentication.resolveSessionWith, "function");
 
-  const auth = authOnlyClient();
-  const result = await requestAuthentication.resolveSessionWith({
+  const resolved = await requestAuthentication.resolveSessionWith({
+    authUserId: "11111111-1111-4111-8111-111111111111",
     hostname,
-    auth,
     neon: fakeManagerAuthority(),
   });
 
-  assert.deepEqual(result, managerSession);
-  assert.equal(auth.businessCalls, 0);
+  assert.equal(resolved.session.role, "property_ld_manager");
+  assert.equal(resolved.tenantId, "tenant-a");
+});
+
+test("department administrator receives only Neon-authorized descendant scope", async () => {
+  const resolved = await requestAuthentication.resolveSessionWith({
+    authUserId: "11111111-1111-4111-8111-111111111111",
+    hostname,
+    neon: fakeDepartmentAuthority(),
+  });
+
+  assert.deepEqual(
+    resolved.session.departmentScopes.map(scope => scope.departmentId),
+    ["front-office"],
+  );
+});
+
+test("refresh re-resolves Neon authority instead of retaining stale role facts", async () => {
+  assert.equal(typeof requestAuthentication.resolveRequestWithRefresh, "function");
+  const result = await requestAuthentication.resolveRequestWithRefresh({
+    hostname,
+    accessToken: "expired-access",
+    refreshToken: "refresh-token",
+    auth: authOnlyClient({ initialUser: null, refreshedUserId: "11111111-1111-4111-8111-111111111111" }),
+    neon: fakeUnauthorizedAuthority(),
+  });
+
+  assert.equal(result, null);
+});
+
+test("hostname property mismatch produces no authenticated business session", async () => {
+  const resolved = await requestAuthentication.resolveSessionWith({
+    authUserId: "11111111-1111-4111-8111-111111111111",
+    hostname,
+    neon: fakeCrossPropertyAuthority(),
+  });
+
+  assert.equal(resolved.session.authenticated, false);
 });
 
 test("source gate requires the exported Neon contract and server-only resolver factories", () => {
@@ -214,29 +257,49 @@ async function isolatedDeterministicLoginIdentity(t) {
   return import(`${pathToFileURL(target).href}?test=${Date.now()}`);
 }
 
-function fakeNeonIdentity(authUserId) {
+function fakeAuthSignIn({ signedInUserId, verifiedUserId }) {
   return {
-    async resolveLoginIdentity(receivedHostname, receivedLoginId) {
-      assert.equal(receivedHostname, hostname);
-      assert.equal(receivedLoginId, loginId);
-      return { authUserId, email: "manager@hotel.example.test" };
+    auth: {
+      async signInWithPassword(input) {
+        assert.deepEqual(input, { email: "property-manager@hotel.example.test", password });
+        return {
+          data: {
+            user: { id: signedInUserId },
+            session: { access_token: "access", refresh_token: "refresh" },
+          },
+          error: null,
+        };
+      },
+      async getUser(accessToken) {
+        assert.equal(accessToken, "access");
+        return { data: { user: { id: verifiedUserId } } };
+      },
     },
-    async readSessionAuthority() {
-      throw new Error("SESSION_AUTHORITY_NOT_EXPECTED_DURING_LOGIN");
+    from() {
+      throw new Error("SUPABASE_BUSINESS_CALL_FORBIDDEN");
+    },
+    rpc() {
+      throw new Error("SUPABASE_BUSINESS_CALL_FORBIDDEN");
     },
   };
 }
 
-function fakeAuthSignIn(authUserId) {
+function authOnlyClient({ initialUser = { id: "11111111-1111-4111-8111-111111111111" }, refreshedUserId } = {}) {
   return {
     auth: {
-      async signInWithPassword(input) {
-        assert.deepEqual(input, { email: "manager@hotel.example.test", password });
+      async getUser(accessToken) {
+        assert.equal(accessToken, "expired-access");
+        return { data: { user: initialUser } };
+      },
+      async refreshSession(input) {
+        assert.deepEqual(input, { refresh_token: "refresh-token" });
         return {
-          data: {
-            user: { id: authUserId },
-            session: { access_token: "access", refresh_token: "refresh" },
-          },
+          data: refreshedUserId
+            ? {
+              user: { id: refreshedUserId },
+              session: { access_token: "fresh-access", refresh_token: "fresh-refresh" },
+            }
+            : { user: null, session: null },
           error: null,
         };
       },
@@ -245,25 +308,6 @@ function fakeAuthSignIn(authUserId) {
       throw new Error("SUPABASE_BUSINESS_CALL_FORBIDDEN");
     },
     rpc() {
-      throw new Error("SUPABASE_BUSINESS_CALL_FORBIDDEN");
-    },
-  };
-}
-
-function authOnlyClient() {
-  return {
-    businessCalls: 0,
-    auth: {
-      async getUser() {
-        return { data: { user: { id: "11111111-1111-4111-8111-111111111111" } } };
-      },
-    },
-    from() {
-      this.businessCalls += 1;
-      throw new Error("SUPABASE_BUSINESS_CALL_FORBIDDEN");
-    },
-    rpc() {
-      this.businessCalls += 1;
       throw new Error("SUPABASE_BUSINESS_CALL_FORBIDDEN");
     },
   };
@@ -284,12 +328,44 @@ const managerSession = {
 
 function fakeManagerAuthority() {
   return {
-    async resolveLoginIdentity() {
-      throw new Error("LOGIN_IDENTITY_NOT_EXPECTED_DURING_SESSION_RESOLUTION");
-    },
-    async readSessionAuthority(receivedHostname) {
+    async resolveAuthorizationForAuthUser(authUserId, receivedHostname) {
+      assert.equal(authUserId, "11111111-1111-4111-8111-111111111111");
       assert.equal(receivedHostname, hostname);
-      return { session: managerSession, tenantId: "tenant-id" };
+      return { session: managerSession, tenantId: "tenant-a" };
     },
   };
+}
+
+function fakeDepartmentAuthority() {
+  return {
+    async resolveAuthorizationForAuthUser() {
+      return {
+        tenantId: "tenant-a",
+        session: {
+          ...managerSession,
+          role: "department_training_responsible",
+          departmentScopes: [{
+            departmentId: "front-office",
+            departmentNameZh: "前厅部",
+            departmentNameEn: "Front Office",
+            breadcrumb: ["房务部", "前厅部"],
+            breadcrumbEn: ["Rooms", "Front Office"],
+            includeDescendants: true,
+          }],
+        },
+      };
+    },
+  };
+}
+
+function fakeUnauthorizedAuthority() {
+  return {
+    async resolveAuthorizationForAuthUser() {
+      return { tenantId: null, session: { ...managerSession, authenticated: false, role: "unauthorized", propertyId: null } };
+    },
+  };
+}
+
+function fakeCrossPropertyAuthority() {
+  return fakeUnauthorizedAuthority();
 }

@@ -17,7 +17,7 @@ export async function POST(request:Request){
       const session=await authenticateSyntheticAccount({loginId,password,hostname,appEnv:environment.appEnv,dataMode:environment.dataMode});
       const token=createMockSession(session);return success(session,token,null,false);
     }
-    const resolved=await resolveAccountForLogin({loginId,password,hostname});
+    const resolved=await resolveAccountForLogin({loginId,password,hostname,requestId:request.headers.get("x-request-id")??crypto.randomUUID()});
     if(!resolved.accessToken)return failure();
     return success(resolved.session,resolved.accessToken,resolved.refreshToken??null,true);
   }catch{return failure()}

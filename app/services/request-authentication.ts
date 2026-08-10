@@ -3,7 +3,7 @@ import { resolveRequestHostname } from "../lib/request-hostname.ts";
 import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
 import type { AuthSession } from "../repositories/contracts/auth-repository.ts";
 import { resolveSessionForAuthUser } from "./authentication-service.ts";
-import type { NeonAuthorizationRepository } from "./authentication-service.ts";
+import type { NeonAuthorizationFacts, NeonAuthorizationRepository } from "./authentication-service.ts";
 import { readCookie, readRefreshCookie } from "../api/auth/cookies.ts";
 
 export type AuthenticatedRequest = {
@@ -18,13 +18,21 @@ export type RequestAuthIdentity = Omit<AuthenticatedRequest, "session"> & { user
 type AuthOnlyClient = Readonly<{
   auth: Readonly<{
     getUser(accessToken: string): Promise<{ data: { user: { id: string } | null } }>;
+    refreshSession(input: { refresh_token: string }): Promise<{
+      data: {
+        user: { id: string } | null;
+        session: { access_token: string; refresh_token: string } | null;
+      };
+      error: unknown;
+    }>;
   }>;
 }>;
 
 export type SessionResolutionDependencies = Readonly<{
+  authUserId: string;
   hostname: string;
-  auth: AuthOnlyClient;
   neon: NeonAuthorizationRepository;
+  requestId?: string;
 }>;
 
 export type SessionResolution = (authUserId: string, hostname: string) => Promise<AuthSession>;
@@ -34,9 +42,48 @@ export function createSessionResolutionDependencies(): SessionResolution {
 }
 
 export async function resolveSessionWith(
-  _dependencies: SessionResolutionDependencies,
-): Promise<AuthSession> {
-  throw new Error("NEON_SESSION_AUTHORIZATION_NOT_IMPLEMENTED");
+  dependencies: SessionResolutionDependencies,
+): Promise<NeonAuthorizationFacts> {
+  return dependencies.neon.resolveAuthorizationForAuthUser(
+    dependencies.authUserId,
+    dependencies.hostname,
+    dependencies.requestId ?? crypto.randomUUID(),
+  );
+}
+
+export type RefreshRequestResolutionDependencies = Readonly<{
+  hostname: string;
+  accessToken: string | null;
+  refreshToken: string | null;
+  auth: AuthOnlyClient;
+  neon: NeonAuthorizationRepository;
+  requestId?: string;
+}>;
+
+export async function resolveRequestWithRefresh(
+  dependencies: RefreshRequestResolutionDependencies,
+): Promise<AuthenticatedRequest | null> {
+  let accessToken = dependencies.accessToken;
+  let refreshToken = dependencies.refreshToken;
+  let refreshed = false;
+  let user = accessToken ? (await dependencies.auth.auth.getUser(accessToken)).data.user : null;
+  if (!user && refreshToken) {
+    const { data, error } = await dependencies.auth.auth.refreshSession({ refresh_token: refreshToken });
+    if (error || !data.user || !data.session) return null;
+    user = data.user;
+    accessToken = data.session.access_token;
+    refreshToken = data.session.refresh_token;
+    refreshed = true;
+  }
+  if (!user || !accessToken) return null;
+  const authorization = await resolveSessionWith({
+    authUserId: user.id,
+    hostname: dependencies.hostname,
+    neon: dependencies.neon,
+    requestId: dependencies.requestId,
+  });
+  if (!isApprovedBackendSession(authorization.session)) return null;
+  return { session: authorization.session, accessToken, refreshToken, refreshed };
 }
 
 function isApprovedBackendSession(session: AuthSession) {
