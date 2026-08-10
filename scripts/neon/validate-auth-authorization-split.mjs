@@ -315,14 +315,30 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
     const receiver = unwrapExpression(node.expression);
     const member = node.name.text;
     if (ts.isIdentifier(receiver) && receiver.text === "client") {
-      if (member !== "storage") found = true;
+      if (member !== "storage") {
+        found = true;
+      } else {
+        const fromAccess = node.parent;
+        if (!ts.isPropertyAccessExpression(fromAccess) || fromAccess.expression !== node ||
+            fromAccess.name.text !== "from") found = true;
+      }
       return;
     }
     if (ts.isPropertyAccessExpression(receiver) &&
         ts.isIdentifier(unwrapExpression(receiver.expression)) &&
         unwrapExpression(receiver.expression).text === "client" &&
         receiver.name.text === "storage") {
-      if (member !== "from") found = true;
+      if (member !== "from") {
+        found = true;
+      } else {
+        const fromInvocation = node.parent;
+        const terminalAccess = fromInvocation?.parent;
+        const terminalInvocation = terminalAccess?.parent;
+        if (!ts.isCallExpression(fromInvocation) || fromInvocation.expression !== node ||
+            !ts.isPropertyAccessExpression(terminalAccess) || terminalAccess.expression !== fromInvocation ||
+            !["upload", "download", "remove"].includes(terminalAccess.name.text) ||
+            !ts.isCallExpression(terminalInvocation) || terminalInvocation.expression !== terminalAccess) found = true;
+      }
       return;
     }
     if (ts.isCallExpression(receiver) && ts.isPropertyAccessExpression(receiver.expression) &&
@@ -331,7 +347,8 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
         ts.isIdentifier(unwrapExpression(receiver.expression.expression.expression)) &&
         unwrapExpression(receiver.expression.expression.expression).text === "client" &&
         receiver.expression.expression.name.text === "storage") {
-      if (!(member === "upload" || member === "download" || member === "remove")) found = true;
+      if (!(member === "upload" || member === "download" || member === "remove") ||
+          !ts.isCallExpression(node.parent) || node.parent.expression !== node) found = true;
       return;
     }
     found = true;

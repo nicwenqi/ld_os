@@ -418,6 +418,19 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "approved Storage adapter exposes raw Storage surface",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return client.storage;
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
     name: "nested Storage adapter boundary spoof",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     sourceName: "neonImportStagingAuthorization",
