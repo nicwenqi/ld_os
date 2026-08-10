@@ -18,6 +18,7 @@ export async function GET() {
           position: source,
           property: source,
           initialization: source,
+          import: source,
         },
       },
       { headers: { "Cache-Control": "no-store, private" } },

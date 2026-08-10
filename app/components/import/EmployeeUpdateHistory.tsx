@@ -91,7 +91,7 @@ export function EmployeeUpdateHistory({
                 <div><strong>{batch.fileName}</strong><small>{formatDate(batch.createdAt)} · {isReviewData ? "评审批次" : "当前酒店"}</small></div>
                 <span>{statusLabel(batch.status)}</span>
                 {hasAuthoritativePreview(batch.status) ? (
-                  <p><b>{batch.summary.inserted}</b> 新增 · <b>{batch.summary.updated}</b> 更新 · <b>{batch.summary.unresolved}</b> 未解决</p>
+                  <p><b>{displayCount(batch.summary.inserted)}</b> 新增 · <b>{displayCount(batch.summary.updated)}</b> 更新 · <b>{displayCount(batch.summary.unresolved)}</b> 未解决</p>
                 ) : (
                   <p>处理中 · 更新预览尚未计算</p>
                 )}
@@ -163,4 +163,8 @@ function formatDate(value: string) {
 
 function message(reason: unknown) {
   return reason instanceof Error ? reason.message : "撤销预览读取失败";
+}
+
+function displayCount(value: number | null) {
+  return value === null ? "—" : value;
 }

@@ -36,12 +36,12 @@ export function mapImportRepositoryError(reason: unknown): ImportRepositoryError
 }
 
 export type EmployeeUpdatePreview = {
-  additions: number;
-  updates: number;
-  unchanged: number;
-  exclusions: number;
-  blocked: number;
-  unresolved: number;
+  additions: number | null;
+  updates: number | null;
+  unchanged: number | null;
+  exclusions: number | null;
+  blocked: number | null;
+  unresolved: number | null;
   version: number;
   status: "mapping_required" | "ready_for_review";
   effectiveDate: string;
@@ -82,12 +82,12 @@ export type ImportBatch = {
   version: number;
   createdAt: string;
   summary: {
-    inserted: number;
-    updated: number;
-    unchanged: number;
-    excluded: number;
-    blocked: number;
-    unresolved: number;
+    inserted: number | null;
+    updated: number | null;
+    unchanged: number | null;
+    excluded: number | null;
+    blocked: number | null;
+    unresolved: number | null;
   };
 };
 
@@ -111,7 +111,7 @@ export type ImportMutationResult = {
 export type ImportFieldMapping = {
   id: string;
   sourceColumnName: string;
-  targetField: string;
+  targetField: string | null;
   mappingStatus: "suggested" | "confirmed" | "excluded";
   transformationRule: Record<string, unknown>;
   isRequired: boolean;

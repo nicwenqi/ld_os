@@ -4,6 +4,8 @@ import {
   requireProductionPropertyManager,
 } from "../../../services/production-authorization.ts";
 import { prepareEmployeeMasterStaging } from "../../../services/import/production-workbook-staging.ts";
+import { parseAppEnvironment } from "../../../lib/environment.ts";
+import { resolveRequestId } from "../../../lib/neon/request-id.ts";
 
 const BUCKET = "property-import-files";
 
@@ -205,7 +207,31 @@ export function createImportInspectionHandler(
   };
 }
 
-export const POST = createImportInspectionHandler();
+/**
+ * Neon is an explicit runtime branch. The legacy Supabase handler remains
+ * available only when APP_DATA_MODE is not neon; it is never a fallback after
+ * a Neon request fails.
+ */
+export async function POST(request: Request) {
+  const environment = parseAppEnvironment();
+  if (environment.dataMode === "neon") {
+    const requestId = resolveRequestId(request);
+    const { importStagingErrorResponse } = await import("../../../services/neon-import-staging-authorization.ts");
+    try {
+      const form = await request.formData();
+      const file = form.get("file");
+      if (!(file instanceof File)) return failure(400, "请选择工作簿");
+      // Keep the server-only Neon boundary out of the legacy test/client
+      // module graph; it is loaded only for an explicit Neon request.
+      const { inspectAndStageWorkbookInNeon } = await import("../../../services/import/neon-import-inspection-boundary.ts");
+      const result = await inspectAndStageWorkbookInNeon({ request, requestId, file });
+      return Response.json(result.data, { status: 201, headers: result.headers });
+    } catch (error) {
+      return importStagingErrorResponse(error, requestId);
+    }
+  }
+  return createImportInspectionHandler()(request);
+}
 
 async function removeUploadedObject(
   actorClient: ReturnType<typeof createServerActorClient>,

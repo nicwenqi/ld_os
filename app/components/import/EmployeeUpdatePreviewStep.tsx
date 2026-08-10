@@ -70,12 +70,12 @@ export function EmployeeUpdatePreviewStep({
 
       {preview ? (
         <div className="employee-preview-counts" aria-live="polite">
-          <article><strong>{preview.additions}</strong><span>新增</span><small>新建员工记录</small></article>
-          <article><strong>{preview.updates}</strong><span>更新</span><small>变更现有主数据</small></article>
-          <article><strong>{preview.unchanged}</strong><span>不变</span><small>无需写入</small></article>
-          <article><strong>{preview.exclusions}</strong><span>排除</span><small>经理明确排除</small></article>
-          <article className={preview.blocked ? "attention" : ""}><strong>{preview.blocked}</strong><span>阻塞</span><small>不能提交</small></article>
-          <article className={preview.unresolved ? "attention" : ""}><strong>{preview.unresolved}</strong><span>未解决</span><small>仍需决定</small></article>
+          <article><strong>{displayCount(preview.additions)}</strong><span>新增</span><small>新建员工记录</small></article>
+          <article><strong>{displayCount(preview.updates)}</strong><span>更新</span><small>变更现有主数据</small></article>
+          <article><strong>{displayCount(preview.unchanged)}</strong><span>不变</span><small>无需写入</small></article>
+          <article><strong>{displayCount(preview.exclusions)}</strong><span>排除</span><small>经理明确排除</small></article>
+          <article className={preview.blocked ? "attention" : ""}><strong>{displayCount(preview.blocked)}</strong><span>阻塞</span><small>不能提交</small></article>
+          <article className={preview.unresolved ? "attention" : ""}><strong>{displayCount(preview.unresolved)}</strong><span>未解决</span><small>仍需决定</small></article>
         </div>
       ) : (
         <div className="employee-stage-empty"><strong>尚未生成更新预览</strong><p>不会用零替代尚未计算的新增、更新或阻塞数量。</p></div>
@@ -116,9 +116,13 @@ export function EmployeeUpdatePreviewStep({
         {mode === "preview" ? (
           <button type="button" disabled={saving || !effectiveDate} onClick={onPrepare}>{saving ? "正在计算…" : preview ? "重新生成预览" : "生成零写入预览"}</button>
         ) : (
-          <button type="button" disabled={saving || !preview || !acknowledged || preview.blocked > 0 || preview.unresolved > 0} onClick={onConfirm}>{saving ? "正在确认更新…" : "确认更新员工主数据"}</button>
+          <button type="button" disabled={saving || !preview || !acknowledged || preview.blocked === null || preview.unresolved === null || preview.blocked > 0 || preview.unresolved > 0} onClick={onConfirm}>{saving ? "正在确认更新…" : "确认更新员工主数据"}</button>
         )}
       </footer>
     </section>
   );
+}
+
+function displayCount(value: number | null) {
+  return value === null ? "—" : value;
 }

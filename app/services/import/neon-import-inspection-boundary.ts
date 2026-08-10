@@ -60,7 +60,7 @@ export async function inspectAndStageWorkbookInNeon(input: {
   request: Request;
   requestId: string;
   file: File;
-}): Promise<NeonInspectionResult> {
+}): Promise<{ data: NeonInspectionResult; headers: Headers }> {
   const file = input.file;
   if (!(file instanceof File)) throw new Error("IMPORT_FILE_REQUIRED");
 
@@ -104,7 +104,7 @@ export async function inspectAndStageWorkbookInNeon(input: {
     },
   );
 
-  return result.data;
+  return result;
 }
 
 function declaredMimeType(filename: string, supplied: string) {

@@ -5,12 +5,14 @@ import type { PeopleFacetRepository } from "../contracts/people-facet-repository
 import type { PositionRepository } from "../contracts/position-repository.ts";
 import type { PropertyRepository } from "../contracts/property-repository.ts";
 import type { InitializationRepository } from "../contracts/initialization-repository.ts";
+import type { ImportRepository } from "../contracts/import-repository.ts";
 import { createHttpDepartmentRepository } from "../http/department-repository.ts";
 import { createHttpEmployeeRepository } from "../http/employee-repository.ts";
 import { createHttpPeopleFacetRepository } from "../http/people-facet-repository.ts";
 import { createHttpPositionRepository } from "../http/position-repository.ts";
 import { createHttpPropertyRepository } from "../http/property-repository.ts";
 import { createHttpInitializationRepository } from "../http/initialization-repository.ts";
+import { createHttpImportRepository } from "../http/import-repository.ts";
 
 export type RuntimeDomainRegistry = {
   source: "neon" | "supabase";
@@ -21,6 +23,7 @@ export type RuntimeDomainRegistry = {
   position: PositionRepository;
   property: PropertyRepository;
   initialization: InitializationRepository;
+  import: ImportRepository;
 };
 
 export function createNeonDomainRegistry(
@@ -35,5 +38,6 @@ export function createNeonDomainRegistry(
     position: createHttpPositionRepository(),
     property: createHttpPropertyRepository(),
     initialization: createHttpInitializationRepository(),
+    import: createHttpImportRepository(),
   };
 }
