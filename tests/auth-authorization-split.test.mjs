@@ -6,6 +6,10 @@ import test from "node:test";
 import { pathToFileURL } from "node:url";
 
 import { validateAuthAuthorizationSplitSources } from "../scripts/neon/validate-auth-authorization-split.mjs";
+import {
+  allowedAuthSourceAuditCases,
+  rejectedAuthSourceAuditCases,
+} from "../scripts/neon/fixtures/auth-source-audit-cases.mjs";
 import * as canonicalValidator from "../scripts/neon/validate-canonical-neon-baseline.mjs";
 
 const authentication = await import("../app/services/authentication-service.ts");
@@ -423,6 +427,37 @@ test("source gate tracks factory-derived clients in object, class, and parameter
   }
 
   assert.deepEqual(escaped, []);
+});
+
+test("source gate rejects every fixture whose Supabase provenance reaches a forbidden surface", () => {
+  const input = deterministicAuthorizationSourceFixture();
+  const escaped = [];
+
+  for (const fixture of rejectedAuthSourceAuditCases) {
+    try {
+      validateAuthAuthorizationSplitSources({ ...input, loginRoute: fixture.source });
+      escaped.push(fixture.name);
+    } catch (error) {
+      assert.match(error.message, new RegExp(fixture.error), fixture.name);
+    }
+  }
+
+  assert.deepEqual(escaped, []);
+});
+
+test("source gate permits approved Auth and Storage surfaces plus binding-aware local shadows", () => {
+  const input = deterministicAuthorizationSourceFixture();
+  const rejected = [];
+
+  for (const fixture of allowedAuthSourceAuditCases) {
+    try {
+      validateAuthAuthorizationSplitSources({ ...input, loginRoute: fixture.source });
+    } catch (error) {
+      rejected.push({ name: fixture.name, message: error.message });
+    }
+  }
+
+  assert.deepEqual(rejected, []);
 });
 
 test("deterministic Auth email normalizes an existing valid login ID and trusted hostname", async (t) => {

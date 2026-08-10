@@ -54,19 +54,88 @@ function auditActiveSourceSurface(source, sourceName) {
   if (/\b(?:NeonPreAuthLoginIdentity|resolveLoginIdentity|readSessionAuthority)\b/.test(source)) {
     throw new Error(`RETIRED_PRE_AUTH_LOGIN_CONTRACT_DRIFT:${sourceName}`);
   }
-  if (/[@]supabase\/supabase-js|repositories\/supabase\//.test(source) ||
-      /(?:lib\/supabase\/(?:browser|client)|createBrowserClient|createClientComponentClient)/.test(source)) {
-    throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
-  }
 
   const { sourceFile, checker } = createBindingAwareSource(source, sourceName);
-  const provenance = collectSupabaseClientProvenance(sourceFile, checker);
-  if (hasSupabaseBusinessUse(sourceFile, provenance)) {
+  if (hasForbiddenSupabaseImport(sourceFile, checker)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
+  const provenance = collectSupabaseClientProvenance(sourceFile, checker);
   if (hasUnsupportedSupabaseAuthUse(sourceFile, provenance)) {
     throw new Error(`SUPABASE_AUTH_METHOD_DRIFT:${sourceName}`);
   }
+  const hasBusinessDrift = hasUnknownProvenanceAccess(sourceFile, provenance) ||
+      hasUnknownImportedSupabaseSurface(sourceFile, provenance) ||
+      hasUnsupportedSupabaseClientSurface(sourceFile, provenance) ||
+      hasUnsupportedSupabaseStorageUse(sourceFile, provenance) ||
+      hasSupabaseBusinessUse(sourceFile, provenance);
+  if (provenance.unresolvedAliases || hasBusinessDrift) {
+    throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
+  }
+}
+
+function hasForbiddenSupabaseImport(sourceFile, checker) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found) return;
+    const moduleName = importedModuleName(node, checker);
+    if (moduleName && isForbiddenSupabaseModule(moduleName)) {
+      found = true;
+      return;
+    }
+    if (ts.isImportDeclaration(node) &&
+        ts.isStringLiteralLike(node.moduleSpecifier) &&
+        isSupabaseBrowserModule(node.moduleSpecifier.text) &&
+        importsBrowserClientFactory(node.importClause)) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function importedModuleName(node, checker) {
+  if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) &&
+      node.moduleSpecifier && ts.isStringLiteralLike(node.moduleSpecifier)) {
+    return node.moduleSpecifier.text;
+  }
+  if (ts.isImportEqualsDeclaration(node) &&
+      ts.isExternalModuleReference(node.moduleReference) &&
+      node.moduleReference.expression &&
+      ts.isStringLiteralLike(node.moduleReference.expression)) {
+    return node.moduleReference.expression.text;
+  }
+  if (ts.isCallExpression(node) && node.arguments.length === 1 &&
+      ts.isStringLiteralLike(node.arguments[0]) &&
+      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+       (ts.isIdentifier(node.expression) &&
+        node.expression.text === "require" &&
+        !checker.getSymbolAtLocation(node.expression)))) {
+    return node.arguments[0].text;
+  }
+  return null;
+}
+
+function importsBrowserClientFactory(importClause) {
+  if (!importClause) return false;
+  if (importClause.name && isBrowserClientFactoryName(importClause.name.text)) return true;
+  const bindings = importClause.namedBindings;
+  return Boolean(bindings && ts.isNamedImports(bindings) && bindings.elements.some(element =>
+    isBrowserClientFactoryName((element.propertyName ?? element.name).text),
+  ));
+}
+
+function isForbiddenSupabaseModule(value) {
+  if (isAllowedServerClientModule(value)) return false;
+  return value === "@supabase/supabase-js" ||
+    /(?:^|\/)repositories\/supabase\//.test(value) ||
+    /(?:^|\/)lib\/supabase\//.test(value);
+}
+
+function isBrowserClientFactoryName(value) {
+  return /^(?:createBrowserSupabaseClient|createBrowserClient|createClientComponentClient)$/.test(value);
+}
+
+function isSupabaseBrowserModule(value) {
+  return value.startsWith("@supabase/") || /(?:^|[/-])supabase(?:[/-]|$)/i.test(value);
 }
 
 function createBindingAwareSource(source, sourceName) {
@@ -102,24 +171,57 @@ function createBindingAwareSource(source, sourceName) {
 
 function collectSupabaseClientProvenance(sourceFile, checker) {
   const factories = new Map();
+  const actorFactories = new Map();
   const namespaces = new Map();
   const receivers = new Map();
-  const provenance = { checker, factories, namespaces, receivers };
+  const actorReceivers = new Map();
+  const unknownImports = new Map();
+  const provenance = {
+    checker,
+    factories,
+    actorFactories,
+    namespaces,
+    receivers,
+    actorReceivers,
+    unknownImports,
+    unresolvedAliases: false,
+    returnInference: new Set(),
+  };
 
   visitNodes(sourceFile, node => {
-    if (ts.isImportDeclaration(node) &&
-        ts.isStringLiteral(node.moduleSpecifier) &&
-        isAllowedServerClientModule(node.moduleSpecifier.text)) {
-      const bindings = node.importClause?.namedBindings;
-      if (bindings && ts.isNamedImports(bindings)) {
-        for (const element of bindings.elements) {
-          if (isServerClientFactoryName((element.propertyName ?? element.name).text)) {
-            addExpressionBinding(factories, element.name, checker);
-          }
-        }
-      } else if (bindings && ts.isNamespaceImport(bindings)) {
-        addExpressionBinding(namespaces, bindings.name, checker);
+    if (ts.isImportEqualsDeclaration(node) &&
+        ts.isExternalModuleReference(node.moduleReference) &&
+        node.moduleReference.expression &&
+        ts.isStringLiteralLike(node.moduleReference.expression)) {
+      if (isAllowedServerClientModule(node.moduleReference.expression.text)) {
+        addExpressionBinding(namespaces, node.name, checker);
+      } else {
+        addExpressionBinding(unknownImports, node.name, checker);
       }
+      return;
+    }
+    if (!ts.isImportDeclaration(node) || !ts.isStringLiteral(node.moduleSpecifier)) return;
+    const importClause = node.importClause;
+    if (!importClause || importClause.isTypeOnly) return;
+    const allowedServerModule = isAllowedServerClientModule(node.moduleSpecifier.text);
+    if (importClause.name) addExpressionBinding(unknownImports, importClause.name, checker);
+    const bindings = importClause.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        if (element.isTypeOnly) continue;
+        const importedName = (element.propertyName ?? element.name).text;
+        if (allowedServerModule && isServerClientFactoryName(importedName)) {
+          addExpressionBinding(factories, element.name, checker);
+          if (importedName === "createServerActorClient") {
+            addExpressionBinding(actorFactories, element.name, checker);
+          }
+        } else {
+          addExpressionBinding(unknownImports, element.name, checker);
+        }
+      }
+    } else if (bindings && ts.isNamespaceImport(bindings)) {
+      if (allowedServerModule) addExpressionBinding(namespaces, bindings.name, checker);
+      else addExpressionBinding(unknownImports, bindings.name, checker);
     }
   });
 
@@ -128,27 +230,80 @@ function collectSupabaseClientProvenance(sourceFile, checker) {
     changed = false;
     visitNodes(sourceFile, node => {
       if (ts.isVariableDeclaration(node) && node.initializer) {
-        if (ts.isIdentifier(node.name)) {
-          changed = propagateExpressionBinding(node.name, node.initializer, provenance) || changed;
-        } else if (isNamespaceExpression(node.initializer, provenance)) {
-          changed = collectFactoryBindings(node.name, factories, checker) || changed;
-        }
+        changed = propagateBinding(node.name, node.initializer, provenance) || changed;
       }
       if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        changed = propagateExpressionBinding(node.left, node.right, provenance) || changed;
-        if (isNamespaceExpression(node.right, provenance)) {
-          changed = collectFactoryAssignments(node.left, factories, checker) || changed;
-        }
+        changed = propagateAssignment(node.left, node.right, provenance) || changed;
       }
-      if ((ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node) ||
-           ts.isParameter(node) || ts.isBindingElement(node)) &&
-          node.initializer && ts.isIdentifier(node.name)) {
-        changed = propagateExpressionBinding(node.name, node.initializer, provenance) || changed;
+      if ((ts.isPropertyDeclaration(node) || ts.isParameter(node) || ts.isBindingElement(node)) &&
+          node.initializer) {
+        changed = propagateBinding(node.name, node.initializer, provenance) || changed;
+      }
+      if (ts.isCallExpression(node)) {
+        changed = propagateCallArguments(node, provenance) || changed;
       }
     });
   }
 
   return provenance;
+}
+
+function propagateCallArguments(call, provenance) {
+  if (call.expression.kind === ts.SyntaxKind.ImportKeyword || isGlobalPromiseAllCall(call, provenance.checker)) {
+    return false;
+  }
+  if (isFactoryReference(call.expression, provenance)) return false;
+  const callable = localCallableForCall(call, provenance.checker);
+  if (!callable) {
+    if (call.arguments.some(argument => valueCarriesProvenance(argument, provenance))) {
+      provenance.unresolvedAliases = true;
+    }
+    return false;
+  }
+  let changed = false;
+  callable.parameters.forEach((parameter, index) => {
+    if (parameter.dotDotDotToken) {
+      if (call.arguments.slice(index).some(argument => valueCarriesProvenance(argument, provenance))) {
+        provenance.unresolvedAliases = true;
+      }
+      return;
+    }
+    const argument = call.arguments[index];
+    if (argument) changed = propagateBinding(parameter.name, argument, provenance) || changed;
+  });
+  if (call.arguments.slice(callable.parameters.length).some(argument =>
+    valueCarriesProvenance(argument, provenance),
+  )) {
+    provenance.unresolvedAliases = true;
+  }
+  return changed;
+}
+
+function localCallableForCall(call, checker) {
+  const expression = unwrapExpression(call.expression);
+  if (ts.isArrowFunction(expression) || ts.isFunctionExpression(expression)) return expression;
+  const symbol = ts.isIdentifier(expression)
+    ? checker.getSymbolAtLocation(expression)
+    : isMemberAccess(expression)
+      ? checker.getSymbolAtLocation(ts.isPropertyAccessExpression(expression) ? expression.name : expression.argumentExpression)
+      : null;
+  const declaration = symbol?.valueDeclaration ?? symbol?.declarations?.[0];
+  if (!declaration) return null;
+  if (ts.isFunctionDeclaration(declaration) || ts.isMethodDeclaration(declaration) ||
+      ts.isFunctionExpression(declaration) || ts.isArrowFunction(declaration)) {
+    return declaration;
+  }
+  if ((ts.isVariableDeclaration(declaration) || ts.isPropertyAssignment(declaration)) && declaration.initializer &&
+      (ts.isArrowFunction(declaration.initializer) || ts.isFunctionExpression(declaration.initializer))) {
+    return declaration.initializer;
+  }
+  return null;
+}
+
+function isGlobalPromiseAllCall(call, checker) {
+  if (!isMemberAccess(call.expression) || accessName(call.expression) !== "all") return false;
+  const receiver = unwrapExpression(call.expression.expression);
+  return ts.isIdentifier(receiver) && receiver.text === "Promise" && !checker.getSymbolAtLocation(receiver);
 }
 
 function hasSupabaseBusinessUse(sourceFile, provenance) {
@@ -176,6 +331,103 @@ function hasSupabaseBusinessUse(sourceFile, provenance) {
     }
   });
   return found;
+}
+
+function hasUnsupportedSupabaseClientSurface(sourceFile, provenance) {
+  const permittedSurfaces = new Set(["auth", "storage", "from", "rpc"]);
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found || !isMemberAccess(node) ||
+        !isSupabaseClientExpression(node.expression, provenance)) {
+      return;
+    }
+    const member = accessName(node);
+    if (!member || !permittedSurfaces.has(member)) found = true;
+  });
+  return found;
+}
+
+function hasUnsupportedSupabaseStorageUse(sourceFile, provenance) {
+  const serverOnly = sourceHasServerOnlyImport(sourceFile);
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found) return;
+    if (ts.isVariableDeclaration(node) && node.initializer &&
+        isSupabaseClientExpression(node.initializer, provenance) &&
+        bindingSelects(node.name, ["storage"])) {
+      found = true;
+      return;
+    }
+    if (ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        isSupabaseClientExpression(node.right, provenance) &&
+        assignmentSelects(node.left, ["storage"])) {
+      found = true;
+      return;
+    }
+    if (!isMemberAccess(node) ||
+        accessName(node) !== "storage" ||
+        !isSupabaseClientExpression(node.expression, provenance)) {
+      return;
+    }
+    if (!isActorClientExpression(node.expression, provenance) ||
+        !serverOnly ||
+        !isInsideApprovedStorageAdapter(node) ||
+        !ts.isPropertyAccessExpression(node) ||
+        node.questionDotToken) {
+      found = true;
+      return;
+    }
+    const fromAccess = node.parent;
+    const invocation = fromAccess.parent;
+    if (!ts.isPropertyAccessExpression(fromAccess) ||
+        fromAccess.expression !== node ||
+        fromAccess.name.text !== "from" ||
+        fromAccess.questionDotToken ||
+        !ts.isCallExpression(invocation) ||
+        invocation.expression !== fromAccess ||
+        invocation.questionDotToken) {
+      found = true;
+      return;
+    }
+    const terminalAccess = invocation.parent;
+    const terminalInvocation = terminalAccess.parent;
+    if (!ts.isPropertyAccessExpression(terminalAccess) ||
+        terminalAccess.expression !== invocation ||
+        !["upload", "download", "remove"].includes(terminalAccess.name.text) ||
+        terminalAccess.questionDotToken ||
+        !ts.isCallExpression(terminalInvocation) ||
+        terminalInvocation.expression !== terminalAccess ||
+        terminalInvocation.questionDotToken) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function sourceHasServerOnlyImport(sourceFile) {
+  return sourceFile.statements.some(statement =>
+    ts.isImportDeclaration(statement) &&
+    ts.isStringLiteralLike(statement.moduleSpecifier) &&
+    statement.moduleSpecifier.text === "server-only",
+  );
+}
+
+function isInsideApprovedStorageAdapter(node) {
+  let current = node.parent;
+  while (current) {
+    if (ts.isFunctionDeclaration(current) && current.name?.text === "createActorStorageGateway") {
+      return true;
+    }
+    if ((ts.isArrowFunction(current) || ts.isFunctionExpression(current)) &&
+        ts.isVariableDeclaration(current.parent) &&
+        ts.isIdentifier(current.parent.name) &&
+        current.parent.name.text === "createActorStorageGateway") {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
 }
 
 function hasUnsupportedSupabaseAuthUse(sourceFile, provenance) {
@@ -221,43 +473,680 @@ function hasUnsupportedSupabaseAuthUse(sourceFile, provenance) {
   return found;
 }
 
+function hasUnknownProvenanceAccess(sourceFile, provenance) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found || !ts.isElementAccessExpression(node) || accessName(node) !== null) return;
+    const receiver = node.expression;
+    if (isSupabaseClientExpression(receiver, provenance) ||
+        isFactoryReference(receiver, provenance) ||
+        isNamespaceExpression(receiver, provenance) ||
+        expressionHasTrackedProvenance(receiver, provenance)) {
+      found = true;
+    }
+  });
+  return found;
+}
+
+function hasUnknownImportedSupabaseSurface(sourceFile, provenance) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found || !isMemberAccess(node) ||
+        !["auth", "storage", "from", "rpc"].includes(accessName(node))) {
+      return;
+    }
+    if (isUnknownImportedExpression(node.expression, provenance)) found = true;
+  });
+  return found;
+}
+
+function isUnknownImportedExpression(node, provenance) {
+  const expression = unwrapExpression(node);
+  const identity = expressionIdentity(expression, provenance.checker);
+  if (identity && identityHasAncestorBinding(provenance.unknownImports, identity)) return true;
+  if (ts.isCallExpression(expression)) {
+    if (expression.expression.kind === ts.SyntaxKind.ImportKeyword ||
+        (ts.isIdentifier(expression.expression) &&
+         expression.expression.text === "require" &&
+         !provenance.checker.getSymbolAtLocation(expression.expression))) {
+      const moduleName = expression.arguments.length === 1 && ts.isStringLiteralLike(expression.arguments[0])
+        ? expression.arguments[0].text
+        : null;
+      return !moduleName || !isAllowedServerClientModule(moduleName);
+    }
+    if (isUnknownImportedExpression(expression.expression, provenance)) return true;
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    isUnknownImportedExpression(alternative, provenance),
+  );
+}
+
+function isDirectModuleLoadExpression(node, checker) {
+  const expression = unwrapExpression(node);
+  return ts.isCallExpression(expression) &&
+    (expression.expression.kind === ts.SyntaxKind.ImportKeyword ||
+     (ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "require" &&
+      !checker.getSymbolAtLocation(expression.expression)));
+}
+
 function isSupabaseClientExpression(node, provenance) {
   const expression = unwrapExpression(node);
-  return Boolean(
-    hasExpressionBinding(provenance.receivers, expression, provenance.checker) ||
-    (ts.isCallExpression(expression) && isFactoryReference(expression.expression, provenance)),
+  if (hasExpressionBinding(provenance.receivers, expression, provenance.checker)) return true;
+  if (ts.isCallExpression(expression) && isFactoryReference(expression.expression, provenance)) return true;
+  if (ts.isCallExpression(expression) && expression.arguments.some(argument =>
+    valueCarriesProvenance(argument, provenance),
+  )) {
+    return true;
+  }
+  if (ts.isCallExpression(expression) && localCallReturns(
+    expression,
+    returned => isSupabaseClientExpression(returned, provenance),
+    provenance,
+  )) {
+    return true;
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    isSupabaseClientExpression(alternative, provenance),
   );
+}
+
+function isActorClientExpression(node, provenance) {
+  const expression = unwrapExpression(node);
+  if (hasExpressionBinding(provenance.actorReceivers, expression, provenance.checker)) return true;
+  if (ts.isCallExpression(expression) &&
+      hasActorTokenArgument(expression) &&
+      isActorFactoryReference(expression.expression, provenance)) return true;
+  if (ts.isCallExpression(expression) && localCallReturns(
+    expression,
+    returned => isActorClientExpression(returned, provenance),
+    provenance,
+  )) {
+    return true;
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    isActorClientExpression(alternative, provenance),
+  );
+}
+
+function hasActorTokenArgument(call) {
+  if (call.arguments.length !== 1) return false;
+  const token = unwrapExpression(call.arguments[0]);
+  if ([
+    ts.SyntaxKind.NullKeyword,
+    ts.SyntaxKind.TrueKeyword,
+    ts.SyntaxKind.FalseKeyword,
+  ].includes(token.kind)) {
+    return false;
+  }
+  if (ts.isNumericLiteral(token) || ts.isBigIntLiteral(token)) return false;
+  if (ts.isIdentifier(token) && ["undefined", "NaN", "Infinity"].includes(token.text)) {
+    return false;
+  }
+  return !(ts.isStringLiteralLike(token) && token.text.trim() === "");
 }
 
 function isFactoryReference(node, provenance) {
   const expression = unwrapExpression(node);
   if (hasExpressionBinding(provenance.factories, expression, provenance.checker)) return true;
-  if (!isMemberAccess(expression) || !isServerClientFactoryName(accessName(expression))) return false;
-  return isNamespaceExpression(expression.expression, provenance);
+  if (isMemberAccess(expression) &&
+      isServerClientFactoryName(accessName(expression)) &&
+      isNamespaceExpression(expression.expression, provenance)) {
+    return true;
+  }
+  if (ts.isCallExpression(expression) && localCallReturns(
+    expression,
+    returned => isFactoryReference(returned, provenance),
+    provenance,
+  )) {
+    return true;
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    isFactoryReference(alternative, provenance),
+  );
+}
+
+function isActorFactoryReference(node, provenance) {
+  const expression = unwrapExpression(node);
+  if (hasExpressionBinding(provenance.actorFactories, expression, provenance.checker)) return true;
+  if (isMemberAccess(expression) &&
+      accessName(expression) === "createServerActorClient" &&
+      isNamespaceExpression(expression.expression, provenance)) {
+    return true;
+  }
+  if (ts.isCallExpression(expression) && localCallReturns(
+    expression,
+    returned => isActorFactoryReference(returned, provenance),
+    provenance,
+  )) {
+    return true;
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    isActorFactoryReference(alternative, provenance),
+  );
 }
 
 function isNamespaceExpression(node, provenance) {
-  return hasExpressionBinding(provenance.namespaces, node, provenance.checker) ||
-    isAllowedServerClientImportExpression(node);
+  const expression = unwrapExpression(node);
+  if (hasExpressionBinding(provenance.namespaces, expression, provenance.checker) ||
+      isAllowedServerClientImportExpression(expression, provenance.checker)) {
+    return true;
+  }
+  if (ts.isCallExpression(expression) && localCallReturns(
+    expression,
+    returned => isNamespaceExpression(returned, provenance),
+    provenance,
+  )) {
+    return true;
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    isNamespaceExpression(alternative, provenance),
+  );
+}
+
+function localCallReturns(call, predicate, provenance) {
+  const callable = localCallableForCall(call, provenance.checker);
+  if (!callable) return false;
+  if (provenance.returnInference.has(callable)) {
+    provenance.unresolvedAliases = true;
+    return false;
+  }
+  provenance.returnInference.add(callable);
+  try {
+    return functionReturnExpressions(callable).some(predicate);
+  } finally {
+    provenance.returnInference.delete(callable);
+  }
+}
+
+function functionReturnExpressions(callable) {
+  if (!ts.isBlock(callable.body)) return [callable.body];
+  const returned = [];
+  const visit = node => {
+    if (node !== callable.body && ts.isFunctionLike(node)) return;
+    if (ts.isReturnStatement(node) && node.expression) {
+      returned.push(node.expression);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(callable.body);
+  return returned;
+}
+
+function expressionAlternatives(node) {
+  const expression = unwrapExpression(node);
+  if (ts.isConditionalExpression(expression)) {
+    return [expression.whenTrue, expression.whenFalse];
+  }
+  if (ts.isBinaryExpression(expression)) {
+    if (expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) return [expression.right];
+    if ([
+      ts.SyntaxKind.BarBarToken,
+      ts.SyntaxKind.AmpersandAmpersandToken,
+      ts.SyntaxKind.QuestionQuestionToken,
+    ].includes(expression.operatorToken.kind)) {
+      return [expression.left, expression.right];
+    }
+    if (expression.operatorToken.kind === ts.SyntaxKind.CommaToken) return [expression.right];
+  }
+  return [];
+}
+
+function propagateBinding(target, value, provenance) {
+  if (ts.isObjectBindingPattern(target)) {
+    return propagateObjectBinding(target, value, provenance);
+  }
+  if (ts.isArrayBindingPattern(target)) {
+    return propagateArrayBinding(target, value, provenance);
+  }
+  return propagateExpressionBinding(target, value, provenance);
+}
+
+function propagateAssignment(target, value, provenance) {
+  const expression = unwrapExpression(target);
+  if (ts.isObjectLiteralExpression(expression)) {
+    return propagateObjectAssignment(expression, value, provenance);
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return propagateArrayAssignment(expression, value, provenance);
+  }
+  return propagateExpressionBinding(expression, value, provenance);
 }
 
 function propagateExpressionBinding(target, value, provenance) {
+  const identity = expressionIdentity(target, provenance.checker);
+  if (!identity) {
+    if (valueCarriesProvenance(value, provenance)) provenance.unresolvedAliases = true;
+    return false;
+  }
+  return propagateValueToIdentity(identity, value, provenance);
+}
+
+function propagateValueToIdentity(targetIdentity, value, provenance) {
+  const expression = unwrapExpression(value);
   let changed = false;
-  if (isFactoryReference(value, provenance)) {
-    changed = addExpressionBinding(provenance.factories, target, provenance.checker) || changed;
+  const alternatives = expressionAlternatives(expression);
+  if (alternatives.length > 0) {
+    for (const alternative of alternatives) {
+      changed = propagateValueToIdentity(targetIdentity, alternative, provenance) || changed;
+    }
+    return changed;
   }
-  if (isNamespaceExpression(value, provenance)) {
-    changed = addExpressionBinding(provenance.namespaces, target, provenance.checker) || changed;
+  if (ts.isObjectLiteralExpression(expression)) {
+    changed = propagateObjectLiteral(targetIdentity, expression, provenance) || changed;
   }
-  if (isSupabaseClientExpression(value, provenance)) {
-    changed = addExpressionBinding(provenance.receivers, target, provenance.checker) || changed;
+  if (ts.isArrayLiteralExpression(expression)) {
+    changed = propagateArrayLiteral(targetIdentity, expression, provenance) || changed;
+  }
+  const sourceIdentity = expressionIdentity(expression, provenance.checker);
+  if (sourceIdentity) {
+    changed = copyIdentityProvenance(targetIdentity, sourceIdentity, provenance) || changed;
+  }
+  if (isFactoryReference(expression, provenance)) {
+    changed = addIdentityBinding(provenance.factories, targetIdentity) || changed;
+  }
+  if (isActorFactoryReference(expression, provenance)) {
+    changed = addIdentityBinding(provenance.actorFactories, targetIdentity) || changed;
+  }
+  if (isNamespaceExpression(expression, provenance)) {
+    changed = addIdentityBinding(provenance.namespaces, targetIdentity) || changed;
+  }
+  if (isSupabaseClientExpression(expression, provenance)) {
+    changed = addIdentityBinding(provenance.receivers, targetIdentity) || changed;
+  }
+  if (isActorClientExpression(expression, provenance)) {
+    changed = addIdentityBinding(provenance.actorReceivers, targetIdentity) || changed;
+  }
+  if (isUnknownImportedExpression(expression, provenance)) {
+    changed = addIdentityBinding(provenance.unknownImports, targetIdentity) || changed;
   }
   return changed;
 }
 
+function propagateArrayLiteral(targetIdentity, arrayLiteral, provenance) {
+  let changed = false;
+  arrayLiteral.elements.forEach((element, index) => {
+    if (ts.isSpreadElement(element)) {
+      if (valueCarriesProvenance(element.expression, provenance)) provenance.unresolvedAliases = true;
+      return;
+    }
+    changed = propagateValueToIdentity(
+      appendIdentityPath(targetIdentity, String(index)),
+      element,
+      provenance,
+    ) || changed;
+  });
+  return changed;
+}
+
+function propagateObjectLiteral(targetIdentity, objectLiteral, provenance) {
+  let changed = false;
+  for (const property of objectLiteral.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      const sourceIdentity = expressionIdentity(property.expression, provenance.checker);
+      if (sourceIdentity) {
+        changed = copyIdentityProvenance(targetIdentity, sourceIdentity, provenance) || changed;
+      } else if (valueCarriesProvenance(property.expression, provenance)) {
+        provenance.unresolvedAliases = true;
+      }
+      continue;
+    }
+    if (!ts.isShorthandPropertyAssignment(property) && !ts.isPropertyAssignment(property)) continue;
+    const propertyName = propertyNameText(property.name);
+    const propertyValue = ts.isShorthandPropertyAssignment(property) ? property.name : property.initializer;
+    if (!propertyName) {
+      if (valueCarriesProvenance(propertyValue, provenance)) provenance.unresolvedAliases = true;
+      continue;
+    }
+    changed = propagateValueToIdentity(
+      appendIdentityPath(targetIdentity, propertyName),
+      propertyValue,
+      provenance,
+    ) || changed;
+  }
+  return changed;
+}
+
+function propagateObjectBinding(pattern, value, provenance) {
+  const expression = unwrapExpression(value);
+  const alternatives = expressionAlternatives(expression);
+  if (alternatives.length > 0) {
+    return alternatives.reduce(
+      (changed, alternative) => propagateObjectBinding(pattern, alternative, provenance) || changed,
+      false,
+    );
+  }
+  if (isDirectModuleLoadExpression(expression, provenance.checker) &&
+      isUnknownImportedExpression(expression, provenance)) {
+    return propagateUnknownImportPattern(pattern, provenance);
+  }
+  if (isSupabaseClientExpression(expression, provenance) ||
+      isUnknownImportedExpression(expression, provenance)) {
+    provenance.unresolvedAliases = true;
+    return false;
+  }
+  let changed = false;
+  const sourceIdentity = expressionIdentity(expression, provenance.checker);
+  for (const element of pattern.elements) {
+    if (element.dotDotDotToken) {
+      if (valueCarriesProvenance(expression, provenance) ||
+          (sourceIdentity && identityHasTrackedProvenance(sourceIdentity, provenance, true))) {
+        provenance.unresolvedAliases = true;
+      }
+      continue;
+    }
+    const propertyName = propertyNameText(element.propertyName ?? element.name);
+    if (!propertyName) {
+      if (valueCarriesProvenance(expression, provenance)) provenance.unresolvedAliases = true;
+      continue;
+    }
+    const literalValue = ts.isObjectLiteralExpression(expression)
+      ? objectLiteralPropertyValue(expression, propertyName)
+      : null;
+    if (literalValue) {
+      changed = propagateBinding(element.name, literalValue, provenance) || changed;
+    } else if (sourceIdentity) {
+      changed = propagateIdentityToBinding(
+        element.name,
+        appendIdentityPath(sourceIdentity, propertyName),
+        provenance,
+      ) || changed;
+    }
+    if (isNamespaceExpression(expression, provenance) &&
+        isServerClientFactoryName(propertyName)) {
+      changed = addExpressionBinding(provenance.factories, element.name, provenance.checker) || changed;
+      if (propertyName === "createServerActorClient") {
+        changed = addExpressionBinding(provenance.actorFactories, element.name, provenance.checker) || changed;
+      }
+    }
+    if (element.initializer) {
+      changed = propagateBinding(element.name, element.initializer, provenance) || changed;
+    }
+  }
+  return changed;
+}
+
+function propagateObjectAssignment(pattern, value, provenance) {
+  const expression = unwrapExpression(value);
+  const alternatives = expressionAlternatives(expression);
+  if (alternatives.length > 0) {
+    return alternatives.reduce(
+      (changed, alternative) => propagateObjectAssignment(pattern, alternative, provenance) || changed,
+      false,
+    );
+  }
+  if (isDirectModuleLoadExpression(expression, provenance.checker) &&
+      isUnknownImportedExpression(expression, provenance)) {
+    let changed = false;
+    for (const property of pattern.properties) {
+      if (ts.isShorthandPropertyAssignment(property)) {
+        changed = addExpressionBinding(provenance.unknownImports, property.name, provenance.checker) || changed;
+      } else if (ts.isPropertyAssignment(property)) {
+        changed = addExpressionBinding(
+          provenance.unknownImports,
+          assignmentTarget(property.initializer),
+          provenance.checker,
+        ) || changed;
+      }
+    }
+    return changed;
+  }
+  if (isSupabaseClientExpression(expression, provenance) ||
+      isUnknownImportedExpression(expression, provenance)) {
+    provenance.unresolvedAliases = true;
+    return false;
+  }
+  let changed = false;
+  const sourceIdentity = expressionIdentity(expression, provenance.checker);
+  for (const property of pattern.properties) {
+    if (ts.isSpreadAssignment(property)) {
+      if (valueCarriesProvenance(expression, provenance)) provenance.unresolvedAliases = true;
+      continue;
+    }
+    if (!ts.isShorthandPropertyAssignment(property) && !ts.isPropertyAssignment(property)) continue;
+    const propertyName = propertyNameText(property.name);
+    const target = ts.isShorthandPropertyAssignment(property)
+      ? property.name
+      : assignmentTarget(property.initializer);
+    if (!propertyName) {
+      if (valueCarriesProvenance(expression, provenance)) provenance.unresolvedAliases = true;
+      continue;
+    }
+    const literalValue = ts.isObjectLiteralExpression(expression)
+      ? objectLiteralPropertyValue(expression, propertyName)
+      : null;
+    if (literalValue) {
+      changed = propagateExpressionBinding(target, literalValue, provenance) || changed;
+    } else if (sourceIdentity) {
+      changed = propagateIdentityToBinding(
+        target,
+        appendIdentityPath(sourceIdentity, propertyName),
+        provenance,
+      ) || changed;
+    }
+    if (isNamespaceExpression(expression, provenance) &&
+        isServerClientFactoryName(propertyName)) {
+      changed = addExpressionBinding(provenance.factories, target, provenance.checker) || changed;
+      if (propertyName === "createServerActorClient") {
+        changed = addExpressionBinding(provenance.actorFactories, target, provenance.checker) || changed;
+      }
+    }
+  }
+  return changed;
+}
+
+function propagateUnknownImportPattern(pattern, provenance) {
+  let changed = false;
+  for (const element of pattern.elements) {
+    if (element.dotDotDotToken) {
+      provenance.unresolvedAliases = true;
+      continue;
+    }
+    if (ts.isIdentifier(element.name)) {
+      changed = addExpressionBinding(provenance.unknownImports, element.name, provenance.checker) || changed;
+    } else {
+      changed = propagateUnknownImportPattern(element.name, provenance) || changed;
+    }
+  }
+  return changed;
+}
+
+function propagateArrayBinding(pattern, value, provenance) {
+  const expression = unwrapExpression(value);
+  const sourceIdentity = expressionIdentity(expression, provenance.checker);
+  const sourceElements = arrayValueElements(expression, provenance.checker);
+  let changed = false;
+  pattern.elements.forEach((element, index) => {
+    if (!ts.isBindingElement(element)) return;
+    if (element.dotDotDotToken) {
+      if (valueCarriesProvenance(expression, provenance)) provenance.unresolvedAliases = true;
+      return;
+    }
+    if (sourceElements?.[index]) {
+      changed = propagateBinding(element.name, sourceElements[index], provenance) || changed;
+    } else if (sourceIdentity) {
+      changed = propagateIdentityToBinding(
+        element.name,
+        appendIdentityPath(sourceIdentity, String(index)),
+        provenance,
+      ) || changed;
+    }
+    if (element.initializer) {
+      changed = propagateBinding(element.name, element.initializer, provenance) || changed;
+    }
+  });
+  return changed;
+}
+
+function propagateArrayAssignment(pattern, value, provenance) {
+  const expression = unwrapExpression(value);
+  const sourceIdentity = expressionIdentity(expression, provenance.checker);
+  const sourceElements = arrayValueElements(expression, provenance.checker);
+  let changed = false;
+  pattern.elements.forEach((element, index) => {
+    if (ts.isOmittedExpression(element) || ts.isSpreadElement(element)) {
+      if (ts.isSpreadElement(element) && valueCarriesProvenance(expression, provenance)) {
+        provenance.unresolvedAliases = true;
+      }
+      return;
+    }
+    const target = assignmentTarget(element);
+    if (sourceElements?.[index]) {
+      changed = propagateExpressionBinding(target, sourceElements[index], provenance) || changed;
+    } else if (sourceIdentity) {
+      changed = propagateIdentityToBinding(
+        target,
+        appendIdentityPath(sourceIdentity, String(index)),
+        provenance,
+      ) || changed;
+    }
+  });
+  return changed;
+}
+
+function arrayValueElements(expression, checker) {
+  if (ts.isArrayLiteralExpression(expression)) return expression.elements;
+  if (!ts.isCallExpression(expression) || expression.arguments.length !== 1 ||
+      !ts.isArrayLiteralExpression(expression.arguments[0]) ||
+      !isMemberAccess(expression.expression) ||
+      accessName(expression.expression) !== "all") {
+    return null;
+  }
+  const receiver = unwrapExpression(expression.expression.expression);
+  if (!ts.isIdentifier(receiver) || receiver.text !== "Promise" || checker.getSymbolAtLocation(receiver)) {
+    return null;
+  }
+  return expression.arguments[0].elements;
+}
+
+function propagateIdentityToBinding(target, sourceIdentity, provenance) {
+  if (ts.isObjectBindingPattern(target)) {
+    let changed = false;
+    for (const element of target.elements) {
+      if (element.dotDotDotToken) {
+        if (identityHasTrackedProvenance(sourceIdentity, provenance, true)) {
+          provenance.unresolvedAliases = true;
+        }
+        continue;
+      }
+      const propertyName = propertyNameText(element.propertyName ?? element.name);
+      if (!propertyName) {
+        if (identityHasTrackedProvenance(sourceIdentity, provenance, true)) {
+          provenance.unresolvedAliases = true;
+        }
+        continue;
+      }
+      changed = propagateIdentityToBinding(
+        element.name,
+        appendIdentityPath(sourceIdentity, propertyName),
+        provenance,
+      ) || changed;
+    }
+    return changed;
+  }
+  if (ts.isArrayBindingPattern(target)) {
+    let changed = false;
+    target.elements.forEach((element, index) => {
+      if (!ts.isBindingElement(element)) return;
+      changed = propagateIdentityToBinding(
+        element.name,
+        appendIdentityPath(sourceIdentity, String(index)),
+        provenance,
+      ) || changed;
+    });
+    return changed;
+  }
+  const targetIdentity = expressionIdentity(target, provenance.checker);
+  return targetIdentity ? copyIdentityProvenance(targetIdentity, sourceIdentity, provenance) : false;
+}
+
+function objectLiteralPropertyValue(objectLiteral, selectedName) {
+  for (const property of objectLiteral.properties) {
+    if (!ts.isShorthandPropertyAssignment(property) && !ts.isPropertyAssignment(property)) continue;
+    if (propertyNameText(property.name) !== selectedName) continue;
+    if (ts.isShorthandPropertyAssignment(property)) return property.name;
+    if (ts.isPropertyAssignment(property)) return property.initializer;
+  }
+  return null;
+}
+
+function valueCarriesProvenance(value, provenance) {
+  const expression = unwrapExpression(value);
+  if (isFactoryReference(expression, provenance) ||
+      isNamespaceExpression(expression, provenance) ||
+      isSupabaseClientExpression(expression, provenance) ||
+      expressionHasTrackedProvenance(expression, provenance)) {
+    return true;
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.some(property => {
+      if (ts.isSpreadAssignment(property)) return valueCarriesProvenance(property.expression, provenance);
+      if (ts.isShorthandPropertyAssignment(property)) return valueCarriesProvenance(property.name, provenance);
+      return ts.isPropertyAssignment(property) && valueCarriesProvenance(property.initializer, provenance);
+    });
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.some(element =>
+      ts.isSpreadElement(element)
+        ? valueCarriesProvenance(element.expression, provenance)
+        : valueCarriesProvenance(element, provenance),
+    );
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    valueCarriesProvenance(alternative, provenance),
+  );
+}
+
+function expressionHasTrackedProvenance(node, provenance) {
+  const identity = expressionIdentity(node, provenance.checker);
+  return Boolean(identity && identityHasTrackedProvenance(identity, provenance, true));
+}
+
+function identityHasTrackedProvenance(identity, provenance, includeDescendants) {
+  return supabaseProvenanceBindingMaps(provenance).some(bindings =>
+    identityHasBinding(bindings, identity, includeDescendants),
+  );
+}
+
+function copyIdentityProvenance(targetIdentity, sourceIdentity, provenance) {
+  let changed = false;
+  for (const bindings of provenanceBindingMaps(provenance)) {
+    const sourcePath = identityPath(sourceIdentity);
+    const paths = bindings.get(sourceIdentity.root);
+    if (!paths) continue;
+    for (const encodedPath of paths) {
+      const path = JSON.parse(encodedPath);
+      if (!pathStartsWith(path, sourcePath)) continue;
+      changed = addIdentityBinding(bindings, {
+        root: targetIdentity.root,
+        path: JSON.stringify([...identityPath(targetIdentity), ...path.slice(sourcePath.length)]),
+      }) || changed;
+    }
+  }
+  return changed;
+}
+
+function provenanceBindingMaps(provenance) {
+  return [...supabaseProvenanceBindingMaps(provenance), provenance.unknownImports];
+}
+
+function supabaseProvenanceBindingMaps(provenance) {
+  return [
+    provenance.factories,
+    provenance.actorFactories,
+    provenance.namespaces,
+    provenance.receivers,
+    provenance.actorReceivers,
+  ];
+}
+
 function addExpressionBinding(bindings, node, checker) {
   const identity = expressionIdentity(node, checker);
-  if (!identity) return false;
+  return identity ? addIdentityBinding(bindings, identity) : false;
+}
+
+function addIdentityBinding(bindings, identity) {
   let paths = bindings.get(identity.root);
   if (!paths) {
     paths = new Set();
@@ -273,10 +1162,46 @@ function hasExpressionBinding(bindings, node, checker) {
   return Boolean(identity && bindings.get(identity.root)?.has(identity.path));
 }
 
+function identityHasBinding(bindings, identity, includeDescendants) {
+  const expected = identityPath(identity);
+  return Boolean([...bindings.get(identity.root) ?? []].some(encodedPath => {
+    const actual = JSON.parse(encodedPath);
+    return includeDescendants ? pathStartsWith(actual, expected) : encodedPath === identity.path;
+  }));
+}
+
+function identityHasAncestorBinding(bindings, identity) {
+  const actual = identityPath(identity);
+  return Boolean([...bindings.get(identity.root) ?? []].some(encodedPath =>
+    pathStartsWith(actual, JSON.parse(encodedPath)),
+  ));
+}
+
+function appendIdentityPath(identity, member) {
+  return {
+    root: identity.root,
+    path: JSON.stringify([...identityPath(identity), member]),
+  };
+}
+
+function identityPath(identity) {
+  return JSON.parse(identity.path);
+}
+
+function pathStartsWith(path, prefix) {
+  return prefix.length <= path.length && prefix.every((member, index) => member === path[index]);
+}
+
 function expressionIdentity(node, checker) {
   let expression = unwrapExpression(node);
-  const directSymbol = expressionSymbol(expression, checker);
-  if (directSymbol) return { root: symbolBindingRoot(directSymbol), path: "[]" };
+  const declarationIdentity = declaredPropertyIdentity(expression);
+  if (declarationIdentity) return declarationIdentity;
+  if (ts.isIdentifier(expression) &&
+      ts.isShorthandPropertyAssignment(expression.parent) &&
+      expression.parent.name === expression) {
+    const valueSymbol = checker.getShorthandAssignmentValueSymbol(expression.parent);
+    if (valueSymbol) return { root: symbolBindingRoot(valueSymbol), path: "[]" };
+  }
   const path = [];
   while (isMemberAccess(expression)) {
     const member = accessName(expression);
@@ -284,7 +1209,7 @@ function expressionIdentity(node, checker) {
     path.unshift(member);
     expression = unwrapExpression(expression.expression);
   }
-  if (ts.isIdentifier(expression)) {
+  if (ts.isIdentifier(expression) || ts.isPrivateIdentifier(expression)) {
     const symbol = checker.getSymbolAtLocation(expression);
     return symbol ? { root: symbolBindingRoot(symbol), path: JSON.stringify(path) } : null;
   }
@@ -294,14 +1219,15 @@ function expressionIdentity(node, checker) {
   return null;
 }
 
-function expressionSymbol(expression, checker) {
-  if (ts.isIdentifier(expression)) return checker.getSymbolAtLocation(expression);
-  if (ts.isPropertyAccessExpression(expression)) return checker.getSymbolAtLocation(expression.name);
-  if (ts.isElementAccessExpression(expression)) {
-    const argument = unwrapExpression(expression.argumentExpression);
-    if (ts.isStringLiteralLike(argument)) return checker.getSymbolAtLocation(argument);
+function declaredPropertyIdentity(expression) {
+  if ((ts.isIdentifier(expression) || ts.isPrivateIdentifier(expression) ||
+       ts.isStringLiteralLike(expression) || ts.isComputedPropertyName(expression)) &&
+      ts.isPropertyDeclaration(expression.parent) && expression.parent.name === expression) {
+    const propertyName = propertyNameText(expression);
+    if (!propertyName || !ts.isClassLike(expression.parent.parent)) return null;
+    return { root: expression.parent.parent, path: JSON.stringify([propertyName]) };
   }
-  return undefined;
+  return null;
 }
 
 function symbolBindingRoot(symbol) {
@@ -347,7 +1273,7 @@ function isMemberAccess(node) {
 function accessName(node) {
   if (ts.isPropertyAccessExpression(node)) return node.name.text;
   const argument = unwrapExpression(node.argumentExpression);
-  return ts.isStringLiteralLike(argument) ? argument.text : null;
+  return ts.isStringLiteralLike(argument) || ts.isNumericLiteral(argument) ? argument.text : null;
 }
 
 function bindingSelects(name, members) {
@@ -368,49 +1294,13 @@ function assignmentSelects(node, members) {
 }
 
 function propertyNameText(name) {
-  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) return name.text;
+  if (ts.isIdentifier(name) || ts.isPrivateIdentifier(name) ||
+      ts.isStringLiteralLike(name) || ts.isNumericLiteral(name)) return name.text;
   if (ts.isComputedPropertyName(name)) {
     const expression = unwrapExpression(name.expression);
     return ts.isStringLiteralLike(expression) ? expression.text : null;
   }
   return null;
-}
-
-function collectFactoryBindings(name, factories, checker) {
-  let changed = false;
-  if (ts.isObjectBindingPattern(name)) {
-    for (const element of name.elements) {
-      const imported = element.propertyName ?? element.name;
-      if (isServerClientFactoryName(propertyNameText(imported)) && ts.isIdentifier(element.name)) {
-        changed = addExpressionBinding(factories, element.name, checker) || changed;
-      }
-      changed = collectFactoryBindings(element.name, factories, checker) || changed;
-    }
-  } else if (ts.isArrayBindingPattern(name)) {
-    for (const element of name.elements) {
-      if (ts.isBindingElement(element)) {
-        changed = collectFactoryBindings(element.name, factories, checker) || changed;
-      }
-    }
-  }
-  return changed;
-}
-
-function collectFactoryAssignments(node, factories, checker) {
-  const expression = unwrapExpression(node);
-  if (!ts.isObjectLiteralExpression(expression)) return false;
-  let changed = false;
-  for (const property of expression.properties) {
-    if (!ts.isShorthandPropertyAssignment(property) && !ts.isPropertyAssignment(property)) continue;
-    const imported = propertyNameText(property.name);
-    if (!isServerClientFactoryName(imported)) continue;
-    if (ts.isShorthandPropertyAssignment(property)) {
-      changed = addExpressionBinding(factories, property.name, checker) || changed;
-    } else if (ts.isPropertyAssignment(property)) {
-      changed = addExpressionBinding(factories, assignmentTarget(property.initializer), checker) || changed;
-    }
-  }
-  return changed;
 }
 
 function assignmentTarget(node) {
@@ -421,12 +1311,15 @@ function assignmentTarget(node) {
   return expression;
 }
 
-function isAllowedServerClientImportExpression(node) {
+function isAllowedServerClientImportExpression(node, checker) {
   const expression = unwrapExpression(node);
   return ts.isCallExpression(expression) &&
-    expression.expression.kind === ts.SyntaxKind.ImportKeyword &&
     expression.arguments.length === 1 &&
     ts.isStringLiteral(expression.arguments[0]) &&
+    (expression.expression.kind === ts.SyntaxKind.ImportKeyword ||
+     (ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "require" &&
+      !checker.getSymbolAtLocation(expression.expression))) &&
     isAllowedServerClientModule(expression.arguments[0].text);
 }
 
