@@ -11,7 +11,7 @@ test("catalog raw-privilege probe includes public and private schema ACLs", () =
   assert.match(E5B_CATALOG_SQL, /has_schema_privilege\('hotel_ld_application','app_private','USAGE'\)/);
   assert.match(E5B_CATALOG_SQL, /has_schema_privilege\('hotel_ld_application','app_private','CREATE'\)/);
   assert.match(E5B_CATALOG_SQL, /has_schema_privilege\('hotel_ld_application','public','CREATE'\)/);
-  assert.match(E5B_CATALOG_SQL, /relation\.relkind in \('r','p','S'\)/);
+  assert.match(E5B_CATALOG_SQL, /relation\.relkind in \('r','p','S','v','m','f'\)/);
   assert.match(E5B_CATALOG_SQL, /has_any_column_privilege\('hotel_ld_application', relation\.oid/);
 });
 

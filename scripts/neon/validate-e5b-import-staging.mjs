@@ -1347,14 +1347,17 @@ export const E5B_CATALOG_SQL = `
         from pg_catalog.pg_roles where rolname='hotel_ld_application'), false) as application_role_restricted,
       coalesce((select not rolcanlogin and not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb
         from pg_catalog.pg_roles where rolname='hotel_ld_migration_owner'), false) as migration_owner_restricted,
-      not exists(select 1 from pg_catalog.pg_class relation join pg_catalog.pg_roles owner_role on owner_role.oid=relation.relowner where owner_role.rolname='hotel_ld_application')
+      not exists(select 1 from pg_catalog.pg_database database_record join pg_catalog.pg_roles owner_role on owner_role.oid=database_record.datdba where owner_role.rolname='hotel_ld_application')
+        and not exists(select 1 from pg_catalog.pg_namespace namespace join pg_catalog.pg_roles owner_role on owner_role.oid=namespace.nspowner where owner_role.rolname='hotel_ld_application')
+        and not exists(select 1 from pg_catalog.pg_class relation join pg_catalog.pg_roles owner_role on owner_role.oid=relation.relowner where owner_role.rolname='hotel_ld_application')
+        and not exists(select 1 from pg_catalog.pg_type data_type join pg_catalog.pg_roles owner_role on owner_role.oid=data_type.typowner where owner_role.rolname='hotel_ld_application')
         and not exists(select 1 from pg_catalog.pg_proc routine join pg_catalog.pg_roles owner_role on owner_role.oid=routine.proowner where owner_role.rolname='hotel_ld_application') as application_owns_nothing,
       not exists(
         select 1
         from pg_catalog.pg_class relation
         join pg_catalog.pg_namespace namespace on namespace.oid=relation.relnamespace
         where namespace.nspname in ('public','app_private')
-          and relation.relkind in ('r','p','S')
+          and relation.relkind in ('r','p','S','v','m','f')
           and (
             pg_catalog.has_table_privilege('hotel_ld_application', relation.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
             or pg_catalog.has_any_column_privilege('hotel_ld_application', relation.oid, 'SELECT,INSERT,UPDATE,REFERENCES')
