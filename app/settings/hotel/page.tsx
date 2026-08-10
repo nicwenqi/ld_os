@@ -9,7 +9,8 @@ import type {
   PropertyIdentity,
   PropertySettings,
 } from "../../repositories/contracts/models.ts";
-import { createRepositoryRegistry } from "../../repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "../../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../../repositories/runtime/neon-domain-registry.ts";
 import {
   getInitializationSteps,
   validateBusinessRules,
@@ -31,8 +32,7 @@ type SectionTimes = Record<EditableSection, string | null>;
 const emptyMessages: SectionMessages = { identity: null, rules: null, logo: null };
 const emptyTimes: SectionTimes = { identity: null, rules: null, logo: null };
 
-function HotelSettingsContent() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function HotelSettingsContent({ registry }: { registry: RuntimeDomainRegistry }) {
   const repository = registry.property;
   const { session } = useAuthSession();
   const [contextLabel, setContextLabel] = useState("正在识别酒店上下文");
@@ -667,7 +667,9 @@ function currentTime() {
 export default function HotelSettingsPage() {
   return (
     <ProtectedAppProviders>
-      <HotelSettingsContent />
+      <RuntimeDomainRegistryBoundary>
+        {registry => <HotelSettingsContent registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
     </ProtectedAppProviders>
   );
 }

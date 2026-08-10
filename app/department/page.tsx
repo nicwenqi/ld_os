@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "../components/shell/AppShell";
 import { DataStateBadge } from "../components/operations/DataStateBadge";
 import { ProtectedAppProviders } from "../providers";
-import { createRepositoryRegistry } from "../repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import {
   loadScopedDepartmentEmployees,
   type ScopedDepartmentEmployees,
@@ -35,8 +36,7 @@ const unavailableOperations = [
   },
 ] as const;
 
-function DepartmentCommandCenter() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function DepartmentCommandCenter({ registry }: { registry: RuntimeDomainRegistry }) {
   const { session } = useAuthSession();
   const [snapshot, setSnapshot] = useState<ScopedDepartmentEmployees | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -214,7 +214,9 @@ function DepartmentCommandCenter() {
 export default function DepartmentHomePage() {
   return (
     <ProtectedAppProviders>
-      <DepartmentCommandCenter />
+      <RuntimeDomainRegistryBoundary>
+        {registry => <DepartmentCommandCenter registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
     </ProtectedAppProviders>
   );
 }

@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "./components/shell/AppShell";
 import { DataStateBadge } from "./components/operations/DataStateBadge";
 import { ProtectedAppProviders } from "./providers";
-import { createRepositoryRegistry } from "./repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "./repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "./repositories/runtime/neon-domain-registry.ts";
 import {
   formatFoundationCount,
   loadFoundationReadiness,
@@ -23,8 +24,7 @@ const unavailableModules = [
   ["课程成效", "反馈样本、满意度和课程应用证据尚未接入。", "/effectiveness"],
 ] as const;
 
-function ManagerCommandCenter() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function ManagerCommandCenter({ registry }: { registry: RuntimeDomainRegistry }) {
   const { session } = useAuthSession();
   const [snapshot, setSnapshot] = useState<FoundationReadinessSnapshot | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -293,7 +293,9 @@ function importStatus(status: string) {
 export default function Home() {
   return (
     <ProtectedAppProviders>
-      <ManagerCommandCenter />
+      <RuntimeDomainRegistryBoundary>
+        {registry => <ManagerCommandCenter registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
     </ProtectedAppProviders>
   );
 }

@@ -14,7 +14,8 @@ import { EmployeeProfileDrawer } from "../../components/people/EmployeeProfileDr
 import { AppShell } from "../../components/shell/AppShell";
 import { ProtectedAppProviders } from "../../providers";
 import type { EmployeeRecord } from "../../repositories/contracts/employee-repository";
-import { createRepositoryRegistry } from "../../repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "../../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../../repositories/runtime/neon-domain-registry.ts";
 import {
   loadScopedDepartmentEmployees,
   type ScopedDepartmentEmployees,
@@ -23,8 +24,7 @@ import { useAuthSession } from "../../state/auth-session";
 
 const PAGE_SIZE = 25;
 
-function DepartmentEmployees() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function DepartmentEmployees({ registry }: { registry: RuntimeDomainRegistry }) {
   const { session } = useAuthSession();
   const [snapshot, setSnapshot] = useState<ScopedDepartmentEmployees | null>(null);
   const [queryDraft, setQueryDraft] = useState("");
@@ -263,7 +263,9 @@ function DepartmentEmployees() {
 export default function DepartmentEmployeesPage() {
   return (
     <ProtectedAppProviders>
-      <DepartmentEmployees />
+      <RuntimeDomainRegistryBoundary>
+        {registry => <DepartmentEmployees registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
     </ProtectedAppProviders>
   );
 }

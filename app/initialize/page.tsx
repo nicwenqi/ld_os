@@ -14,7 +14,8 @@ import type {
   HotelPropertyRecord,
   PropertySettings,
 } from "../repositories/contracts/models.ts";
-import { createRepositoryRegistry } from "../repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import {
   deriveWizardState,
   type WizardProgress,
@@ -57,8 +58,7 @@ const inspectedStatuses = new Set([
   "completed_with_warnings",
 ]);
 
-function Wizard() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function Wizard({ registry }: { registry: RuntimeDomainRegistry }) {
   const { session } = useAuthSession();
   const [propertyId, setPropertyId] = useState<string | null>(null);
   const [authoritative, setAuthoritative] = useState<HotelPropertyRecord | null>(null);
@@ -977,7 +977,9 @@ function currentTime() {
 export default function InitializationPage() {
   return (
     <ProtectedAppProviders>
-      <Wizard />
+      <RuntimeDomainRegistryBoundary>
+        {registry => <Wizard registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
     </ProtectedAppProviders>
   );
 }

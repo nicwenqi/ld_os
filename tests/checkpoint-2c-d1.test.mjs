@@ -20,7 +20,7 @@ test("activation is a standalone five-section route with no direct Supabase quer
   const page = await readFile(new URL("../app/initialize/page.tsx", import.meta.url), "utf8");
   const model = await readFile(new URL("../app/services/initialization-wizard-service.ts", import.meta.url), "utf8");
   for (const token of ["酒店信息与规则", "正式部门", "管理员账号", "员工资料准备", "启用复核", "保存并稍后继续", "启用酒店"]) assert.match(`${page}\n${model}`, new RegExp(token));
-  assert.match(page, /createRepositoryRegistry/);
+  assert.match(page, /RuntimeDomainRegistryBoundary/);
   assert.doesNotMatch(page, /\.from\(|createBrowserSupabaseClient/);
   assert.doesNotMatch(page, /PositionSetupStep|WorkbookSetupStep|MappingSetupStep/);
 });

@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "../components/shell/AppShell";
 import { DataStateBadge } from "../components/operations/DataStateBadge";
 import { ProtectedAppProviders } from "../providers";
-import { createRepositoryRegistry } from "../repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import {
   formatFoundationCount,
   loadFoundationReadiness,
@@ -13,8 +14,7 @@ import {
 } from "../services/foundation-readiness.ts";
 import { useAuthSession } from "../state/auth-session";
 
-function DataQualityContent() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function DataQualityContent({ registry }: { registry: RuntimeDomainRegistry }) {
   const { session } = useAuthSession();
   const [snapshot, setSnapshot] = useState<FoundationReadinessSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -196,7 +196,9 @@ function formatUpdatedAt(value: string, timezone: string) {
 export default function DataQualityPage() {
   return (
     <ProtectedAppProviders>
-      <DataQualityContent />
+      <RuntimeDomainRegistryBoundary>
+        {registry => <DataQualityContent registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
     </ProtectedAppProviders>
   );
 }

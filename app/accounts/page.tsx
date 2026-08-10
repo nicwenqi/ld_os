@@ -12,7 +12,8 @@ import { DataStateBadge } from "../components/operations/DataStateBadge";
 import { AppShell } from "../components/shell/AppShell";
 import { ProtectedAppProviders } from "../providers";
 import type { DepartmentNode } from "../repositories/contracts/organization-models.ts";
-import { createRepositoryRegistry } from "../repositories/registry.ts";
+import { RuntimeDomainRegistryBoundary } from "../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import {
   accountRoleLabel,
   createBackendAccount,
@@ -41,8 +42,7 @@ type AccountEditor = {
   scopes: DepartmentScopeDraft[];
 };
 
-function AccountAdministration() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function AccountAdministration({ registry }: { registry: RuntimeDomainRegistry }) {
   const { session } = useAuthSession();
   const [tree, setTree] = useState<DepartmentNode[]>([]);
   const [collection, setCollection] = useState<BackendAccountCollection | null>(null);
@@ -570,5 +570,11 @@ function message(error: unknown) {
 }
 
 export default function AccountsPage() {
-  return <ProtectedAppProviders><AccountAdministration /></ProtectedAppProviders>;
+  return (
+    <ProtectedAppProviders>
+      <RuntimeDomainRegistryBoundary>
+        {registry => <AccountAdministration registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
+    </ProtectedAppProviders>
+  );
 }

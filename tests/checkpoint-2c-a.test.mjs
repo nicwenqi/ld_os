@@ -12,7 +12,7 @@ test("Hotel Settings Center covers identity, branding, rules, and finite activat
     "默认语言", "新员工定义", "试用期字段含义", "员工状态来源", "CTC", "GTC",
     "保存酒店信息", "保存业务规则", "仅支持 PNG、JPEG 或 WebP", "30 天",
   ]) assert.match(page, new RegExp(token));
-  assert.match(page, /createRepositoryRegistry/);
+  assert.match(page, /RuntimeDomainRegistryBoundary/);
   assert.match(page, /uploadLogo/);
   assert.doesNotMatch(page, /Synthetic tenant|初始化进度/);
 });

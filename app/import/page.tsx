@@ -54,7 +54,8 @@ import type {
 } from "../repositories/contracts/import-repository";
 import { ImportRepositoryError } from "../repositories/contracts/import-repository";
 import type { DepartmentNode } from "../repositories/contracts/organization-models";
-import { createRepositoryRegistry } from "../repositories/registry";
+import { RuntimeDomainRegistryBoundary } from "../repositories/runtime/RuntimeDomainRegistryBoundary.tsx";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import {
   createEmployeeUpdateDecisionDraft,
   createImportService,
@@ -89,8 +90,7 @@ const REVIEW_INSPECTION: ProductionInspection = {
   },
 };
 
-function EmployeeDataUpdateContent() {
-  const registry = useMemo(() => createRepositoryRegistry(), []);
+function EmployeeDataUpdateContent({ registry }: { registry: RuntimeDomainRegistry }) {
   const importService = useMemo(() => createImportService(registry.import), [registry.import]);
   const { session } = useAuthSession();
   const isReviewData = registry.environment.dataMode === "mock";
@@ -627,5 +627,11 @@ function message(reason: unknown) {
 }
 
 export default function ImportCenter() {
-  return <ProtectedAppProviders><EmployeeDataUpdateContent /></ProtectedAppProviders>;
+  return (
+    <ProtectedAppProviders>
+      <RuntimeDomainRegistryBoundary>
+        {registry => <EmployeeDataUpdateContent registry={registry} />}
+      </RuntimeDomainRegistryBoundary>
+    </ProtectedAppProviders>
+  );
 }
