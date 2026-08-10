@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { access, readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -28,6 +29,7 @@ const COMMANDS = new Set([
   "runtime",
   "storage-runtime",
 ]);
+const DATABASE_COMMANDS = new Set(["dry-run", "apply", "catalog"]);
 
 export const E5B_MIGRATIONS = Object.freeze([
   "090_import_staging_schema.sql",
@@ -251,6 +253,177 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     storageVerification: "read-back-sha256-size-content-mime",
   };
 }
+
+/**
+ * Database validation deliberately keeps the connection string at the edge of
+ * the process.  Returned evidence contains only the approved target tuple and
+ * role names; passwords, hosts and query parameters are never returned.
+ */
+export async function runE5bDatabaseCommand(command, raw, dependencies = {}) {
+  if (!DATABASE_COMMANDS.has(command)) {
+    throw new Error("E5B_IMPORT_STAGING_TASK9_COMMAND_INVALID");
+  }
+  const sourceResult = await (dependencies.sourceCheck
+    ?? (() => validateE5bImportStagingSource({ root: dependencies.root ?? ROOT })) )();
+  const target = assertE5bBootstrapUrl(raw);
+  const migrationSources = command === "catalog"
+    ? []
+    : await (dependencies.readMigrationSources
+      ?? (() => readE5bMigrationSources(dependencies.root ?? ROOT)))();
+  if (command !== "catalog" && migrationSources.length !== E5B_MIGRATIONS.length) {
+    throw new Error("E5B_IMPORT_STAGING_MIGRATION_INVENTORY_DRIFT");
+  }
+  const createClient = dependencies.createClient ?? defaultClient;
+  const client = await createClient(raw, target);
+  if (!client || typeof client.query !== "function") {
+    throw new Error("E5B_IMPORT_STAGING_DATABASE_CLIENT_REQUIRED");
+  }
+  if (typeof client.connect === "function") await client.connect();
+  let transactionOpen = false;
+  try {
+    await assertBootstrapIdentity(client);
+    if (command === "catalog") {
+      await client.query("begin read only");
+      transactionOpen = true;
+      const catalog = await (dependencies.catalog ?? validateE5bCatalog)(client);
+      await client.query("rollback");
+      transactionOpen = false;
+      return redactedResult({
+        command,
+        source: sourceResult,
+        connection: target,
+        readOnly: true,
+        ...catalog,
+      });
+    }
+
+    if (command === "dry-run") {
+      const before = await (dependencies.stateProof ?? readE5bStateProof)(client);
+      await client.query("begin");
+      transactionOpen = true;
+      try {
+        await applyE5bMigrationBodies(client, migrationSources);
+        const catalog = await (dependencies.catalog ?? validateE5bCatalog)(client);
+        await client.query("rollback");
+        transactionOpen = false;
+        const after = await (dependencies.stateProof ?? readE5bStateProof)(client);
+        const proof = await (dependencies.emptyProof
+          ?? (() => proveE5bRollbackEmpty(before, after)))(before, after);
+        const emptyAfterRollback = proof === true || proof?.empty === true;
+        return redactedResult({
+          command,
+          source: sourceResult,
+          connection: target,
+          migrationsValidated: migrationSources.length,
+          rolledBack: true,
+          dryRunStateRestored: emptyAfterRollback === true,
+          emptyAfterRollback: emptyAfterRollback === true,
+          ...catalog,
+        });
+      } catch (error) {
+        if (transactionOpen) {
+          try { await client.query("rollback"); } catch { /* preserve original */ }
+          transactionOpen = false;
+        }
+        throw error;
+      }
+    }
+
+    await client.query("begin");
+    transactionOpen = true;
+    try {
+      await applyE5bMigrationBodies(client, migrationSources);
+      const catalog = await (dependencies.catalog ?? validateE5bCatalog)(client);
+      await client.query("commit");
+      transactionOpen = false;
+      return redactedResult({
+        command,
+        source: sourceResult,
+        connection: target,
+        migrationsApplied: migrationSources.length,
+        applied: true,
+        ...catalog,
+      });
+    } catch (error) {
+      if (transactionOpen) {
+        try { await client.query("rollback"); } catch { /* preserve original */ }
+        transactionOpen = false;
+      }
+      throw error;
+    }
+  } finally {
+    if (transactionOpen) {
+      try { await client.query("rollback"); } catch { /* preserve original */ }
+    }
+    if (typeof client.end === "function") await client.end();
+  }
+}
+
+/**
+ * Runtime validation uses the pooled application role only.  The bootstrap
+ * client is used for read-only catalog evidence; it is never used as a
+ * runtime client and no SET ROLE is issued by this validator.
+ */
+export async function runE5bRuntimeValidation({
+  bootstrapConnectionString,
+  runtimeConnectionString,
+  dependencies = {},
+  root = ROOT,
+  sourceCheck,
+  createBootstrapClient,
+  createRuntimeClient,
+  catalog,
+  runtimeMatrix,
+} = {}) {
+  const source = await (sourceCheck ?? dependencies.sourceCheck
+    ?? (() => validateE5bImportStagingSource({ root })) )();
+  const bootstrap = assertE5bBootstrapUrl(bootstrapConnectionString);
+  const runtime = assertE5bRuntimeUrl(runtimeConnectionString);
+  const bootstrapFactory = createBootstrapClient ?? dependencies.createBootstrapClient ?? defaultClient;
+  const runtimeFactory = createRuntimeClient ?? dependencies.createRuntimeClient ?? defaultClient;
+  const bootstrapClient = await bootstrapFactory(bootstrapConnectionString, bootstrap);
+  const runtimeClient = await runtimeFactory(runtimeConnectionString, runtime);
+  let bootstrapOpen = false;
+  let runtimeOpen = false;
+  try {
+    if (typeof bootstrapClient?.connect === "function") await bootstrapClient.connect();
+    if (typeof runtimeClient?.connect === "function") await runtimeClient.connect();
+    await assertBootstrapIdentity(bootstrapClient);
+    await assertRuntimeIdentity(runtimeClient);
+    await bootstrapClient.query("begin read only");
+    bootstrapOpen = true;
+    const catalogResult = await (catalog ?? dependencies.catalog ?? validateE5bCatalog)(bootstrapClient);
+    await bootstrapClient.query("rollback");
+    bootstrapOpen = false;
+    const matrix = await (runtimeMatrix ?? dependencies.runtimeMatrix
+      ?? runE5bRuntimeMatrix)({ bootstrapClient, runtimeClient, catalog: catalogResult });
+    return redactedResult({
+      command: "runtime",
+      source,
+      bootstrap: { ...bootstrap, role: E5B_BOOTSTRAP_ROLE, pooled: false },
+      runtime: { ...runtime, role: E5B_RUNTIME_ROLE, pooled: true },
+      runtimeRole: E5B_RUNTIME_ROLE,
+      catalog: catalogResult,
+      matrix,
+    });
+  } catch (error) {
+    if (bootstrapOpen) {
+      try { await bootstrapClient.query("rollback"); } catch { /* preserve original */ }
+    }
+    if (runtimeOpen) {
+      try { await runtimeClient.query("rollback"); } catch { /* preserve original */ }
+    }
+    throw error;
+  } finally {
+    if (typeof runtimeClient?.end === "function") await runtimeClient.end();
+    if (typeof bootstrapClient?.end === "function") await bootstrapClient.end();
+  }
+}
+
+// Stable aliases keep the validator callable from CI orchestration without
+// exposing the internal command-dispatch implementation.
+export const runTask9DatabaseCommand = runE5bDatabaseCommand;
+export const runTask10RuntimeValidation = runE5bRuntimeValidation;
 
 /**
  * The Task 8 server boundary is deliberately dark: it can be called by a
@@ -1069,6 +1242,272 @@ async function exists(path) {
   catch { return false; }
 }
 
+async function readE5bMigrationSources(root = ROOT) {
+  const capabilityRoot = join(resolve(root), "neon", "canonical", "e5b");
+  const migrationRoot = await exists(capabilityRoot)
+    ? capabilityRoot
+    : join(resolve(root), "neon", "canonical");
+  const sources = [];
+  for (const file of E5B_MIGRATIONS) {
+    const path = join(migrationRoot, file);
+    if (!(await exists(path))) throw new Error("E5B_IMPORT_STAGING_MIGRATION_INVENTORY_DRIFT");
+    sources.push(stripMigrationTransactionFrame(await readFile(path, "utf8"), path));
+  }
+  return sources;
+}
+
+function stripMigrationTransactionFrame(source, path) {
+  const framed = String(source).match(/^\s*begin\s*;([\s\S]*?)commit\s*;\s*$/i);
+  if (!framed) throw new Error(`E5B_IMPORT_STAGING_MIGRATION_TRANSACTION_FRAME:${path}`);
+  return framed[1].trim();
+}
+
+async function defaultClient(raw) {
+  const { Client } = await import("pg");
+  return new Client({
+    connectionString: raw,
+    ssl: { rejectUnauthorized: true },
+    enableChannelBinding: true,
+    connectionTimeoutMillis: 10_000,
+  });
+}
+
+const E5B_IDENTITY_SQL = `
+  /* e5b:identity */
+  select pg_catalog.current_setting('server_version_num')::integer as server_version_num,
+         current_database() as database,
+         current_user,
+         session_user,
+         pg_catalog.pg_get_userbyid(
+           (select datdba from pg_catalog.pg_database where datname=current_database())
+         ) as database_owner
+`;
+
+export const E5B_CATALOG_SQL = `
+  /* e5b:catalog-matrix */
+  with expected_tables(value) as (
+    values
+      ('public.import_batches'::text),
+      ('public.import_sheets'::text),
+      ('public.import_source_rows'::text),
+      ('public.import_field_mappings'::text),
+      ('public.import_issues'::text),
+      ('public.import_source_label_resolutions'::text),
+      ('app_private.import_storage_operations'::text),
+      ('app_private.import_activity_events'::text)
+  ), expected_routines(value) as (
+    values
+      ('public.create_neon_import_upload_intent(text,uuid,text,text,text,bigint,text,text)'::text),
+      ('public.record_neon_import_object_uploaded(text,uuid,bigint)'::text),
+      ('public.record_neon_import_object_verification(text,uuid,bigint,text,bigint,text,text,text)'::text),
+      ('public.mark_neon_import_cleanup_pending(text,uuid,bigint,text)'::text),
+      ('public.claim_neon_import_cleanup(text,uuid,integer,uuid)'::text),
+      ('public.complete_neon_import_cleanup(text,uuid,uuid,uuid)'::text),
+      ('public.fail_neon_import_cleanup(text,uuid,uuid,uuid,text,timestamptz)'::text),
+      ('public.get_neon_import_workflow(text,uuid)'::text),
+      ('public.list_neon_import_history(text)'::text),
+      ('public.begin_neon_import_staging(text,uuid,bigint,jsonb)'::text),
+      ('public.append_neon_import_sheets(text,uuid,jsonb)'::text),
+      ('public.append_neon_import_field_mappings(text,uuid,jsonb)'::text),
+      ('public.append_neon_import_source_rows(text,uuid,jsonb)'::text),
+      ('public.append_neon_import_issues(text,uuid,jsonb)'::text),
+      ('public.append_neon_import_source_labels(text,uuid,jsonb)'::text),
+      ('public.finalize_neon_import_staging(text,uuid,bigint,jsonb,text)'::text)
+  ),
+  relation_check as (
+    select
+      count(*) filter (where relation.oid is not null) = 8 as relations_exact,
+      bool_and(owner_role.rolname = 'hotel_ld_migration_owner') as owners_exact,
+      bool_and(relation.relrowsecurity and relation.relforcerowsecurity) as rls_exact,
+      bool_and(not pg_catalog.has_table_privilege(
+        'hotel_ld_application', relation.oid,
+        'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+      ) and not pg_catalog.has_any_column_privilege(
+        'hotel_ld_application', relation.oid,
+        'SELECT,INSERT,UPDATE,REFERENCES'
+      )) as raw_application_privileges_zero
+    from expected_tables expected
+    left join pg_catalog.pg_class relation on relation.oid = pg_catalog.to_regclass(expected.value)
+    left join pg_catalog.pg_roles owner_role on owner_role.oid = relation.relowner
+  ),
+  routine_check as (
+    select
+      count(*) filter (where routine.oid is not null) = 16 as routines_exact,
+      bool_and(owner_role.rolname = 'hotel_ld_migration_owner') as routine_owners_exact,
+      bool_and(routine.prosecdef and routine.proconfig = array['search_path=""']::text[]) as definers_hardened,
+      bool_and(not pg_catalog.has_function_privilege('public', routine.oid, 'EXECUTE')) as public_execute_revoked,
+      bool_and(pg_catalog.has_function_privilege('hotel_ld_application', routine.oid, 'EXECUTE')) as application_execute_granted
+    from expected_routines expected
+    left join pg_catalog.pg_proc routine on routine.oid = pg_catalog.to_regprocedure(expected.value)
+    left join pg_catalog.pg_roles owner_role on owner_role.oid = routine.proowner
+  ),
+  role_check as (
+    select
+      coalesce((select rolcanlogin and not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb
+        from pg_catalog.pg_roles where rolname='hotel_ld_application'), false) as application_role_restricted,
+      coalesce((select not rolcanlogin and not rolsuper and not rolbypassrls and not rolcreaterole and not rolcreatedb
+        from pg_catalog.pg_roles where rolname='hotel_ld_migration_owner'), false) as migration_owner_restricted,
+      not exists(select 1 from pg_catalog.pg_class relation join pg_catalog.pg_roles owner_role on owner_role.oid=relation.relowner where owner_role.rolname='hotel_ld_application')
+        and not exists(select 1 from pg_catalog.pg_proc routine join pg_catalog.pg_roles owner_role on owner_role.oid=routine.proowner where owner_role.rolname='hotel_ld_application') as application_owns_nothing,
+      not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','USAGE')
+        and not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','CREATE')
+        and not pg_catalog.has_schema_privilege('hotel_ld_application','public','CREATE') as application_schema_privileges_zero
+  ),
+  legacy_check as (
+    select
+      not exists(select 1 from pg_catalog.pg_namespace where nspname in ('auth','storage'))
+      and not exists(select 1 from pg_catalog.pg_class relation join pg_catalog.pg_namespace namespace on namespace.oid=relation.relnamespace where namespace.nspname in ('public','app_private') and relation.relname ~* '(commit|revert|compatibility|bridge|provenance)')
+      and not exists(select 1 from pg_catalog.pg_proc routine join pg_catalog.pg_namespace namespace on namespace.oid=routine.pronamespace where namespace.nspname in ('public','app_private') and routine.proname ~* '(commit|revert|compatibility|bridge|provenance)') as legacy_objects_absent
+  ),
+  audit_check as (
+    select exists(
+      select 1 from pg_catalog.pg_trigger trigger_record
+      join pg_catalog.pg_class relation on relation.oid=trigger_record.tgrelid
+      join pg_catalog.pg_namespace namespace on namespace.oid=relation.relnamespace
+      join pg_catalog.pg_proc routine on routine.oid=trigger_record.tgfoid
+      where namespace.nspname='app_private'
+        and relation.relname='import_activity_events'
+        and not trigger_record.tgisinternal
+        and trigger_record.tgenabled='O'
+        and routine.proname like 'reject_%_audit_mutation'
+    ) as audit_append_only
+  )
+  select relation_check.*, routine_check.*, role_check.*, legacy_check.*, audit_check.*,
+    (select count(*) from expected_tables expected join pg_catalog.pg_class relation on relation.oid=pg_catalog.to_regclass(expected.value)
+      where relation.relkind in ('r','p')) = 8 as all_relations_present,
+    (select coalesce(sum(counts.row_count),0)::bigint from (
+      select count(*)::bigint row_count from public.import_batches
+      union all select count(*) from public.import_sheets
+      union all select count(*) from public.import_source_rows
+      union all select count(*) from public.import_field_mappings
+      union all select count(*) from public.import_issues
+      union all select count(*) from public.import_source_label_resolutions
+      union all select count(*) from app_private.import_storage_operations
+      union all select count(*) from app_private.import_activity_events
+    ) counts) = 0 as rows_empty
+`;
+
+const E5B_STATE_PROOF_SQL = `
+  /* e5b:state-proof */
+  select
+    (select count(*) from pg_catalog.pg_class relation join pg_catalog.pg_namespace namespace on namespace.oid=relation.relnamespace
+      where namespace.nspname in ('public','app_private') and relation.relname in ('import_batches','import_sheets','import_source_rows','import_field_mappings','import_issues','import_source_label_resolutions','import_storage_operations','import_activity_events'))::integer as e5b_relation_count,
+    (select count(*) from pg_catalog.pg_proc routine join pg_catalog.pg_namespace namespace on namespace.oid=routine.pronamespace
+      where namespace.nspname in ('public','app_private') and routine.proname like '%neon_import%')::integer as e5b_routine_count
+`;
+
+async function assertBootstrapIdentity(client) {
+  const row = (await client.query(E5B_IDENTITY_SQL)).rows?.[0];
+  if (Math.trunc(Number(row?.server_version_num) / 10_000) !== 18
+    || row?.database !== E5B_DATABASE
+    || row?.database_owner !== E5B_BOOTSTRAP_ROLE
+    || row?.current_user !== E5B_BOOTSTRAP_ROLE
+    || row?.session_user !== E5B_BOOTSTRAP_ROLE) {
+    throw new Error("E5B_IMPORT_STAGING_BOOTSTRAP_IDENTITY_MISMATCH");
+  }
+}
+
+async function assertRuntimeIdentity(client) {
+  const row = (await client.query(E5B_IDENTITY_SQL)).rows?.[0];
+  if (Math.trunc(Number(row?.server_version_num) / 10_000) !== 18
+    || row?.database !== E5B_DATABASE
+    || row?.database_owner !== E5B_BOOTSTRAP_ROLE
+    || row?.current_user !== E5B_RUNTIME_ROLE
+    || row?.session_user !== E5B_RUNTIME_ROLE) {
+    throw new Error("E5B_IMPORT_STAGING_RUNTIME_IDENTITY_MISMATCH");
+  }
+}
+
+function catalogVerdict(row) {
+  const booleans = [
+    "relations_exact", "owners_exact", "rls_exact", "raw_application_privileges_zero",
+    "routines_exact", "routine_owners_exact", "definers_hardened", "public_execute_revoked",
+    "application_execute_granted", "application_role_restricted", "migration_owner_restricted",
+    "application_owns_nothing", "application_schema_privileges_zero", "legacy_objects_absent", "audit_append_only", "all_relations_present", "rows_empty",
+  ];
+  const failed = booleans.filter(key => row?.[key] !== true);
+  if (failed.length) throw new Error(`E5B_IMPORT_STAGING_CATALOG_DRIFT:${failed.join(",")}`);
+  return {
+    catalogValidated: true,
+    security: {
+      rlsForce: true,
+      applicationRoleRestricted: true,
+      rawApplicationPrivilegesZero: true,
+      securityDefinersHardened: true,
+      publicExecuteRevoked: true,
+      applicationExecuteGranted: true,
+      auditAppendOnly: true,
+    },
+    rowsEmpty: true,
+  };
+}
+
+export async function validateE5bCatalog(client) {
+  const result = await client.query(E5B_CATALOG_SQL);
+  return catalogVerdict(result.rows?.[0]);
+}
+
+async function readE5bStateProof(client) {
+  const row = (await client.query(E5B_STATE_PROOF_SQL)).rows?.[0] ?? {};
+  return {
+    e5bRelationCount: Number(row.e5b_relation_count ?? 0),
+    e5bRoutineCount: Number(row.e5b_routine_count ?? 0),
+  };
+}
+
+function proveE5bRollbackEmpty(before, after) {
+  return Number(before?.e5bRelationCount ?? 0) === Number(after?.e5bRelationCount ?? 0)
+    && Number(before?.e5bRoutineCount ?? 0) === Number(after?.e5bRoutineCount ?? 0);
+}
+
+async function applyE5bMigrationBodies(client, migrationSources) {
+  for (const [index, source] of migrationSources.entries()) {
+    try {
+      await client.query(source);
+    } catch (error) {
+      if (error instanceof Error) error.message = `E5B_IMPORT_STAGING_MIGRATION_${index + 1}:${error.message}`;
+      throw error;
+    }
+  }
+}
+
+export async function runE5bRuntimeMatrix({ runtimeClient }) {
+  if (!runtimeClient || typeof runtimeClient.query !== "function") {
+    throw new Error("E5B_IMPORT_STAGING_RUNTIME_CLIENT_REQUIRED");
+  }
+  const matrix = {
+    applicationRole: "PASS",
+    rawTableReadDenied: "PENDING_FIXTURE",
+    rawTableWriteDenied: "PENDING_FIXTURE",
+    actorContextIsolation: "PENDING_FIXTURE",
+    connectionReuse: "PENDING_FIXTURE",
+  };
+  // Transaction-local setting proof is safe without business fixtures and does
+  // not impersonate an actor or alter persisted state.
+  await runtimeClient.query("begin");
+  try {
+    await runtimeClient.query("select pg_catalog.set_config('app.actor_request_id',$1::text,true)", [randomUUID()]);
+    await runtimeClient.query("rollback");
+    const clean = (await runtimeClient.query("select nullif(pg_catalog.current_setting('app.actor_request_id',true),'') is null as clean")).rows?.[0]?.clean;
+    matrix.actorContextIsolation = clean === true ? "PASS" : "FAIL";
+    matrix.connectionReuse = clean === true ? "PASS" : "FAIL";
+  } catch (error) {
+    try { await runtimeClient.query("rollback"); } catch { /* preserve original */ }
+    throw error;
+  }
+  if (Object.values(matrix).some(value => typeof value === "string" && value.startsWith("PENDING"))) {
+    throw new Error("E5B_IMPORT_STAGING_RUNTIME_MATRIX_INCOMPLETE");
+  }
+  return matrix;
+}
+
+function redactedResult(value) {
+  return JSON.parse(JSON.stringify(value, (key, entry) => {
+    if (typeof entry === "string" && (/^postgres(?:ql)?:\/\//i.test(entry) || /(?:password|secret|credential|database_url)/i.test(key))) return undefined;
+    return entry;
+  }));
+}
+
 async function main() {
   const command = process.argv[2];
   if (!COMMANDS.has(command)) throw new Error("E5B_IMPORT_STAGING_COMMAND_REQUIRED");
@@ -1079,10 +1518,29 @@ async function main() {
   if (command === "source") return output(command, source);
 
   const values = await environmentValues();
-  const connection = command === "runtime" || command === "storage-runtime"
-    ? assertE5bRuntimeUrl(required(values, "DATABASE_URL"))
-    : assertE5bBootstrapUrl(required(values, "NEON_BOOTSTRAP_DATABASE_URL"));
-  throw new Error(`E5B_IMPORT_STAGING_${command.toUpperCase().replace(/-/g, "_")}_NOT_IMPLEMENTED:${connection.kind}`);
+  if (DATABASE_COMMANDS.has(command)) {
+    return output(command, await runE5bDatabaseCommand(
+      command,
+      required(values, "NEON_BOOTSTRAP_DATABASE_URL"),
+      { sourceCheck: async () => source },
+    ));
+  }
+  if (command === "runtime") {
+    return output(command, await runE5bRuntimeValidation({
+      bootstrapConnectionString: required(values, "NEON_BOOTSTRAP_DATABASE_URL"),
+      runtimeConnectionString: required(values, "DATABASE_URL"),
+      sourceCheck: async () => source,
+    }));
+  }
+  // Storage provider validation is intentionally adapter-injected.  It cannot
+  // be safely run against a database-only credential and is therefore a
+  // deferred, redacted gate until an approved synthetic Storage adapter is
+  // supplied by the caller.
+  return output(command, {
+    command,
+    status: "deferred",
+    reason: "storage_runtime_requires_approved_synthetic_adapter",
+  });
 }
 
 async function everyExists(paths) {
@@ -1194,6 +1652,7 @@ function approvedConnection(raw, role, pooled, kind) {
   let url;
   try { url = new URL(raw); }
   catch { throw new Error("E5B_IMPORT_STAGING_URL_INVALID"); }
+  if (!/^postgres(?:ql)?:$/i.test(url.protocol)) throw new Error("E5B_IMPORT_STAGING_URL_INVALID");
 
   const host = url.hostname.toLowerCase();
   const labels = host.split(".");
@@ -1203,10 +1662,28 @@ function approvedConnection(raw, role, pooled, kind) {
   if (!direct && !pooler) throw new Error("E5B_IMPORT_STAGING_CHILD_ENDPOINT_REQUIRED");
   if (url.pathname.replace(/^\//, "") !== E5B_DATABASE) throw new Error("E5B_IMPORT_STAGING_DATABASE_DENIED");
   if (decodeURIComponent(url.username) !== role) throw new Error(`E5B_IMPORT_STAGING_${role.toUpperCase()}_REQUIRED`);
+  if (!decodeURIComponent(url.password ?? "")) throw new Error("E5B_IMPORT_STAGING_PASSWORD_REQUIRED");
   if (pooler !== pooled) {
     throw new Error(pooled
       ? "E5B_IMPORT_STAGING_POOLED_RUNTIME_REQUIRED"
       : "E5B_IMPORT_STAGING_DIRECT_BOOTSTRAP_REQUIRED");
+  }
+  if (url.hash || url.port && url.port !== "5432") throw new Error("E5B_IMPORT_STAGING_URL_OVERRIDE_DENIED");
+  const identityOverrides = new Set(["host", "user", "password", "port", "database", "dbname", "options", "service"]);
+  const allowedQueryKeys = new Set(["sslmode", "channel_binding"]);
+  const unsafeSslModes = new Set(["disable", "prefer", "allow", "no-verify"]);
+  const queryKeys = [...url.searchParams.keys()].map(key => key.toLowerCase());
+  if (queryKeys.some(key => identityOverrides.has(key) || !allowedQueryKeys.has(key))) throw new Error("E5B_IMPORT_STAGING_URL_OVERRIDE_DENIED");
+  if (queryKeys.filter(key => key === "sslmode").length !== 1
+    || unsafeSslModes.has(url.searchParams.get("sslmode")?.toLowerCase() ?? "")) {
+    throw new Error("E5B_IMPORT_STAGING_TLS_REQUIRED");
+  }
+  if (url.searchParams.get("channel_binding")?.toLowerCase() === "disable") {
+    throw new Error("E5B_IMPORT_STAGING_CHANNEL_BINDING_REQUIRED");
+  }
+  const decodedUrl = decodeURIComponent(raw).toLowerCase();
+  if ([E5B_PRODUCTION_BRANCH, E5B_PRODUCTION_ENDPOINT].some(value => decodedUrl.includes(value))) {
+    throw new Error("E5B_IMPORT_STAGING_PRODUCTION_DENIED");
   }
   return {
     project: E5B_PROJECT,
@@ -1220,13 +1697,20 @@ function approvedConnection(raw, role, pooled, kind) {
 }
 
 async function environmentValues() {
-  let source;
+  let source = "";
   try { source = await readFile(process.env.E5B_IMPORT_STAGING_ENV_FILE ?? ".env.local", "utf8"); }
-  catch { throw new Error("E5B_IMPORT_STAGING_ENVIRONMENT_MISSING"); }
-  return Object.fromEntries(source.split(/\r?\n/)
+  catch { /* process.env may be the explicit CI injection */ }
+  const values = Object.fromEntries(source.split(/\r?\n/)
     .map(line => line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*)\s*$/))
     .filter(Boolean)
     .map(([, key, value]) => [key, value.replace(/^['"]|['"]$/g, "")]));
+  for (const key of ["NEON_BOOTSTRAP_DATABASE_URL", "DATABASE_URL"]) {
+    if (typeof process.env[key] === "string" && process.env[key].trim()) values[key] = process.env[key].trim();
+  }
+  if (!values.NEON_BOOTSTRAP_DATABASE_URL && !values.DATABASE_URL) {
+    throw new Error("E5B_IMPORT_STAGING_ENVIRONMENT_MISSING");
+  }
+  return values;
 }
 
 function required(values, key) {
