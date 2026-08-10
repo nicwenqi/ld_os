@@ -435,7 +435,10 @@ test("source gate rejects every fixture whose Supabase provenance reaches a forb
 
   for (const fixture of rejectedAuthSourceAuditCases) {
     try {
-      validateAuthAuthorizationSplitSources({ ...input, loginRoute: fixture.source });
+      validateAuthAuthorizationSplitSources({
+        ...input,
+        [fixture.sourceName ?? "loginRoute"]: fixture.source,
+      });
       escaped.push(fixture.name);
     } catch (error) {
       assert.match(error.message, new RegExp(fixture.error), fixture.name);
@@ -451,7 +454,10 @@ test("source gate permits approved Auth and Storage surfaces plus binding-aware 
 
   for (const fixture of allowedAuthSourceAuditCases) {
     try {
-      validateAuthAuthorizationSplitSources({ ...input, loginRoute: fixture.source });
+      validateAuthAuthorizationSplitSources({
+        ...input,
+        [fixture.sourceName ?? "loginRoute"]: fixture.source,
+      });
     } catch (error) {
       rejected.push({ name: fixture.name, message: error.message });
     }
