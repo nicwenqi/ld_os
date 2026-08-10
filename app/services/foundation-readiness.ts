@@ -1,9 +1,9 @@
 import type { AppDataMode } from "../lib/environment.ts";
 import type { AuthSession } from "../repositories/contracts/auth-repository.ts";
-import type { createRepositoryRegistry } from "../repositories/registry.ts";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import { deriveWizardState } from "./initialization-wizard-service.ts";
 
-type Registry = ReturnType<typeof createRepositoryRegistry>;
+type Registry = RuntimeDomainRegistry;
 export type FoundationPresentationState = "real" | "demo" | "partial";
 
 export type FoundationReadinessSnapshot = {

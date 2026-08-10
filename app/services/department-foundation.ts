@@ -7,14 +7,14 @@ import type {
   EmployeeRecord,
 } from "../repositories/contracts/employee-repository.ts";
 import type { DepartmentNode } from "../repositories/contracts/organization-models.ts";
-import type { createRepositoryRegistry } from "../repositories/registry.ts";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 import { createEmployeeService } from "./employee-service.ts";
 import {
   foundationPresentationState,
   type FoundationPresentationState,
 } from "./foundation-readiness.ts";
 
-type Registry = ReturnType<typeof createRepositoryRegistry>;
+type Registry = RuntimeDomainRegistry;
 
 export type ScopedDepartmentEmployees = {
   presentationState: FoundationPresentationState | "unavailable";

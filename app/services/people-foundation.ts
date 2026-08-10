@@ -1,8 +1,8 @@
 import type { DepartmentNode, OfficialPosition, PositionFamily } from "../repositories/contracts/organization-models.ts";
-import type { createRepositoryRegistry } from "../repositories/registry.ts";
+import type { RuntimeDomainRegistry } from "../repositories/runtime/neon-domain-registry.ts";
 
 type Registry = Pick<
-  ReturnType<typeof createRepositoryRegistry>,
+  RuntimeDomainRegistry,
   "department" | "position"
 >;
 
