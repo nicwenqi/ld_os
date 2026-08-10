@@ -1349,6 +1349,17 @@ export const E5B_CATALOG_SQL = `
         from pg_catalog.pg_roles where rolname='hotel_ld_migration_owner'), false) as migration_owner_restricted,
       not exists(select 1 from pg_catalog.pg_class relation join pg_catalog.pg_roles owner_role on owner_role.oid=relation.relowner where owner_role.rolname='hotel_ld_application')
         and not exists(select 1 from pg_catalog.pg_proc routine join pg_catalog.pg_roles owner_role on owner_role.oid=routine.proowner where owner_role.rolname='hotel_ld_application') as application_owns_nothing,
+      not exists(
+        select 1
+        from pg_catalog.pg_class relation
+        join pg_catalog.pg_namespace namespace on namespace.oid=relation.relnamespace
+        where namespace.nspname in ('public','app_private')
+          and relation.relkind in ('r','p','S')
+          and (
+            pg_catalog.has_table_privilege('hotel_ld_application', relation.oid, 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+            or pg_catalog.has_any_column_privilege('hotel_ld_application', relation.oid, 'SELECT,INSERT,UPDATE,REFERENCES')
+          )
+      ) as raw_application_catalog_privileges_zero,
       not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','USAGE')
         and not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','CREATE')
         and not pg_catalog.has_schema_privilege('hotel_ld_application','public','CREATE') as application_schema_privileges_zero
@@ -1423,7 +1434,7 @@ function catalogVerdict(row) {
     "relations_exact", "owners_exact", "rls_exact", "raw_application_privileges_zero",
     "routines_exact", "routine_owners_exact", "definers_hardened", "public_execute_revoked",
     "application_execute_granted", "application_role_restricted", "migration_owner_restricted",
-    "application_owns_nothing", "application_schema_privileges_zero", "legacy_objects_absent", "audit_append_only", "all_relations_present", "rows_empty",
+    "application_owns_nothing", "raw_application_catalog_privileges_zero", "application_schema_privileges_zero", "legacy_objects_absent", "audit_append_only", "all_relations_present", "rows_empty",
   ];
   const failed = booleans.filter(key => row?.[key] !== true);
   if (failed.length) throw new Error(`E5B_IMPORT_STAGING_CATALOG_DRIFT:${failed.join(",")}`);
