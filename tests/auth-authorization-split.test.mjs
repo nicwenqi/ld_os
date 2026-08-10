@@ -146,14 +146,14 @@ test("source gate rejects Supabase business calls from active auth and control-p
   assert.throws(
     () => validateAuthAuthorizationSplitSources({
       ...input,
-      authenticationService: `${input.authenticationService}\nclient.from("user_accounts")`,
+      authenticationService: `${input.authenticationService}\n${serverSupabaseClientSource('client.from("user_accounts")')}`,
     }),
     /SUPABASE_BUSINESS_AUTH_DRIFT/,
   );
   assert.throws(
     () => validateAuthAuthorizationSplitSources({
       ...input,
-      initializationAccess: 'admin.from("role_assignments")',
+      initializationAccess: serverSupabaseClientSource('admin.from("role_assignments")', "admin"),
     }),
     /SUPABASE_BUSINESS_AUTH_DRIFT/,
   );
@@ -168,45 +168,69 @@ test("source gate fails closed for direct, optional, and aliased Supabase bypass
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
+      name: "direct unsupported Auth methods",
+      sourceName: "sessionRoute",
+      appended: serverSupabaseClientSource("client.auth.signOut();"),
+      error: /SUPABASE_AUTH_METHOD_DRIFT/,
+    },
+    {
       name: "optional unsupported Auth methods",
       sourceName: "sessionRoute",
-      appended: "client.auth?.signOut();",
+      appended: serverSupabaseClientSource("client.auth?.signOut();"),
       error: /SUPABASE_AUTH_METHOD_DRIFT/,
     },
     {
       name: "optionally invoked unsupported Auth methods",
       sourceName: "sessionRoute",
-      appended: "client.auth.signOut?.();",
+      appended: serverSupabaseClientSource("client.auth.signOut?.();"),
       error: /SUPABASE_AUTH_METHOD_DRIFT/,
     },
     {
       name: "destructured business methods",
       sourceName: "loginRoute",
-      appended: 'const { from } = client; from("user_accounts");',
+      appended: serverSupabaseClientSource('const { from } = client; from("user_accounts");'),
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
       name: "aliased business methods",
       sourceName: "productionAuthorization",
-      appended: 'const { rpc: invoke } = client; invoke("business_operation");',
+      appended: serverSupabaseClientSource('const { rpc: invoke } = client; invoke("business_operation");'),
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "assigned business methods",
+      sourceName: "productionAuthorization",
+      appended: serverSupabaseClientSource('const select = client.from; select("user_accounts");'),
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
       name: "direct RPC calls",
       sourceName: "initializationAccess",
-      appended: 'client.rpc("business_operation");',
+      appended: serverSupabaseClientSource('client.rpc("business_operation");'),
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
       name: "computed from calls",
       sourceName: "loginRoute",
-      appended: 'client["from"]("users");',
+      appended: serverSupabaseClientSource('client["from"]("users");'),
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
       name: "computed RPC calls",
       sourceName: "loginRoute",
-      appended: 'client["rpc"]("operation");',
+      appended: serverSupabaseClientSource('client["rpc"]("operation");'),
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "optional computed from calls",
+      sourceName: "loginRoute",
+      appended: serverSupabaseClientSource('client?.["from"]("users");'),
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "optional computed RPC calls",
+      sourceName: "loginRoute",
+      appended: serverSupabaseClientSource('client?.["rpc"]("operation");'),
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
@@ -240,12 +264,16 @@ test("source gate fails closed for direct, optional, and aliased Supabase bypass
   }
 });
 
-test("source gate permits a benign string literal named from", () => {
+test("source gate permits benign from labels and methods on a non-Supabase receiver", () => {
   const input = deterministicAuthorizationSourceFixture();
 
   assert.doesNotThrow(() => validateAuthAuthorizationSplitSources({
     ...input,
-    loginRoute: 'const labels = ["from"];',
+    loginRoute: `
+      const labels = ["from"];
+      const client = { from() { return labels; } };
+      client.from();
+    `,
   }));
 });
 
@@ -544,4 +572,12 @@ function deterministicAuthorizationSourceFixture() {
     sessionRoute: "",
     initializationAccess: "",
   };
+}
+
+function serverSupabaseClientSource(statement, receiver = "client") {
+  return `
+    import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
+    const ${receiver} = createServerPasswordClient();
+    ${statement}
+  `;
 }
