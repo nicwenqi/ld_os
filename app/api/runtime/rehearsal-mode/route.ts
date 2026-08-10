@@ -1,25 +1,17 @@
 import { parseAppEnvironment } from "../../../lib/environment.ts";
 import {
-  resolveRuntimeRehearsalMode,
-  runtimeDomainSource,
+  resolveRuntimeDomainSelection,
 } from "../../../lib/runtime-rehearsal-mode.ts";
 
 /** Public configuration observation only. It cannot mutate mode or authorize data access. */
 export async function GET() {
   try {
     const environment = parseAppEnvironment();
-    const source = runtimeDomainSource(resolveRuntimeRehearsalMode(environment));
+    const selection = resolveRuntimeDomainSelection(environment);
     return Response.json(
       {
-        source,
-        domains: {
-          organization: source,
-          people: source,
-          position: source,
-          property: source,
-          initialization: source,
-          import: source,
-        },
+        source: selection.source,
+        domains: selection.domains,
       },
       { headers: { "Cache-Control": "no-store, private" } },
     );

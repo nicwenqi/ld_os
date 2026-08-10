@@ -1,11 +1,11 @@
+import { createRepositoryRegistry } from "../registry.ts";
 import type { RuntimeDomainRegistry } from "./neon-domain-registry.ts";
 
-/** Loaded only after an explicit non-rehearsal source selection. */
-export async function createSupabaseDomainRegistry(): Promise<RuntimeDomainRegistry> {
-  const { createRepositoryRegistry } = await import("../registry.ts");
+/** Loaded only for the explicit local mock mode used by existing test fixtures. */
+export function createMockDomainRegistry(): RuntimeDomainRegistry {
   const registry = createRepositoryRegistry();
   return {
-    source: "supabase",
+    source: "mock",
     environment: registry.environment,
     department: registry.department,
     employee: registry.employee,
