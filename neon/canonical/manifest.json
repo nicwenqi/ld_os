@@ -9,7 +9,8 @@
     { "order": 50, "path": "050_position.sql", "capability": "position" },
     { "order": 60, "path": "060_employee_write.sql", "capability": "employee-write" },
     { "order": 70, "path": "070_security_postflight.sql", "capability": "security-postflight" },
-    { "order": 80, "path": "080_property_initialization.sql", "capability": "property-initialization-authority" }
+    { "order": 80, "path": "080_property_initialization.sql", "capability": "property-initialization-authority" },
+    { "order": 85, "path": "085_auth_authorization.sql", "capability": "auth-authorization-session" }
   ],
   "schemas": ["app_private", "public"],
   "roles": ["hotel_ld_application", "hotel_ld_migration_owner"],
@@ -147,6 +148,7 @@
     "public.read_neon_people_manager_facets",
     "public.read_neon_initialization_access_summary",
     "public.read_neon_property",
+    "public.read_neon_authorization_session",
     "public.read_neon_position_families",
     "public.read_neon_position_source_labels",
     "public.read_neon_positions",
@@ -185,6 +187,7 @@
     "public.read_neon_people_manager_facets",
     "public.read_neon_initialization_access_summary",
     "public.read_neon_property",
+    "public.read_neon_authorization_session",
     "public.read_neon_position_families",
     "public.read_neon_position_source_labels",
     "public.read_neon_positions",
@@ -223,6 +226,7 @@
     "public.read_neon_people_manager_facets(text)",
     "public.read_neon_initialization_access_summary(text)",
     "public.read_neon_property(text)",
+    "public.read_neon_authorization_session(text)",
     "public.read_neon_position_families(text)",
     "public.read_neon_position_source_labels(text)",
     "public.read_neon_positions(text)",

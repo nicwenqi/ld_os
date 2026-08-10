@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import test from "node:test";
+import { pathToFileURL } from "node:url";
 
 import { validateAuthAuthorizationSplitSources } from "../scripts/neon/validate-auth-authorization-split.mjs";
+import * as canonicalValidator from "../scripts/neon/validate-canonical-neon-baseline.mjs";
 
 const authentication = await import("../app/services/authentication-service.ts");
 const requestAuthentication = await import("../app/services/request-authentication.ts");
@@ -62,6 +67,152 @@ test("source gate requires the exported Neon contract and server-only resolver f
     browserRegistryGate: true,
   });
 });
+
+test("deterministic Auth email normalizes an existing valid login ID and trusted hostname", async (t) => {
+  const identity = await isolatedDeterministicLoginIdentity(t);
+
+  assert.equal(
+    identity.deriveDeterministicAuthEmail("Property.Manager-01", "HOTEL.EXAMPLE.TEST"),
+    "property.manager-01@hotel.example.test",
+  );
+  assert.equal(
+    identity.deriveDeterministicAuthEmail("Manager_01", "LOCALHOST"),
+    "manager_01@localhost",
+  );
+});
+
+test("deterministic Auth email rejects invalid login IDs and untrusted hostname syntax", async (t) => {
+  const identity = await isolatedDeterministicLoginIdentity(t);
+
+  for (const invalidLoginId of ["ab", " user", "user ", "user name", "user@example", "用户01"]) {
+    assert.throws(
+      () => identity.deriveDeterministicAuthEmail(invalidLoginId, "hotel.example.test"),
+      /DETERMINISTIC_AUTH_IDENTITY_INVALID/,
+      invalidLoginId,
+    );
+  }
+  for (const invalidHostname of [
+    "hotel.example.test:443",
+    "hotel.example.test/path",
+    " hotel.example.test",
+    "hotel .example.test",
+    "hotel_example.test",
+  ]) {
+    assert.throws(
+      () => identity.deriveDeterministicAuthEmail("property-manager", invalidHostname),
+      /DETERMINISTIC_AUTH_IDENTITY_INVALID/,
+      invalidHostname,
+    );
+  }
+});
+
+test("canonical authorization source rejects a missing exact entrypoint", () => {
+  assert.equal(typeof canonicalValidator.validateCanonicalAuthAuthorizationSource, "function");
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace(readAuthorizationFunction, ""),
+    ),
+    /AUTHORIZATION_ENTRYPOINT_MISSING/,
+  );
+});
+
+test("canonical authorization source rejects PUBLIC execute and raw application privileges", () => {
+  assert.equal(typeof canonicalValidator.validateCanonicalAuthAuthorizationSource, "function");
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace(
+        "grant execute on function public.read_neon_authorization_session(text) to hotel_ld_application;",
+        "grant execute on function public.read_neon_authorization_session(text) to public;",
+      ),
+    ),
+    /PUBLIC_EXECUTE/,
+  );
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace(
+        "commit;",
+        "grant select on table public.user_accounts to hotel_ld_application;\ncommit;",
+      ),
+    ),
+    /RAW_APPLICATION_PRIVILEGE/,
+  );
+});
+
+test("canonical authorization source requires fixed search paths, PUBLIC revokes, and exact grants", () => {
+  assert.equal(typeof canonicalValidator.validateCanonicalAuthAuthorizationSource, "function");
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace("set search_path = ''", "set search_path = public"),
+    ),
+    /DEFINER_SEARCH_PATH/,
+  );
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace(
+        "revoke all on function public.read_neon_authorization_session(text) from public;",
+        "",
+      ),
+    ),
+    /PUBLIC_REVOKE_MISSING/,
+  );
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace(
+        "grant execute on function public.read_neon_authorization_session(text) to hotel_ld_application;",
+        "grant execute on function public.read_neon_authorization_session(uuid) to hotel_ld_application;",
+      ),
+    ),
+    /APPLICATION_EXECUTE_MISSING/,
+  );
+});
+
+test("canonical authorization source rejects RLS policy changes", () => {
+  assert.equal(typeof canonicalValidator.validateCanonicalAuthAuthorizationSource, "function");
+  assert.throws(
+    () => canonicalValidator.validateCanonicalAuthAuthorizationSource(
+      authorizationSourceFixture().replace(
+        "commit;",
+        "create policy authorization_widening on public.user_accounts using (true);\ncommit;",
+      ),
+    ),
+    /RLS_POLICY_CHANGE/,
+  );
+});
+
+const readAuthorizationFunction = `
+create function public.read_neon_authorization_session(p_hostname text)
+returns jsonb language plpgsql volatile security definer set search_path = '' as $function$
+begin
+  if session_user <> 'hotel_ld_application' then return null; end if;
+  return null;
+end
+$function$;
+`;
+
+function authorizationSourceFixture() {
+  return `
+begin;
+set local role hotel_ld_migration_owner;
+${readAuthorizationFunction}
+revoke all on function public.read_neon_authorization_session(text) from public;
+grant execute on function public.read_neon_authorization_session(text) to hotel_ld_application;
+commit;
+`;
+}
+
+async function isolatedDeterministicLoginIdentity(t) {
+  const sourcePath = resolve("app/lib/auth/deterministic-login-identity.ts");
+  const source = await readFile(sourcePath, "utf8").catch(() => null);
+  assert.notEqual(source, null, "missing deterministic-login-identity.ts");
+  assert.match(source, /^import ["']server-only["'];/);
+  assert.doesNotMatch(source, /(?:supabase|createNeonPool|\.query\s*\(|\bfetch\s*\()/i);
+
+  const root = await mkdtemp(join(tmpdir(), "deterministic-login-identity-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const target = join(root, "deterministic-login-identity.ts");
+  await writeFile(target, source.replace(/^import ["']server-only["'];\s*/, ""));
+  return import(`${pathToFileURL(target).href}?test=${Date.now()}`);
+}
 
 function fakeNeonIdentity(authUserId) {
   return {
