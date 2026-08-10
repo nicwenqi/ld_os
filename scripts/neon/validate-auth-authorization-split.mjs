@@ -55,7 +55,8 @@ function auditActiveSourceSurface(source, sourceName) {
   if (/[@]supabase\/supabase-js|repositories\/supabase\//.test(source) ||
       /(?:lib\/supabase\/(?:browser|client)|createBrowserClient|createClientComponentClient)/.test(source) ||
       /\.\s*(?:from|rpc)\s*\(/.test(source) ||
-      /(?:\.\s*(?:from|rpc)\b|\[\s*["'](?:from|rpc)["']\s*\])/.test(source) ||
+      /\.\s*(?:from|rpc)\b/.test(source) ||
+      hasComputedBusinessMethod(source) ||
       hasDestructuredBusinessMethod(source) ||
       hasBareBusinessMethodCall(source)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
@@ -77,6 +78,10 @@ function hasDestructuredBusinessMethod(source) {
     if (match[1].split(",").some(field => /^\s*(?:from|rpc)\b/.test(field))) return true;
   }
   return false;
+}
+
+function hasComputedBusinessMethod(source) {
+  return /[A-Za-z_$][\w$]*(?:\s*(?:\.|\?\.)\s*[A-Za-z_$][\w$]*)*\s*\[\s*["'](?:from|rpc)["']\s*\]/.test(source);
 }
 
 function hasBareBusinessMethodCall(source) {

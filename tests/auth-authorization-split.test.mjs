@@ -240,6 +240,15 @@ test("source gate fails closed for direct, optional, and aliased Supabase bypass
   }
 });
 
+test("source gate permits a benign string literal named from", () => {
+  const input = deterministicAuthorizationSourceFixture();
+
+  assert.doesNotThrow(() => validateAuthAuthorizationSplitSources({
+    ...input,
+    loginRoute: 'const labels = ["from"];',
+  }));
+});
+
 test("deterministic Auth email normalizes an existing valid login ID and trusted hostname", async (t) => {
   const identity = await isolatedDeterministicLoginIdentity(t);
 
