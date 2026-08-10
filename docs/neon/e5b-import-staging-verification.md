@@ -71,6 +71,27 @@ connection, then runs only transaction-scoped actor-context and connection
 reuse probes plus the injected runtime matrix. It does not use `SET ROLE`,
 does not return a credential, and does not fall back to Supabase on failure.
 
+## Task 10 offline matrix
+
+The connection-free Task 10 fixture exercises the same runtime contract without
+opening Neon or Storage:
+
+| Probe | Offline result |
+| --- | --- |
+| application raw table read | PASS (SQLSTATE 42501 fixture) |
+| application raw table write | PASS (SQLSTATE 42501 fixture) |
+| transaction-local actor cleanup | PASS |
+| pooled connection reuse cleanup | PASS |
+| concurrent actor isolation | PASS (two injected clients) |
+| automatic Supabase fallback | OFF |
+| Storage read-back checksum/size/content MIME | PASS (synthetic adapter) |
+| exact-path cleanup retry | PASS (synthetic adapter) |
+
+The live child runtime gate remains pending until an explicitly approved
+pooled `hotel_ld_application` credential is supplied. The default matrix is
+fail-closed when a pooled runtime fixture is unavailable; it never reports a
+synthetic PASS for a missing connection or Storage adapter.
+
 ## Safety notes
 
 - No Production endpoint or branch is accepted by the URL guard.
@@ -81,4 +102,3 @@ does not return a credential, and does not fall back to Supabase on failure.
   actor-scoped `actorClient.rpc("stage_employee_import")` contract.
 - No Import commit/revert, Auth migration, Storage policy change, or registry
   activation is part of E5B staging validation.
-

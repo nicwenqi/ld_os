@@ -180,6 +180,11 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
       detailRoute: await readFile(serverPaths[8], "utf8"),
       input: await readFile(serverPaths[9], "utf8"),
     });
+    const validatorPath = join(root, "scripts/neon/validate-e5b-import-staging.mjs");
+    if (!(await exists(validatorPath))) failSource("E5B_IMPORT_STAGING_RUNTIME_MATRIX_SOURCE_MISSING");
+    const validatorSource = await readFile(validatorPath, "utf8");
+    validateE5bRuntimeMatrixSource(validatorSource);
+    validateE5bStorageRuntimeSource(validatorSource);
   }
   // Task 7 is a complete dark server foundation even while Task 8's API
   // boundary remains intentionally absent and unactivated.
@@ -251,6 +256,8 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     entrypoints: E5B_ENTRYPOINT_SIGNATURES.length,
     inspectionRpcPreserved: true,
     storageVerification: "read-back-sha256-size-content-mime",
+    runtimeMatrix: "source-validated",
+    storageRuntime: "synthetic-only",
   };
 }
 
@@ -374,6 +381,7 @@ export async function runE5bRuntimeValidation({
   createRuntimeClient,
   catalog,
   runtimeMatrix,
+  runtimePool,
 } = {}) {
   const source = await (sourceCheck ?? dependencies.sourceCheck
     ?? (() => validateE5bImportStagingSource({ root })) )();
@@ -383,6 +391,14 @@ export async function runE5bRuntimeValidation({
   const runtimeFactory = createRuntimeClient ?? dependencies.createRuntimeClient ?? defaultClient;
   const bootstrapClient = await bootstrapFactory(bootstrapConnectionString, bootstrap);
   const runtimeClient = await runtimeFactory(runtimeConnectionString, runtime);
+  const matrixOverride = runtimeMatrix ?? dependencies.runtimeMatrix;
+  let runtimePoolInstance = runtimePool ?? dependencies.runtimePool;
+  let ownsRuntimePool = false;
+  if (!matrixOverride && !runtimePoolInstance) {
+    const runtimePoolFactory = dependencies.createRuntimePool ?? defaultPool;
+    runtimePoolInstance = await runtimePoolFactory(runtimeConnectionString, runtime);
+    ownsRuntimePool = true;
+  }
   let bootstrapOpen = false;
   let runtimeOpen = false;
   try {
@@ -395,8 +411,12 @@ export async function runE5bRuntimeValidation({
     const catalogResult = await (catalog ?? dependencies.catalog ?? validateE5bCatalog)(bootstrapClient);
     await bootstrapClient.query("rollback");
     bootstrapOpen = false;
-    const matrix = await (runtimeMatrix ?? dependencies.runtimeMatrix
-      ?? runE5bRuntimeMatrix)({ bootstrapClient, runtimeClient, catalog: catalogResult });
+    const matrix = await (matrixOverride ?? runE5bRuntimeMatrix)({
+      bootstrapClient,
+      runtimeClient,
+      runtimePool: runtimePoolInstance,
+      catalog: catalogResult,
+    });
     return redactedResult({
       command: "runtime",
       source,
@@ -415,6 +435,7 @@ export async function runE5bRuntimeValidation({
     }
     throw error;
   } finally {
+    if (ownsRuntimePool && typeof runtimePoolInstance?.end === "function") await runtimePoolInstance.end();
     if (typeof runtimeClient?.end === "function") await runtimeClient.end();
     if (typeof bootstrapClient?.end === "function") await bootstrapClient.end();
   }
@@ -1272,6 +1293,17 @@ async function defaultClient(raw) {
   });
 }
 
+async function defaultPool(raw) {
+  const { Pool } = await import("pg");
+  return new Pool({
+    connectionString: raw,
+    ssl: { rejectUnauthorized: true },
+    enableChannelBinding: true,
+    max: 4,
+    connectionTimeoutMillis: 10_000,
+  });
+}
+
 const E5B_IDENTITY_SQL = `
   /* e5b:identity */
   select pg_catalog.current_setting('server_version_num')::integer as server_version_num,
@@ -1485,34 +1517,119 @@ async function applyE5bMigrationBodies(client, migrationSources) {
   }
 }
 
-export async function runE5bRuntimeMatrix({ runtimeClient }) {
+export async function runE5bRuntimeMatrix({ runtimeClient, runtimePool }) {
   if (!runtimeClient || typeof runtimeClient.query !== "function") {
     throw new Error("E5B_IMPORT_STAGING_RUNTIME_CLIENT_REQUIRED");
   }
+  const expectedDenied = async (label, statement) => {
+    await runtimeClient.query("begin");
+    try {
+      await runtimeClient.query(`savepoint e5b_${label}`);
+      try {
+        await runtimeClient.query(statement);
+      } catch (error) {
+        await runtimeClient.query(`rollback to savepoint e5b_${label}`);
+        await runtimeClient.query("rollback");
+        if (error?.code === "42501" || /permission denied/i.test(error?.message ?? "")) return "PASS";
+        throw error;
+      }
+      await runtimeClient.query("rollback");
+      throw new Error(`E5B_IMPORT_STAGING_RUNTIME_${label.toUpperCase()}_DENIAL_MISSING`);
+    } catch (error) {
+      try { await runtimeClient.query("rollback"); } catch { /* preserve original */ }
+      throw error;
+    }
+  };
+  const actorProbe = async (client, authUserId) => {
+    await client.query("begin");
+    try {
+      await client.query("select pg_catalog.set_config('app.actor_auth_user_id',$1::text,true)", [authUserId]);
+      const actor = (await client.query("select pg_catalog.current_setting('app.actor_auth_user_id',true) as actor")).rows?.[0]?.actor;
+      await client.query("rollback");
+      const clean = (await client.query("select nullif(pg_catalog.current_setting('app.actor_auth_user_id',true),'') is null as clean")).rows?.[0]?.clean;
+      if (actor !== authUserId || clean !== true) throw new Error("E5B_IMPORT_STAGING_ACTOR_CONTEXT_CLEANUP_FAILED");
+      return "PASS";
+    } catch (error) {
+      try { await client.query("rollback"); } catch { /* preserve original */ }
+      throw error;
+    }
+  };
+  const rawTableReadDenied = await expectedDenied("raw_read", "select * from public.import_batches");
+  const rawTableWriteDenied = await expectedDenied("raw_write", "insert into public.import_batches(id) values (pg_catalog.gen_random_uuid())");
+  const actorContextIsolation = await actorProbe(runtimeClient, randomUUID());
+  const connectionReuse = (await runtimeClient.query("select nullif(pg_catalog.current_setting('app.actor_auth_user_id',true),'') is null as clean")).rows?.[0]?.clean === true
+    ? "PASS"
+    : "FAIL";
+  if (connectionReuse !== "PASS") throw new Error("E5B_IMPORT_STAGING_CONNECTION_REUSE_LEAK");
+  if (!runtimePool || typeof runtimePool.connect !== "function") {
+    throw new Error("E5B_IMPORT_STAGING_RUNTIME_POOL_REQUIRED");
+  }
+  const [left, right] = await Promise.all([runtimePool.connect(), runtimePool.connect()]);
+  try {
+    const actors = await Promise.all([actorProbe(left, randomUUID()), actorProbe(right, randomUUID())]);
+    if (actors.some(value => value !== "PASS")) throw new Error("E5B_IMPORT_STAGING_CONCURRENT_ACTOR_ISOLATION_FAILED");
+  } finally {
+    left.release?.();
+    right.release?.();
+  }
   const matrix = {
     applicationRole: "PASS",
-    rawTableReadDenied: "PENDING_FIXTURE",
-    rawTableWriteDenied: "PENDING_FIXTURE",
-    actorContextIsolation: "PENDING_FIXTURE",
-    connectionReuse: "PENDING_FIXTURE",
+    rawTableReadDenied,
+    rawTableWriteDenied,
+    actorContextIsolation,
+    connectionReuse,
+    concurrentActorIsolation: "PASS",
+    fallback: "OFF",
   };
-  // Transaction-local setting proof is safe without business fixtures and does
-  // not impersonate an actor or alter persisted state.
-  await runtimeClient.query("begin");
-  try {
-    await runtimeClient.query("select pg_catalog.set_config('app.actor_request_id',$1::text,true)", [randomUUID()]);
-    await runtimeClient.query("rollback");
-    const clean = (await runtimeClient.query("select nullif(pg_catalog.current_setting('app.actor_request_id',true),'') is null as clean")).rows?.[0]?.clean;
-    matrix.actorContextIsolation = clean === true ? "PASS" : "FAIL";
-    matrix.connectionReuse = clean === true ? "PASS" : "FAIL";
-  } catch (error) {
-    try { await runtimeClient.query("rollback"); } catch { /* preserve original */ }
-    throw error;
-  }
-  if (Object.values(matrix).some(value => typeof value === "string" && value.startsWith("PENDING"))) {
-    throw new Error("E5B_IMPORT_STAGING_RUNTIME_MATRIX_INCOMPLETE");
-  }
   return matrix;
+}
+
+export function validateE5bRuntimeMatrixSource(source = runE5bRuntimeMatrix.toString()) {
+  const value = String(source);
+  const start = value.indexOf("export async function runE5bRuntimeMatrix");
+  const end = start < 0 ? -1 : value.indexOf("\n}\n", start);
+  const functionSource = start < 0 || end < 0 ? value : value.slice(start, end + 3);
+  const required = [
+    /public\.import_batches/,
+    /savepoint\s+/i,
+    /current_setting\(/i,
+    /set_config\(/i,
+    /rollback/i,
+    /E5B_IMPORT_STAGING_RUNTIME_POOL_REQUIRED/,
+    /fallback:\s*["']OFF["']/,
+  ];
+  if (required.some(pattern => !pattern.test(functionSource)) || /\bset\s+role\b/i.test(functionSource)) {
+    throw new Error("E5B_IMPORT_STAGING_RUNTIME_MATRIX_SOURCE_INVALID");
+  }
+  return { source: "runtime-matrix", denialProbes: 2, actorCleanup: true, fallback: "OFF" };
+}
+
+export async function runE5bStorageRuntimeValidation({ storageMatrix } = {}) {
+  if (typeof storageMatrix !== "function") {
+    throw new Error("E5B_IMPORT_STAGING_STORAGE_SYNTHETIC_ADAPTER_REQUIRED");
+  }
+  const matrix = await storageMatrix();
+  const required = ["readBackChecksum", "readBackSize", "contentMime", "cleanupRetry", "exactPath"];
+  if (!matrix || required.some(key => matrix[key] !== "PASS")) {
+    throw new Error("E5B_IMPORT_STAGING_STORAGE_RUNTIME_MATRIX_FAILED");
+  }
+  return redactedResult({ mode: "synthetic", ...matrix });
+}
+
+export function validateE5bStorageRuntimeSource(source) {
+  const value = String(source);
+  const start = value.indexOf("export async function runE5bStorageRuntimeValidation");
+  const end = start < 0 ? -1 : value.indexOf("\n}\n", start);
+  const functionSource = end < 0 ? "" : value.slice(start, end + 3);
+  if (start < 0
+    || !/storageMatrix/.test(functionSource)
+    || !/E5B_IMPORT_STAGING_STORAGE_SYNTHETIC_ADAPTER_REQUIRED/.test(functionSource)
+    || !/readBackChecksum/.test(functionSource)
+    || !/cleanupRetry/.test(functionSource)
+    || /(?:NEON_BOOTSTRAP_DATABASE_URL|DATABASE_URL)/.test(functionSource)) {
+    throw new Error("E5B_IMPORT_STAGING_STORAGE_RUNTIME_SOURCE_INVALID");
+  }
+  return { source: "storage-runtime", adapter: "synthetic-only", readBack: true, cleanupRetry: true };
 }
 
 function redactedResult(value) {
