@@ -32,23 +32,25 @@ export function useRuntimeDomainRegistry() {
     registry: null,
     error: null,
   });
-  const [loading, setLoading] = useState(true);
-  const retry = useCallback(() => setAttempt(value => value + 1), []);
+  const retry = useCallback(() => {
+    setState({ registry: null, error: null });
+    setAttempt(value => value + 1);
+  }, []);
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     void resolveRuntimeDomainRegistryState()
       .then(next => {
         if (active) setState(next);
-      })
-      .finally(() => {
-        if (active) setLoading(false);
       });
     return () => {
       active = false;
     };
   }, [attempt]);
 
-  return { ...state, loading, retry };
+  return {
+    ...state,
+    loading: state.registry === null && state.error === null,
+    retry,
+  };
 }
