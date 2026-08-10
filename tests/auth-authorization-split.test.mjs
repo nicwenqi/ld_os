@@ -174,6 +174,12 @@ test("source gate fails closed for direct, optional, and aliased Supabase bypass
       error: /SUPABASE_AUTH_METHOD_DRIFT/,
     },
     {
+      name: "optionally invoked unsupported Auth methods",
+      sourceName: "sessionRoute",
+      appended: "client.auth.signOut?.();",
+      error: /SUPABASE_AUTH_METHOD_DRIFT/,
+    },
+    {
       name: "destructured business methods",
       sourceName: "loginRoute",
       appended: 'const { from } = client; from("user_accounts");',
@@ -189,6 +195,18 @@ test("source gate fails closed for direct, optional, and aliased Supabase bypass
       name: "direct RPC calls",
       sourceName: "initializationAccess",
       appended: 'client.rpc("business_operation");',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "computed from calls",
+      sourceName: "loginRoute",
+      appended: 'client["from"]("users");',
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "computed RPC calls",
+      sourceName: "loginRoute",
+      appended: 'client["rpc"]("operation");',
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {

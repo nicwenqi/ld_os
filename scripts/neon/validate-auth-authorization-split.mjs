@@ -55,15 +55,15 @@ function auditActiveSourceSurface(source, sourceName) {
   if (/[@]supabase\/supabase-js|repositories\/supabase\//.test(source) ||
       /(?:lib\/supabase\/(?:browser|client)|createBrowserClient|createClientComponentClient)/.test(source) ||
       /\.\s*(?:from|rpc)\s*\(/.test(source) ||
-      /(?:\.\s*(?:from|rpc)|\[\s*["'](?:from|rpc)["']\s*\])\b/.test(source) ||
+      /(?:\.\s*(?:from|rpc)\b|\[\s*["'](?:from|rpc)["']\s*\])/.test(source) ||
       hasDestructuredBusinessMethod(source) ||
       hasBareBusinessMethodCall(source)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
 
-  for (const match of source.matchAll(/(\?\.|\.)\s*auth\s*(\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*\(/g)) {
-    const [, authAccess, methodAccess, method] = match;
-    if (authAccess !== "." || methodAccess !== "." || !["signInWithPassword", "getUser", "refreshSession"].includes(method)) {
+  for (const match of source.matchAll(/(\?\.|\.)\s*auth\s*(\?\.|\.)\s*([A-Za-z_$][\w$]*)\s*(\?\.)?\s*\(/g)) {
+    const [, authAccess, methodAccess, method, invocationAccess] = match;
+    if (authAccess !== "." || methodAccess !== "." || invocationAccess || !["signInWithPassword", "getUser", "refreshSession"].includes(method)) {
       throw new Error(`SUPABASE_AUTH_METHOD_DRIFT:${sourceName}`);
     }
   }
