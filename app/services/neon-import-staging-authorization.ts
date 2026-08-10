@@ -6,6 +6,8 @@ import { resolveNeonPropertyScope } from "../lib/neon/property-context.ts";
 import { parseAppEnvironment } from "../lib/environment.ts";
 import { createNeonImportStagingRepository } from "../repositories/neon/import-staging-repository.ts";
 import type { ImportStagingRepository } from "../repositories/contracts/import-staging-repository.ts";
+import { createNeonImportMappingRepository } from "../repositories/neon/import-mapping-repository.ts";
+import type { ImportMappingRepository } from "../repositories/contracts/import-mapping-repository.ts";
 import { createServerActorClient } from "../lib/supabase/server-admin.ts";
 import { resolveRequestAuthIdentity } from "./request-authentication.ts";
 
@@ -24,6 +26,7 @@ export type AuthorizedImportStagingContext = Readonly<{
   tenantId: string;
   propertyId: string;
   repository: ImportStagingRepository;
+  mappingRepository: ImportMappingRepository;
   storage: ImportStorageGateway;
   headers: Headers;
 }>;
@@ -78,6 +81,7 @@ export async function runAuthorizedNeonImportStaging<T>(
     const scope = await resolveTrustedImportScope(identity.userId, identity.hostname, requestId);
     const actorStorage = createActorStorageGateway(createServerActorClient(identity.accessToken));
     const repository = createScopedImportRepository(identity.userId, identity.hostname, requestId, scope);
+    const mappingRepository = createScopedImportMappingRepository(identity.userId, identity.hostname, requestId, scope);
     // This callback runs after the short scope-resolution transaction has
     // closed. Each repository method below starts its own Actor Context.
     const data = await operation({
@@ -86,6 +90,7 @@ export async function runAuthorizedNeonImportStaging<T>(
       tenantId: scope.tenantId,
       propertyId: scope.propertyId,
       repository,
+      mappingRepository,
       storage: actorStorage,
       headers,
     });
@@ -94,6 +99,32 @@ export async function runAuthorizedNeonImportStaging<T>(
     const mapped = mapImportStagingError(error);
     throw new ImportStagingApiError(mapped.status, mapped.message, headers);
   }
+}
+
+function createScopedImportMappingRepository(
+  authUserId: string,
+  hostname: string,
+  requestId: string,
+  expectedScope: { tenantId: string; propertyId: string },
+): ImportMappingRepository {
+  const run = async <T>(operation: (repository: ImportMappingRepository) => Promise<T>) => withNeonResolvedActorContext(
+    { authUserId, requestId },
+    async database => {
+      const scope = await resolveNeonPropertyScope(hostname, database);
+      if (!scope || scope.tenantId !== expectedScope.tenantId || scope.propertyId !== expectedScope.propertyId) {
+        throw new ImportStagingApiError(403, "当前账号无权访问此酒店");
+      }
+      return scope.propertyId;
+    },
+    database => operation(createNeonImportMappingRepository(database, hostname)),
+  );
+  return {
+    getWorkflow: batchId => run(repository => repository.getWorkflow(batchId)),
+    saveFieldMappingDecisions: input => run(repository => repository.saveFieldMappingDecisions(input)),
+    saveSourceLabelDecisions: input => run(repository => repository.saveSourceLabelDecisions(input)),
+    saveIssueResolutions: input => run(repository => repository.saveIssueResolutions(input)),
+    preview: (batchId, expectedDecisionVersion) => run(repository => repository.preview(batchId, expectedDecisionVersion)),
+  };
 }
 
 async function resolveTrustedImportScope(

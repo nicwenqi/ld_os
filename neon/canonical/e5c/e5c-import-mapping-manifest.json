@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "name": "hotel-ld-canonical-neon-e5c-import-mapping",
+  "modules": [
+    { "order": 930, "path": "093_import_mapping_schema.sql", "capability": "import-mapping-schema" },
+    { "order": 940, "path": "094_import_mapping_entrypoints.sql", "capability": "import-mapping-entrypoints" }
+  ],
+  "types": [
+    "public.import_e5c_mapping_status",
+    "public.import_e5c_source_label_action",
+    "public.import_e5c_issue_status"
+  ],
+  "tables": [
+    "public.import_decision_versions",
+    "public.import_field_mapping_decisions",
+    "public.import_source_label_decisions",
+    "public.import_issue_resolutions",
+    "app_private.import_decision_audit_events"
+  ],
+  "entrypoints": [
+    "public.read_neon_import_mapping_workflow(text,uuid)",
+    "public.save_neon_import_field_mapping_decisions(text,uuid,bigint,jsonb)",
+    "public.save_neon_import_source_label_decisions(text,uuid,bigint,jsonb)",
+    "public.save_neon_import_issue_resolutions(text,uuid,bigint,jsonb)",
+    "public.preview_neon_import_batch(text,uuid,bigint)"
+  ],
+  "policies": [
+    "canonical_import_decision_versions_scope",
+    "canonical_import_field_mapping_decisions_scope",
+    "canonical_import_source_label_decisions_scope",
+    "canonical_import_issue_resolutions_scope",
+    "canonical_import_decision_audit_insert"
+  ],
+  "triggers": [
+    "import_decision_audit_append_only"
+  ],
+  "forbidden": [
+    "employee commit",
+    "batch lifecycle mutation",
+    "revert",
+    "storage replacement",
+    "auth migration",
+    "registry activation"
+  ]
+}
