@@ -59,14 +59,8 @@ function auditActiveSourceSurface(source, sourceName) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
 
-  const sourceFile = ts.createSourceFile(
-    `${sourceName}.ts`,
-    source,
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
-  const provenance = collectSupabaseClientProvenance(sourceFile);
+  const { sourceFile, checker } = createBindingAwareSource(source, sourceName);
+  const provenance = collectSupabaseClientProvenance(sourceFile, checker);
   if (hasSupabaseBusinessUse(sourceFile, provenance)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
@@ -75,10 +69,42 @@ function auditActiveSourceSurface(source, sourceName) {
   }
 }
 
-function collectSupabaseClientProvenance(sourceFile) {
-  const factories = new Set();
-  const namespaces = new Set();
-  const receivers = new Set();
+function createBindingAwareSource(source, sourceName) {
+  const fileName = `/${sourceName}.ts`;
+  const sourceFile = ts.createSourceFile(
+    fileName,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const options = {
+    module: ts.ModuleKind.ESNext,
+    noLib: true,
+    noResolve: true,
+    target: ts.ScriptTarget.Latest,
+  };
+  const host = {
+    fileExists: candidate => candidate === fileName,
+    getCanonicalFileName: candidate => candidate,
+    getCurrentDirectory: () => "/",
+    getDefaultLibFileName: () => "/lib.d.ts",
+    getDirectories: () => [],
+    getNewLine: () => "\n",
+    getSourceFile: candidate => candidate === fileName ? sourceFile : undefined,
+    readFile: candidate => candidate === fileName ? source : undefined,
+    useCaseSensitiveFileNames: () => true,
+    writeFile: () => {},
+  };
+  const program = ts.createProgram({ rootNames: [fileName], options, host });
+  return { sourceFile: program.getSourceFile(fileName), checker: program.getTypeChecker() };
+}
+
+function collectSupabaseClientProvenance(sourceFile, checker) {
+  const factories = new Map();
+  const namespaces = new Map();
+  const receivers = new Map();
+  const provenance = { checker, factories, namespaces, receivers };
 
   visitNodes(sourceFile, node => {
     if (ts.isImportDeclaration(node) &&
@@ -88,17 +114,11 @@ function collectSupabaseClientProvenance(sourceFile) {
       if (bindings && ts.isNamedImports(bindings)) {
         for (const element of bindings.elements) {
           if (isServerClientFactoryName((element.propertyName ?? element.name).text)) {
-            factories.add(element.name.text);
+            addExpressionBinding(factories, element.name, checker);
           }
         }
       } else if (bindings && ts.isNamespaceImport(bindings)) {
-        namespaces.add(bindings.name.text);
-      }
-    }
-    if (ts.isVariableDeclaration(node) && node.initializer && containsAllowedServerClientImport(node.initializer)) {
-      collectFactoryBindings(node.name, factories);
-      if (ts.isIdentifier(node.name) && isDirectImportExpression(node.initializer)) {
-        namespaces.add(node.name.text);
+        addExpressionBinding(namespaces, bindings.name, checker);
       }
     }
   });
@@ -107,24 +127,28 @@ function collectSupabaseClientProvenance(sourceFile) {
   while (changed) {
     changed = false;
     visitNodes(sourceFile, node => {
-      if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
-        if (isFactoryReference(node.initializer, factories, namespaces)) {
-          changed = add(factories, node.name.text) || changed;
-        }
-        if (isSupabaseClientExpression(node.initializer, factories, namespaces, receivers)) {
-          changed = add(receivers, node.name.text) || changed;
+      if (ts.isVariableDeclaration(node) && node.initializer) {
+        if (ts.isIdentifier(node.name)) {
+          changed = propagateExpressionBinding(node.name, node.initializer, provenance) || changed;
+        } else if (isNamespaceExpression(node.initializer, provenance)) {
+          changed = collectFactoryBindings(node.name, factories, checker) || changed;
         }
       }
       if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
-        const target = expressionKey(node.left);
-        if (target && isSupabaseClientExpression(node.right, factories, namespaces, receivers)) {
-          changed = add(receivers, target) || changed;
+        changed = propagateExpressionBinding(node.left, node.right, provenance) || changed;
+        if (isNamespaceExpression(node.right, provenance)) {
+          changed = collectFactoryAssignments(node.left, factories, checker) || changed;
         }
+      }
+      if ((ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node) ||
+           ts.isParameter(node) || ts.isBindingElement(node)) &&
+          node.initializer && ts.isIdentifier(node.name)) {
+        changed = propagateExpressionBinding(node.name, node.initializer, provenance) || changed;
       }
     });
   }
 
-  return { factories, namespaces, receivers };
+  return provenance;
 }
 
 function hasSupabaseBusinessUse(sourceFile, provenance) {
@@ -133,20 +157,20 @@ function hasSupabaseBusinessUse(sourceFile, provenance) {
     if (found) return;
     if (isMemberAccess(node) &&
         ["from", "rpc"].includes(accessName(node)) &&
-        isSupabaseClientExpression(node.expression, provenance.factories, provenance.namespaces, provenance.receivers)) {
+        isSupabaseClientExpression(node.expression, provenance)) {
       found = true;
       return;
     }
     if (ts.isVariableDeclaration(node) &&
         node.initializer &&
-        isSupabaseClientExpression(node.initializer, provenance.factories, provenance.namespaces, provenance.receivers) &&
+        isSupabaseClientExpression(node.initializer, provenance) &&
         bindingSelects(node.name, ["from", "rpc"])) {
       found = true;
       return;
     }
     if (ts.isBinaryExpression(node) &&
         node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-        isSupabaseClientExpression(node.right, provenance.factories, provenance.namespaces, provenance.receivers) &&
+        isSupabaseClientExpression(node.right, provenance) &&
         assignmentSelects(node.left, ["from", "rpc"])) {
       found = true;
     }
@@ -161,14 +185,21 @@ function hasUnsupportedSupabaseAuthUse(sourceFile, provenance) {
     if (found) return;
     if (ts.isVariableDeclaration(node) &&
         node.initializer &&
-        isSupabaseClientExpression(node.initializer, provenance.factories, provenance.namespaces, provenance.receivers) &&
+        isSupabaseClientExpression(node.initializer, provenance) &&
         bindingSelects(node.name, ["auth"])) {
+      found = true;
+      return;
+    }
+    if (ts.isBinaryExpression(node) &&
+        node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+        isSupabaseClientExpression(node.right, provenance) &&
+        assignmentSelects(node.left, ["auth"])) {
       found = true;
       return;
     }
     if (!isMemberAccess(node) ||
         accessName(node) !== "auth" ||
-        !isSupabaseClientExpression(node.expression, provenance.factories, provenance.namespaces, provenance.receivers)) {
+        !isSupabaseClientExpression(node.expression, provenance)) {
       return;
     }
     if (!ts.isPropertyAccessExpression(node) || node.questionDotToken) {
@@ -190,31 +221,110 @@ function hasUnsupportedSupabaseAuthUse(sourceFile, provenance) {
   return found;
 }
 
-function isSupabaseClientExpression(node, factories, namespaces, receivers) {
+function isSupabaseClientExpression(node, provenance) {
   const expression = unwrapExpression(node);
-  const key = expressionKey(expression);
   return Boolean(
-    (key && receivers.has(key)) ||
-    (ts.isCallExpression(expression) && isFactoryReference(expression.expression, factories, namespaces)),
+    hasExpressionBinding(provenance.receivers, expression, provenance.checker) ||
+    (ts.isCallExpression(expression) && isFactoryReference(expression.expression, provenance)),
   );
 }
 
-function isFactoryReference(node, factories, namespaces) {
+function isFactoryReference(node, provenance) {
   const expression = unwrapExpression(node);
-  if (ts.isIdentifier(expression)) return factories.has(expression.text);
+  if (hasExpressionBinding(provenance.factories, expression, provenance.checker)) return true;
   if (!isMemberAccess(expression) || !isServerClientFactoryName(accessName(expression))) return false;
-  const namespace = expressionKey(expression.expression);
-  return Boolean(namespace && namespaces.has(namespace));
+  return isNamespaceExpression(expression.expression, provenance);
 }
 
-function expressionKey(node) {
-  const expression = unwrapExpression(node);
-  if (ts.isIdentifier(expression)) return expression.text;
-  if (expression.kind === ts.SyntaxKind.ThisKeyword) return "this";
-  if (!isMemberAccess(expression)) return null;
-  const receiver = expressionKey(expression.expression);
-  const member = accessName(expression);
-  return receiver && member ? `${receiver}.${member}` : null;
+function isNamespaceExpression(node, provenance) {
+  return hasExpressionBinding(provenance.namespaces, node, provenance.checker) ||
+    isAllowedServerClientImportExpression(node);
+}
+
+function propagateExpressionBinding(target, value, provenance) {
+  let changed = false;
+  if (isFactoryReference(value, provenance)) {
+    changed = addExpressionBinding(provenance.factories, target, provenance.checker) || changed;
+  }
+  if (isNamespaceExpression(value, provenance)) {
+    changed = addExpressionBinding(provenance.namespaces, target, provenance.checker) || changed;
+  }
+  if (isSupabaseClientExpression(value, provenance)) {
+    changed = addExpressionBinding(provenance.receivers, target, provenance.checker) || changed;
+  }
+  return changed;
+}
+
+function addExpressionBinding(bindings, node, checker) {
+  const identity = expressionIdentity(node, checker);
+  if (!identity) return false;
+  let paths = bindings.get(identity.root);
+  if (!paths) {
+    paths = new Set();
+    bindings.set(identity.root, paths);
+  }
+  if (paths.has(identity.path)) return false;
+  paths.add(identity.path);
+  return true;
+}
+
+function hasExpressionBinding(bindings, node, checker) {
+  const identity = expressionIdentity(node, checker);
+  return Boolean(identity && bindings.get(identity.root)?.has(identity.path));
+}
+
+function expressionIdentity(node, checker) {
+  let expression = unwrapExpression(node);
+  const directSymbol = expressionSymbol(expression, checker);
+  if (directSymbol) return { root: symbolBindingRoot(directSymbol), path: "[]" };
+  const path = [];
+  while (isMemberAccess(expression)) {
+    const member = accessName(expression);
+    if (!member) return null;
+    path.unshift(member);
+    expression = unwrapExpression(expression.expression);
+  }
+  if (ts.isIdentifier(expression)) {
+    const symbol = checker.getSymbolAtLocation(expression);
+    return symbol ? { root: symbolBindingRoot(symbol), path: JSON.stringify(path) } : null;
+  }
+  if (expression.kind === ts.SyntaxKind.ThisKeyword) {
+    return { root: thisBindingRoot(expression), path: JSON.stringify(path) };
+  }
+  return null;
+}
+
+function expressionSymbol(expression, checker) {
+  if (ts.isIdentifier(expression)) return checker.getSymbolAtLocation(expression);
+  if (ts.isPropertyAccessExpression(expression)) return checker.getSymbolAtLocation(expression.name);
+  if (ts.isElementAccessExpression(expression)) {
+    const argument = unwrapExpression(expression.argumentExpression);
+    if (ts.isStringLiteralLike(argument)) return checker.getSymbolAtLocation(argument);
+  }
+  return undefined;
+}
+
+function symbolBindingRoot(symbol) {
+  return symbol.valueDeclaration ?? symbol.declarations?.[0] ?? symbol;
+}
+
+function thisBindingRoot(node) {
+  let current = node.parent;
+  while (current) {
+    if (ts.isArrowFunction(current)) {
+      current = current.parent;
+      continue;
+    }
+    if (ts.isMethodDeclaration(current) || ts.isGetAccessorDeclaration(current) ||
+        ts.isSetAccessorDeclaration(current) || ts.isConstructorDeclaration(current)) {
+      return current.parent;
+    }
+    if (ts.isFunctionLike(current) || ts.isClassLike(current) || ts.isSourceFile(current)) {
+      return current;
+    }
+    current = current.parent;
+  }
+  return node.getSourceFile();
 }
 
 function unwrapExpression(node) {
@@ -244,7 +354,7 @@ function bindingSelects(name, members) {
   if (!ts.isObjectBindingPattern(name)) return false;
   return name.elements.some(element => {
     const selected = element.propertyName ?? element.name;
-    return ts.isIdentifier(selected) && members.includes(selected.text);
+    return members.includes(propertyNameText(selected));
   });
 }
 
@@ -253,44 +363,71 @@ function assignmentSelects(node, members) {
   if (!ts.isObjectLiteralExpression(expression)) return false;
   return expression.properties.some(property => {
     if (!ts.isShorthandPropertyAssignment(property) && !ts.isPropertyAssignment(property)) return false;
-    const selected = property.name;
-    return ts.isIdentifier(selected) && members.includes(selected.text);
+    return members.includes(propertyNameText(property.name));
   });
 }
 
-function collectFactoryBindings(name, factories) {
+function propertyNameText(name) {
+  if (ts.isIdentifier(name) || ts.isStringLiteralLike(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) {
+    const expression = unwrapExpression(name.expression);
+    return ts.isStringLiteralLike(expression) ? expression.text : null;
+  }
+  return null;
+}
+
+function collectFactoryBindings(name, factories, checker) {
+  let changed = false;
   if (ts.isObjectBindingPattern(name)) {
     for (const element of name.elements) {
       const imported = element.propertyName ?? element.name;
-      if (ts.isIdentifier(imported) && isServerClientFactoryName(imported.text) && ts.isIdentifier(element.name)) {
-        factories.add(element.name.text);
+      if (isServerClientFactoryName(propertyNameText(imported)) && ts.isIdentifier(element.name)) {
+        changed = addExpressionBinding(factories, element.name, checker) || changed;
       }
-      collectFactoryBindings(element.name, factories);
+      changed = collectFactoryBindings(element.name, factories, checker) || changed;
     }
   } else if (ts.isArrayBindingPattern(name)) {
     for (const element of name.elements) {
-      if (ts.isBindingElement(element)) collectFactoryBindings(element.name, factories);
+      if (ts.isBindingElement(element)) {
+        changed = collectFactoryBindings(element.name, factories, checker) || changed;
+      }
     }
   }
+  return changed;
 }
 
-function containsAllowedServerClientImport(node) {
-  let found = false;
-  visitNodes(node, candidate => {
-    if (ts.isCallExpression(candidate) &&
-        candidate.expression.kind === ts.SyntaxKind.ImportKeyword &&
-        candidate.arguments.length === 1 &&
-        ts.isStringLiteral(candidate.arguments[0]) &&
-        isAllowedServerClientModule(candidate.arguments[0].text)) {
-      found = true;
-    }
-  });
-  return found;
-}
-
-function isDirectImportExpression(node) {
+function collectFactoryAssignments(node, factories, checker) {
   const expression = unwrapExpression(node);
-  return ts.isCallExpression(expression) && expression.expression.kind === ts.SyntaxKind.ImportKeyword;
+  if (!ts.isObjectLiteralExpression(expression)) return false;
+  let changed = false;
+  for (const property of expression.properties) {
+    if (!ts.isShorthandPropertyAssignment(property) && !ts.isPropertyAssignment(property)) continue;
+    const imported = propertyNameText(property.name);
+    if (!isServerClientFactoryName(imported)) continue;
+    if (ts.isShorthandPropertyAssignment(property)) {
+      changed = addExpressionBinding(factories, property.name, checker) || changed;
+    } else if (ts.isPropertyAssignment(property)) {
+      changed = addExpressionBinding(factories, assignmentTarget(property.initializer), checker) || changed;
+    }
+  }
+  return changed;
+}
+
+function assignmentTarget(node) {
+  const expression = unwrapExpression(node);
+  if (ts.isBinaryExpression(expression) && expression.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+    return expression.left;
+  }
+  return expression;
+}
+
+function isAllowedServerClientImportExpression(node) {
+  const expression = unwrapExpression(node);
+  return ts.isCallExpression(expression) &&
+    expression.expression.kind === ts.SyntaxKind.ImportKeyword &&
+    expression.arguments.length === 1 &&
+    ts.isStringLiteral(expression.arguments[0]) &&
+    isAllowedServerClientModule(expression.arguments[0].text);
 }
 
 function isAllowedServerClientModule(value) {
@@ -299,12 +436,6 @@ function isAllowedServerClientModule(value) {
 
 function isServerClientFactoryName(value) {
   return /^createServer(?:Admin|Password|Actor)Client$/.test(value);
-}
-
-function add(set, value) {
-  const size = set.size;
-  set.add(value);
-  return set.size !== size;
 }
 
 function visitNodes(node, visitor) {

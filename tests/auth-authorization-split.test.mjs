@@ -204,6 +204,24 @@ test("source gate fails closed for direct, optional, and aliased Supabase bypass
       error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
     },
     {
+      name: "computed destructured business methods",
+      sourceName: "productionAuthorization",
+      appended: serverSupabaseClientSource('const { ["from"]: select } = client; select("user_accounts");'),
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "assigned computed destructured business methods",
+      sourceName: "productionAuthorization",
+      appended: serverSupabaseClientSource('let invoke; ({ ["rpc"]: invoke } = client); invoke("business_operation");'),
+      error: /SUPABASE_BUSINESS_AUTH_DRIFT/,
+    },
+    {
+      name: "assigned destructured Auth clients",
+      sourceName: "sessionRoute",
+      appended: serverSupabaseClientSource("let auth; ({ auth } = client); auth.signOut();"),
+      error: /SUPABASE_AUTH_METHOD_DRIFT/,
+    },
+    {
       name: "direct RPC calls",
       sourceName: "initializationAccess",
       appended: serverSupabaseClientSource('client.rpc("business_operation");'),
@@ -275,6 +293,136 @@ test("source gate permits benign from labels and methods on a non-Supabase recei
       client.from();
     `,
   }));
+});
+
+test("source gate rejects a Supabase factory alias assigned after declaration", () => {
+  const input = deterministicAuthorizationSourceFixture();
+
+  assert.throws(
+    () => validateAuthAuthorizationSplitSources({
+      ...input,
+      loginRoute: `
+        import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
+        let make;
+        make = createServerPasswordClient;
+        const client = make();
+        client.from("users");
+      `,
+    }),
+    /SUPABASE_BUSINESS_AUTH_DRIFT/,
+  );
+});
+
+test("source gate permits a shadowed non-Supabase receiver binding", () => {
+  const input = deterministicAuthorizationSourceFixture();
+
+  assert.doesNotThrow(() => validateAuthAuthorizationSplitSources({
+    ...input,
+    loginRoute: `
+      import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
+      const client = createServerPasswordClient();
+      function readLocalRows() {
+        const client = { from() {} };
+        client.from();
+      }
+      client.auth.getUser("access-token");
+    `,
+  }));
+});
+
+test("source gate tracks server factories through namespace aliases and extraction", () => {
+  const input = deterministicAuthorizationSourceFixture();
+  const escaped = [];
+
+  for (const { name, source } of [
+    {
+      name: "namespace alias",
+      source: `
+        import * as serverAdmin from "../lib/supabase/server-admin.ts";
+        const alias = serverAdmin;
+        alias.createServerActorClient().rpc("operation");
+      `,
+    },
+    {
+      name: "namespace factory extraction",
+      source: `
+        import * as serverAdmin from "../lib/supabase/server-admin.ts";
+        const { createServerPasswordClient: make } = serverAdmin;
+        make().from("users");
+      `,
+    },
+    {
+      name: "assigned namespace factory extraction",
+      source: `
+        import * as serverAdmin from "../lib/supabase/server-admin.ts";
+        let make;
+        ({ createServerAdminClient: make } = serverAdmin);
+        make().from("users");
+      `,
+    },
+    {
+      name: "direct dynamic import factory",
+      source: `
+        (await import("../lib/supabase/server-admin.ts"))
+          .createServerPasswordClient()
+          .rpc("operation");
+      `,
+    },
+    {
+      name: "assigned dynamic import factory extraction",
+      source: `
+        let make;
+        ({ createServerActorClient: make } = await import("../lib/supabase/server-admin.ts"));
+        make().from("users");
+      `,
+    },
+  ]) {
+    try {
+      validateAuthAuthorizationSplitSources({ ...input, loginRoute: source });
+      escaped.push(name);
+    } catch (error) {
+      assert.match(error.message, /SUPABASE_BUSINESS_AUTH_DRIFT/, name);
+    }
+  }
+
+  assert.deepEqual(escaped, []);
+});
+
+test("source gate tracks factory-derived clients in object, class, and parameter bindings", () => {
+  const input = deterministicAuthorizationSourceFixture();
+  const escaped = [];
+
+  for (const { name, statement } of [
+    {
+      name: "object property client",
+      statement: 'const holder = { client: createServerPasswordClient() }; holder.client.from("users");',
+    },
+    {
+      name: "object property factory",
+      statement: 'const holder = { make: createServerPasswordClient }; holder.make().rpc("operation");',
+    },
+    {
+      name: "class field client",
+      statement: 'class Repository { client = createServerPasswordClient(); read() { return this.client.from("users"); } }',
+    },
+    {
+      name: "default parameter client",
+      statement: 'function read(client = createServerPasswordClient()) { return client.rpc("operation"); }',
+    },
+  ]) {
+    const source = `
+      import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
+      ${statement}
+    `;
+    try {
+      validateAuthAuthorizationSplitSources({ ...input, loginRoute: source });
+      escaped.push(name);
+    } catch (error) {
+      assert.match(error.message, /SUPABASE_BUSINESS_AUTH_DRIFT/, name);
+    }
+  }
+
+  assert.deepEqual(escaped, []);
 });
 
 test("deterministic Auth email normalizes an existing valid login ID and trusted hostname", async (t) => {
