@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   E5B_CATALOG_SQL,
+  runE5bRuntimeValidation,
   runE5bRuntimeMatrix,
   runE5bStorageRuntimeValidation,
   validateE5bRuntimeMatrixSource,
@@ -17,7 +18,7 @@ function runtimeClient({ actor = null } = {}) {
     async query(query, values = []) {
       const text = typeof query === "string" ? query : query.text;
       transcript.push(text);
-      if (/^begin$/i.test(text.trim())) { inTransaction = true; return { rows: [] }; }
+      if (/^begin(?:\s+read\s+only)?$/i.test(text.trim())) { inTransaction = true; return { rows: [] }; }
       if (/^rollback$/i.test(text.trim())) { inTransaction = false; currentActor = null; return { rows: [] }; }
       if (/set_config\('app\.actor_auth_user_id'/i.test(text)) { currentActor = values[0] ?? null; return { rows: [] }; }
       if (/current_setting\('app\.actor_auth_user_id'/i.test(text)) return { rows: [{ actor: currentActor, clean: currentActor === null }] };
@@ -55,6 +56,38 @@ test("runtime matrix proves raw denial and actor cleanup without SET ROLE", asyn
   assert.equal(result.connectionReuse, "PASS");
   assert.equal(result.fallback, "OFF");
   assert.equal(client.transcript.some(query => /\bset\s+role\b/i.test(query)), false);
+});
+
+test("runtime validation wires an injected pooled application pool to the default matrix", async () => {
+  const identityClient = role => {
+    const base = runtimeClient();
+    return {
+      ...base,
+      async query(query, values = []) {
+        const text = typeof query === "string" ? query : query.text;
+        if (text.includes("e5b:identity")) return { rows: [{ server_version_num: 180000, database: "neondb", database_owner: "neondb_owner", current_user: role, session_user: role }] };
+        return base.query(query, values);
+      },
+    };
+  };
+  const poolClients = [runtimeClient(), runtimeClient()];
+  let ended = false;
+  const runtimePool = {
+    async connect() { const client = poolClients.shift(); return { ...client, release() {} }; },
+    async end() { ended = true; },
+  };
+  const result = await runE5bRuntimeValidation({
+    bootstrapConnectionString: "postgresql://neondb_owner:fixture@ep-frosty-math-audxlq88.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+    runtimeConnectionString: "postgresql://hotel_ld_application:fixture@ep-frosty-math-audxlq88-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+    sourceCheck: async () => ({ ok: true }),
+    createBootstrapClient: async () => identityClient("neondb_owner"),
+    createRuntimeClient: async () => identityClient("hotel_ld_application"),
+    runtimePool,
+    catalog: async () => ({ catalogValidated: true, rowsEmpty: true }),
+  });
+  assert.equal(result.matrix.fallback, "OFF");
+  assert.equal(result.matrix.concurrentActorIsolation, "PASS");
+  assert.equal(ended, false, "caller-owned injected pool must not be closed by the validator");
 });
 
 test("Storage runtime remains synthetic-adapter-only and returns redacted matrix", async () => {
