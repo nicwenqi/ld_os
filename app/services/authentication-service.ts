@@ -101,6 +101,57 @@ export type ResolvedAccount = {
   refreshToken?: string;
 };
 
+export type NeonPreAuthLoginIdentity = Readonly<{
+  authUserId: string;
+  email: string;
+}>;
+
+export type NeonAuthorizationFacts = Readonly<{
+  session: AuthSession;
+  tenantId: string | null;
+}>;
+
+export type NeonAuthorizationRepository = Readonly<{
+  resolveLoginIdentity(hostname: string, loginId: string): Promise<NeonPreAuthLoginIdentity | null>;
+  readSessionAuthority(hostname: string): Promise<NeonAuthorizationFacts>;
+}>;
+
+type PasswordSignInClient = Readonly<{
+  auth: Readonly<{
+    signInWithPassword(input: { email: string; password: string }): Promise<{
+      data: {
+        user: { id: string } | null;
+        session: { access_token: string; refresh_token: string } | null;
+      };
+      error: unknown;
+    }>;
+  }>;
+}>;
+
+export type LoginResolutionDependencies = Readonly<{
+  hostname: string;
+  loginId: string;
+  password: string;
+  auth: PasswordSignInClient;
+  neon: NeonAuthorizationRepository;
+}>;
+
+export type LoginResolution = (input: {
+  loginId: string;
+  password: string;
+  hostname: string;
+}) => Promise<ResolvedAccount>;
+
+export function createLoginResolutionDependencies(): LoginResolution {
+  return resolveAccountForLogin;
+}
+
+export async function resolveLoginWith(
+  _dependencies: LoginResolutionDependencies,
+): Promise<{ kind: "generic-login-failure" }> {
+  throw new Error("NEON_LOGIN_AUTHORIZATION_NOT_IMPLEMENTED");
+}
+
 export async function resolveAccountForLogin(input: {
   loginId: string;
   password: string;

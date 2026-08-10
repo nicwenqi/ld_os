@@ -3,6 +3,7 @@ import { resolveRequestHostname } from "../lib/request-hostname.ts";
 import { createServerPasswordClient } from "../lib/supabase/server-admin.ts";
 import type { AuthSession } from "../repositories/contracts/auth-repository.ts";
 import { resolveSessionForAuthUser } from "./authentication-service.ts";
+import type { NeonAuthorizationRepository } from "./authentication-service.ts";
 import { readCookie, readRefreshCookie } from "../api/auth/cookies.ts";
 
 export type AuthenticatedRequest = {
@@ -13,6 +14,30 @@ export type AuthenticatedRequest = {
 };
 
 export type RequestAuthIdentity = Omit<AuthenticatedRequest, "session"> & { userId: string; hostname: string };
+
+type AuthOnlyClient = Readonly<{
+  auth: Readonly<{
+    getUser(accessToken: string): Promise<{ data: { user: { id: string } | null } }>;
+  }>;
+}>;
+
+export type SessionResolutionDependencies = Readonly<{
+  hostname: string;
+  auth: AuthOnlyClient;
+  neon: NeonAuthorizationRepository;
+}>;
+
+export type SessionResolution = (authUserId: string, hostname: string) => Promise<AuthSession>;
+
+export function createSessionResolutionDependencies(): SessionResolution {
+  return resolveSessionForAuthUser;
+}
+
+export async function resolveSessionWith(
+  _dependencies: SessionResolutionDependencies,
+): Promise<AuthSession> {
+  throw new Error("NEON_SESSION_AUTHORIZATION_NOT_IMPLEMENTED");
+}
 
 function isApprovedBackendSession(session: AuthSession) {
   return Boolean(
