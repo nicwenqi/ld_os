@@ -338,10 +338,10 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
         const fromInvocation = node.parent;
         const terminalAccess = fromInvocation?.parent;
         const terminalInvocation = terminalAccess?.parent;
-        if (!ts.isCallExpression(fromInvocation) || fromInvocation.expression !== node ||
-            !ts.isPropertyAccessExpression(terminalAccess) || terminalAccess.expression !== fromInvocation ||
+        if (!ts.isCallExpression(fromInvocation) || fromInvocation.expression !== node || fromInvocation.questionDotToken ||
+            !ts.isPropertyAccessExpression(terminalAccess) || terminalAccess.expression !== fromInvocation || terminalAccess.questionDotToken ||
             !["upload", "download", "remove"].includes(terminalAccess.name.text) ||
-            !ts.isCallExpression(terminalInvocation) || terminalInvocation.expression !== terminalAccess) found = true;
+            !ts.isCallExpression(terminalInvocation) || terminalInvocation.expression !== terminalAccess || terminalInvocation.questionDotToken) found = true;
       }
       return;
     }
@@ -352,7 +352,7 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
         unwrapExpression(receiver.expression.expression.expression).text === "client" &&
         receiver.expression.expression.name.text === "storage") {
       if (!(member === "upload" || member === "download" || member === "remove") ||
-          !ts.isCallExpression(node.parent) || node.parent.expression !== node) found = true;
+          !ts.isCallExpression(node.parent) || node.parent.expression !== node || node.parent.questionDotToken) found = true;
       return;
     }
     found = true;
