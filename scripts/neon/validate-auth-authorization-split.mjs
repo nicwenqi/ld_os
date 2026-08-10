@@ -314,6 +314,10 @@ function hasInvalidApprovedStorageClientSurface(sourceFile) {
     if (!ts.isPropertyAccessExpression(node) || !expressionContainsIdentifier(node.expression, "client")) return;
     const receiver = unwrapExpression(node.expression);
     const member = node.name.text;
+    if (node.questionDotToken) {
+      found = true;
+      return;
+    }
     if (ts.isIdentifier(receiver) && receiver.text === "client") {
       if (member !== "storage") {
         found = true;
