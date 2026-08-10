@@ -647,7 +647,7 @@ function hasUnapprovedServerAdminImportShape(importClause) {
 function isExactApprovedDynamicFactoryImport(node, sourceFile) {
   if (sourceFile.fileName !== "/authenticationService.ts") return false;
   if (!ts.isCallExpression(node) || node.expression.kind !== ts.SyntaxKind.ImportKeyword ||
-      node.arguments.length !== 1 || !ts.isStringLiteralLike(node.arguments[0]) ||
+      node.arguments.length !== 1 || !ts.isStringLiteral(node.arguments[0]) ||
       !isAllowedServerClientModule(node.arguments[0].text)) {
     return false;
   }
@@ -1085,8 +1085,8 @@ function hasUnknownImportedWrapperFlow(sourceFile, provenance) {
       if (wrapperRoots.has(root)) continue;
       const isWrapper = functionReturnExpressions(callable).some(expression => {
         const value = unwrapExpression(expression);
+        if (returnContainsUnknownImportedCall(value, provenance)) return true;
         if (!ts.isCallExpression(value)) return false;
-        if (isUnknownImportedExpression(value.expression, provenance)) return true;
         const callee = value.expression;
         if (ts.isIdentifier(callee) || isMemberAccess(callee)) {
           const symbol = provenance.checker.getSymbolAtLocation(callee);
@@ -1112,6 +1112,30 @@ function hasUnknownImportedWrapperFlow(sourceFile, provenance) {
     if (symbol && wrapperRoots.has(symbolBindingRoot(symbol))) found = true;
   });
   return found;
+}
+
+function returnContainsUnknownImportedCall(node, provenance) {
+  const expression = unwrapExpression(node);
+  if (ts.isCallExpression(expression)) {
+    if (isUnknownImportedExpression(expression.expression, provenance)) return true;
+    return expression.arguments.some(argument => returnContainsUnknownImportedCall(argument, provenance));
+  }
+  if (ts.isObjectLiteralExpression(expression)) {
+    return expression.properties.some(property => {
+      if (ts.isSpreadAssignment(property)) return returnContainsUnknownImportedCall(property.expression, provenance);
+      if (ts.isShorthandPropertyAssignment(property)) return returnContainsUnknownImportedCall(property.name, provenance);
+      return ts.isPropertyAssignment(property) && returnContainsUnknownImportedCall(property.initializer, provenance);
+    });
+  }
+  if (ts.isArrayLiteralExpression(expression)) {
+    return expression.elements.some(element => returnContainsUnknownImportedCall(
+      ts.isSpreadElement(element) ? element.expression : element,
+      provenance,
+    ));
+  }
+  return expressionAlternatives(expression).some(alternative =>
+    returnContainsUnknownImportedCall(alternative, provenance),
+  );
 }
 
 function isClientLikeImportedExpression(node, provenance) {

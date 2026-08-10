@@ -762,6 +762,23 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "approved Auth dynamic template server-admin import",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "authenticationService",
+    source: `
+      const email = deriveDeterministicAuthEmail(loginId, hostname);
+      export type { NeonAuthorizationFacts } from "../repositories/neon/authorization-session-repository.ts";
+      export function createLoginResolutionDependencies() {}
+      export async function resolveLoginWith() {}
+      export async function resolveAccountForLogin() {
+        const [{ createServerPasswordClient }] = await Promise.all([
+          import(\`../lib/supabase/server-admin.ts\`),
+        ]);
+        return createServerPasswordClient().from("users");
+      }
+    `,
+  },
+  {
     name: "dynamic require server-admin client",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: `
@@ -882,6 +899,16 @@ export const rejectedAuthSourceAuditCases = [
     source: `
       import { make } from "../unrelated/factory.ts";
       function get(flag) { if (flag) return make(); return make(); }
+      get(true).from("users");
+    `,
+  },
+  {
+    name: "unknown imported wrapper conditional expression return",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    source: `
+      import { make } from "../unrelated/factory.ts";
+      const localClient = { from() { return []; } };
+      function get(ok) { return ok ? make() : localClient; }
       get(true).from("users");
     `,
   },
