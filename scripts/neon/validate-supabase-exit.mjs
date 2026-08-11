@@ -274,7 +274,12 @@ export async function cleanupSupabaseExitBlobObjects({ cleanup, token, blob } = 
   const listed = await blob.list({ prefix: cleanup.objectPrefix, token });
   const urls = Array.isArray(listed?.blobs) ? listed.blobs.map(item => item?.url).filter(value => typeof value === "string") : null;
   if (!urls) failure("SUPABASE_EXIT_BLOB_CLEANUP_INVALID");
-  if (urls.length > 0) await blob.del(urls, { token });
+  if (urls.length > 0) {
+    try { await blob.del(urls, { token }); }
+    catch (error) {
+      if (Number(error?.status) !== 404 && !/not[ _-]?found|does not exist/i.test(cleanText(error?.code))) throw error;
+    }
+  }
   const after = await blob.list({ prefix: cleanup.objectPrefix, token });
   if (!Array.isArray(after?.blobs) || after.blobs.length !== 0) failure("SUPABASE_EXIT_BLOB_CLEANUP_INCOMPLETE");
   return { status: "cleaned", objectCount: urls.length };
