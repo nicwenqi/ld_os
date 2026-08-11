@@ -163,6 +163,32 @@ test("source gate rejects Supabase business calls from active auth and control-p
   );
 });
 
+test("source gate rejects a legacy Supabase Storage adapter in the active Import path", () => {
+  const input = deterministicAuthorizationSourceFixture();
+  const legacyStorageAdapter = `
+    import "server-only";
+    import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+    const identity = { accessToken: "access-token" };
+    const storage = createActorStorageGateway(createServerActorClient(identity.accessToken));
+    export function createActorStorageGateway(client) {
+      return {
+        async upload() { await client.storage.from("property-import-files").upload("path", new Uint8Array(), {}); },
+        async download() { return client.storage.from("property-import-files").download("path"); },
+        async remove() { return client.storage.from("property-import-files").remove(["path"]); },
+      };
+    }
+    operation({ storage });
+  `;
+
+  assert.throws(
+    () => validateAuthAuthorizationSplitSources({
+      ...input,
+      neonImportStagingAuthorization: legacyStorageAdapter,
+    }),
+    /SUPABASE_BUSINESS_AUTH_DRIFT/,
+  );
+});
+
 test("source gate fails closed for direct, optional, and aliased Supabase bypasses", () => {
   for (const { name, sourceName, appended, error } of [
     {

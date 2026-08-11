@@ -10,10 +10,8 @@ import { createNeonImportMappingRepository } from "../repositories/neon/import-m
 import type { ImportMappingRepository } from "../repositories/contracts/import-mapping-repository.ts";
 import { createNeonImportCommitRepository } from "../repositories/neon/import-commit-repository.ts";
 import type { ImportCommitRepository } from "../repositories/contracts/import-commit-repository.ts";
-import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+import { createVercelBlobImportStorageGateway } from "./import/vercel-blob-import-storage.ts";
 import { resolveRequestAuthIdentity } from "./request-authentication.ts";
-
-type StorageClient = ReturnType<typeof createServerActorClient>;
 
 /** Only the authenticated server actor's Storage surface is exposed. */
 export type ImportStorageGateway = Readonly<{
@@ -82,7 +80,7 @@ export async function runAuthorizedNeonImportStaging<T>(
 
   try {
     const scope = await resolveTrustedImportScope(identity.userId, identity.hostname, requestId);
-    const actorStorage = createActorStorageGateway(createServerActorClient(identity.accessToken));
+    const storage = createVercelBlobImportStorageGateway();
     const repository = createScopedImportRepository(identity.userId, identity.hostname, requestId, scope);
     const mappingRepository = createScopedImportMappingRepository(identity.userId, identity.hostname, requestId, scope);
     const commitRepository = createScopedImportCommitRepository(identity.userId, identity.hostname, requestId, scope);
@@ -96,7 +94,7 @@ export async function runAuthorizedNeonImportStaging<T>(
       repository,
       mappingRepository,
       commitRepository,
-      storage: actorStorage,
+      storage,
       headers,
     });
     return { data, headers };
@@ -213,28 +211,6 @@ export function importStagingErrorResponse(error: unknown, requestId: string) {
     { message: mapped.message },
     { status: mapped.status, headers: mapped.headers ?? new Headers({ "Cache-Control": "no-store, private", "X-Request-Id": requestId }) },
   );
-}
-
-/** Adapter uses the actor access token, never the Supabase service key. */
-export function createActorStorageGateway(client: StorageClient): ImportStorageGateway {
-  return {
-    async upload(bucket, objectPath, body, contentType) {
-      const { error } = await client.storage.from(bucket).upload(objectPath, body, {
-        contentType,
-        upsert: false,
-      });
-      if (error) throw new Error("IMPORT_STORAGE_UPLOAD_FAILED");
-    },
-    async download(bucket, objectPath) {
-      const { data, error } = await client.storage.from(bucket).download(objectPath);
-      if (error || !data) throw new Error("IMPORT_STORAGE_READBACK_FAILED");
-      return new Uint8Array(await data.arrayBuffer());
-    },
-    async remove(bucket, objectPath) {
-      const { error } = await client.storage.from(bucket).remove([objectPath]);
-      if (error) throw new Error("IMPORT_STORAGE_REMOVE_FAILED");
-    },
-  };
 }
 
 function mapImportStagingError(error: unknown): ImportStagingApiError {

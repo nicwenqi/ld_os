@@ -944,6 +944,23 @@ export const rejectedAuthSourceAuditCases = [
     `,
   },
   {
+    name: "legacy actor-token Storage adapter in active Import path",
+    error: "SUPABASE_BUSINESS_AUTH_DRIFT",
+    sourceName: "neonImportStagingAuthorization",
+    source: `
+      import "server-only";
+      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
+      export function createActorStorageGateway(client) {
+        return {
+          upload(bucket, path, body) { return client.storage.from(bucket).upload(path, body); },
+          download(bucket, path) { return client.storage.from(bucket).download(path); },
+          remove(bucket, path) { return client.storage.from(bucket).remove([path]); },
+        };
+      }
+      createActorStorageGateway(createServerActorClient(accessToken));
+    `,
+  },
+  {
     name: "legacy business repository re-export",
     error: "SUPABASE_BUSINESS_AUTH_DRIFT",
     source: 'export { createSupabasePropertyRepository as propertyRepository } from "../repositories/supabase/property-repository.ts";',
@@ -964,22 +981,6 @@ export const allowedAuthSourceAuditCases = [
       await client.auth.getUser(accessToken);
       await client.auth.refreshSession({ refresh_token: refreshToken });
     `),
-  },
-  {
-    name: "approved actor-token Storage adapter",
-    sourceName: "neonImportStagingAuthorization",
-    source: `
-      import "server-only";
-      import { createServerActorClient } from "../lib/supabase/server-admin.ts";
-      export function createActorStorageGateway(client) {
-        return {
-          upload(bucket, path, body) { return client.storage.from(bucket).upload(path, body); },
-          download(bucket, path) { return client.storage.from(bucket).download(path); },
-          remove(bucket, path) { return client.storage.from(bucket).remove([path]); },
-        };
-      }
-      createActorStorageGateway(createServerActorClient(accessToken));
-    `,
   },
   {
     name: "shadowed local receiver",

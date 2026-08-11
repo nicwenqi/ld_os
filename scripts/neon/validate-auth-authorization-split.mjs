@@ -67,7 +67,7 @@ function auditActiveSourceSurface(source, sourceName) {
   if (hasInvalidActorFactoryUse(sourceFile, provenance)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
-  if (sourceName === "neonImportStagingAuthorization" && hasSpoofedStorageAdapterBoundary(sourceFile)) {
+  if (sourceName === "neonImportStagingAuthorization" && hasSupabaseStorageAccess(sourceFile, provenance)) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
   const approvedStorageBinding = isApprovedStorageAdapterSource(sourceFile, sourceName)
@@ -105,6 +105,25 @@ function auditActiveSourceSurface(source, sourceName) {
   if (provenance.unresolvedAliases || hasBusinessDrift) {
     throw new Error(`SUPABASE_BUSINESS_AUTH_DRIFT:${sourceName}`);
   }
+}
+
+function hasSupabaseStorageAccess(sourceFile, provenance) {
+  let found = false;
+  visitNodes(sourceFile, node => {
+    if (found) return;
+    if (ts.isFunctionDeclaration(node) && node.name?.text === "createActorStorageGateway") {
+      found = true;
+      return;
+    }
+    if (ts.isImportSpecifier(node) && node.propertyName?.text === "createServerActorClient" ||
+        ts.isImportSpecifier(node) && node.name.text === "createServerActorClient") {
+      found = true;
+      return;
+    }
+    if (isMemberAccess(node) && accessName(node) === "storage" &&
+        isSupabaseClientExpression(node.expression, provenance)) found = true;
+  });
+  return found;
 }
 
 function hasUnprovenSupabaseFlow(sourceFile, provenance) {

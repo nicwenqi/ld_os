@@ -532,17 +532,17 @@ export function validateE5bImportStagingAuthorizationSource(source) {
     || !/resolveRequestAuthIdentity\s*\(/.test(value)
     || !/withNeonResolvedActorContext\s*\(/.test(value)
     || !/resolveNeonPropertyScope\s*\(/.test(value)
-    || !/createServerActorClient\s*\(/.test(value)
-    || !/actorStorage|createActorStorageGateway/.test(value)
-    || !/accessToken/.test(value)) {
+    || !/createVercelBlobImportStorageGateway\s*\(/.test(value)
+    || !/\bstorage\s*(?:,|:)/.test(value)) {
     failSource("E5B_IMPORT_STAGING_AUTHORIZATION_BOUNDARY_MISSING");
   }
   if (/SUPABASE_SECRET_KEY|createServerAdminClient|service_role/i.test(value)
     || /DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|from\s+["']pg["']/.test(value)
+    || /createServerActorClient|createActorStorageGateway|\.storage\b/.test(value)
     || /tenantId\s*:\s*[^,}]*request|propertyId\s*:\s*[^,}]*request|role\s*:\s*[^,}]*request/i.test(value)) {
     failSource("E5B_IMPORT_STAGING_AUTHORIZATION_BOUNDARY_VIOLATION");
   }
-  return { auth: "supabase-auth-user", scope: "neon-live-property", storage: "actor-token" };
+  return { auth: "supabase-auth-user", scope: "neon-live-property", storage: "server-private-blob" };
 }
 
 export function validateE5bImportStorageSagaCoordinatorSource(source) {
