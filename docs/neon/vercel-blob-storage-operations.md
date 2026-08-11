@@ -33,3 +33,13 @@ to remove only the three random validation objects it created.
 Do not use this command against Production. The command fails closed unless
 `BLOB_VALIDATION_NON_PRODUCTION=1`, `VERCEL_ENV` is not `production`, and a
 non-empty server token is present.
+
+## Validation record
+
+On 2026-08-11, the private Preview-only `hotel-ld-os-import-validation` Blob
+store passed this matrix through Vercel's ephemeral Preview environment runner:
+private upload, uncached full read-back, checksum, size, content MIME,
+exact-path deletion, cleanup retry, and idempotent not-found cleanup. No Blob
+token, URL, or object path was recorded. The temporary local Vercel directory
+used for that run, including its local credential material, was removed after
+the command completed.
