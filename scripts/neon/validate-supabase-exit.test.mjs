@@ -39,8 +39,13 @@ test("Blob cleanup is exact-prefix only and treats object-not-found as idempoten
 
 test("deployment metadata must contain exact local HEAD, branch, owner and Preview target", () => {
   const local = "a".repeat(40);
-  const metadata = { projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, target: "preview", readyState: "READY", alias: [APPROVED_SUPABASE_EXIT_PREVIEW.url], gitSource: { sha: local, ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } };
+  const previewHostname = new URL(APPROVED_SUPABASE_EXIT_PREVIEW.url).hostname;
+  const metadata = { projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, target: "preview", readyState: "READY", alias: [previewHostname], gitSource: { sha: local, ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } };
   assert.equal(readApprovedDeploymentMetadata(JSON.stringify(metadata), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }).commit, local);
+  assert.equal(readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, alias: [previewHostname] }), { localCommit: local, previewUrl: `https://${previewHostname}` }).commit, local);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, alias: ["other.example"] }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, alias: [`x.${previewHostname}`] }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, alias: [`${previewHostname}.evil.example`] }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
   assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: "e06832a107566d3b5af40da0adb61c2379366719", ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_COMMIT_UNAPPROVED|SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
   assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: "d".repeat(40), ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_COMMIT_UNAPPROVED|SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
   assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: local, ref: "codex/other" } }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);

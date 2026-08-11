@@ -53,6 +53,15 @@ function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizePreviewHostname(value) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" ? parsed.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
 export function validateSupabaseExitPreflight(input) {
   if (!input || typeof input !== "object") failure("SUPABASE_EXIT_PREFLIGHT_INVALID");
   const localCommit = cleanText(input.localCommit);
@@ -129,7 +138,9 @@ export function readApprovedDeploymentMetadata(serialized, expected) {
   const readyState = findMetadataKey(metadata, ["readyState", "status"])?.value;
   const aliasesNode = findMetadataKey(metadata, ["alias", "aliases", "automaticAliases"]);
   const aliases = Array.isArray(aliasesNode?.value) ? aliasesNode.value : [];
-  if (!branch || !projectId || !teamId || !target || readyState !== "READY" || !aliases.includes(expected.previewUrl) || commit !== expected.localCommit || branch !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || projectId !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || teamId !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId || target.toLowerCase() === "production") failure(target?.toLowerCase() === "production" ? "SUPABASE_EXIT_PRODUCTION_FORBIDDEN" : "SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED");
+  const expectedAliasHostname = normalizePreviewHostname(expected.previewUrl);
+  const aliasMatches = expectedAliasHostname !== null && aliases.some(alias => typeof alias === "string" && alias === expectedAliasHostname);
+  if (!branch || !projectId || !teamId || !target || readyState !== "READY" || !aliasMatches || commit !== expected.localCommit || branch !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || projectId !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || teamId !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId || target.toLowerCase() === "production") failure(target?.toLowerCase() === "production" ? "SUPABASE_EXIT_PRODUCTION_FORBIDDEN" : "SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED");
   return { commit, branch, projectId, teamId, target };
 }
 
