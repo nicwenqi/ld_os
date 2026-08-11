@@ -215,6 +215,7 @@ export async function runSupabaseExitAcceptance(dependencies) {
   const gates = initialGates();
   let fixture;
   let identity;
+  let importStarted = false;
   let detail = null;
   try {
     await dependencies.preflight();
@@ -232,6 +233,7 @@ export async function runSupabaseExitAcceptance(dependencies) {
     gates.ORGANIZATION_PEOPLE_POSITION_EMPLOYEE = "PASS";
     await dependencies.validateProperty(fixture, identity);
     gates.PROPERTY_INITIALIZATION = "PASS";
+    importStarted = true;
     await dependencies.validateImport(fixture, identity);
     gates.IMPORT_VERCEL_BLOB_COMMIT_REVERT = "PASS";
     await dependencies.validateZeroSupabase(fixture, identity);
@@ -242,7 +244,7 @@ export async function runSupabaseExitAcceptance(dependencies) {
   } finally {
     if (fixture) {
       try {
-        await dependencies.cleanup(fixture, identity);
+        await dependencies.cleanup(fixture, identity, { importStarted });
         gates.FIXTURE_CLEANUP = "PASS";
       } catch (error) {
         gates.FIXTURE_CLEANUP = "FAIL";
@@ -552,12 +554,14 @@ export async function cleanupSupabaseExitBlobObjects({ cleanup, token, blob } = 
   return { status: "cleaned", objectCount: urls.length };
 }
 
-async function defaultCleanup(fixture, identity, context) {
+async function defaultCleanup(fixture, identity, context, lifecycle) {
   try {
     if (!identity?.password || !context?.request) failure("SUPABASE_EXIT_AUTH_CLEANUP_UNAVAILABLE");
     await context.request("/api/auth/delete-user", { method: "POST", operation: "AUTH_CLEANUP", body: { password: identity.password } });
   } finally {
-    try { await cleanupSupabaseExitBlobObjects({ cleanup: fixture.cleanup, token: process.env.BLOB_READ_WRITE_TOKEN }); }
+    try {
+      if (lifecycle?.importStarted === true) await cleanupSupabaseExitBlobObjects({ cleanup: fixture.cleanup, token: process.env.BLOB_READ_WRITE_TOKEN });
+    }
     finally {
       await cleanupNeonFixture(fixture);
       context?.request?.clearCookies?.();
@@ -610,7 +614,7 @@ export async function runLiveSupabaseExit() {
     validateZeroSupabase: async () => {
       if (/@supabase|SUPABASE_/i.test(await projectSource())) failure("SUPABASE_EXIT_SOURCE_DRIFT");
     },
-      cleanup: (fixture, identity) => defaultCleanup(fixture, identity, context),
+      cleanup: (fixture, identity, lifecycle) => defaultCleanup(fixture, identity, context, lifecycle),
     });
   } finally {
     context?.request?.clearCookies?.();

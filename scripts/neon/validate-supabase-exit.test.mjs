@@ -432,6 +432,47 @@ test("initialization SQLSTATE identifies its safe contract and cleanup still suc
   assert.doesNotMatch(JSON.stringify(result), new RegExp(`${secret}|is_primary`));
 });
 
+test("terminal acceptance hostname conflict after Auth creation still completes exact cleanup", async () => {
+  const calls = [];
+  const result = await runSupabaseExitAcceptance({
+    preflight: async () => { calls.push("preflight"); },
+    createIdentity: async () => ({ userId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", password: "never-output" }),
+    fixtureFactory: () => createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "deadbeef" }),
+    initialize: async () => {
+      throw Object.assign(new Error("row detail must stay private"), { code: "NEON_FIRST_INIT_ROW_CONFLICT:PROPERTY_DOMAINS:HOSTNAME" });
+    },
+    validateRuntime: async () => { throw new Error("must-not-run"); },
+    cleanup: async (fixture, _identity, lifecycle) => {
+      assert.deepEqual(lifecycle, { importStarted: false });
+      calls.push(`cleanup:${fixture.cleanup.propertyId}`);
+    },
+  });
+  assert.equal(result.detail, "NEON_FIRST_INIT_ROW_CONFLICT:PROPERTY_DOMAINS:HOSTNAME");
+  assert.equal(result.gates.NEON_FIRST_INITIALIZATION, "FAIL");
+  assert.equal(result.gates.FIXTURE_CLEANUP, "PASS");
+  assert.equal(calls.length, 2);
+  assert.match(calls[1], /^cleanup:[0-9a-f-]{36}$/);
+  assert.doesNotMatch(JSON.stringify(result), /never-output|row detail must stay private/);
+});
+
+test("cleanup marks Blob cleanup necessary once Import validation has started", async () => {
+  const lifecycles = [];
+  const result = await runSupabaseExitAcceptance({
+    preflight: async () => {},
+    createIdentity: async () => ({ userId: "05a561ea-1e14-4920-abd1-ff41b9e29bee" }),
+    fixtureFactory: () => createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "feedface" }),
+    initialize: async () => {},
+    validateRuntime: async () => {},
+    validateBusiness: async () => {},
+    validateProperty: async () => {},
+    validateImport: async () => { throw Object.assign(new Error("provider failure"), { code: "IMPORT_FAILED" }); },
+    cleanup: async (_fixture, _identity, lifecycle) => { lifecycles.push(lifecycle); },
+  });
+  assert.equal(result.detail, "IMPORT_FAILED");
+  assert.equal(result.gates.FIXTURE_CLEANUP, "PASS");
+  assert.deepEqual(lifecycles, [{ importStarted: true }]);
+});
+
 test("operator reports cleanup failure as final failure even when acceptance stages pass", async () => {
   const result = await runSupabaseExitAcceptance({
     preflight: async () => {},

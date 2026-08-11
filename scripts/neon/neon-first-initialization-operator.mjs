@@ -32,6 +32,43 @@ const SQL = Object.freeze({
   propertyInsert: "insert into public.properties (id, tenant_id, code, name_zh, name_en, country_region, timezone, default_language, status) values ($1, $2, $3, $4, $5, $6, $7, $8, 'active') on conflict do nothing",
   domainExisting: "select id, tenant_id, property_id, hostname, verification_status, is_active from public.property_domains where id = $1 or hostname = $2 order by id",
   domainInsert: "insert into public.property_domains (id, tenant_id, property_id, hostname, verification_status, is_active) values ($1, $2, $3, $4, 'verified', true) on conflict do nothing",
+  domainAcceptanceState: `select
+    tenant.code as tenant_code,
+    tenant.status as tenant_status,
+    property.code as property_code,
+    property.status as property_status,
+    (not domain.is_active
+      and tenant.status = 'inactive'
+      and property.status = 'inactive'
+      and tenant.code ~ '^acc-[0-9a-f]{8}$'
+      and property.code ~ '^acc-[0-9a-f]{8}$'
+      and tenant.code = property.code
+      and exists(select 1 from app_private.property_write_audit_events audit where audit.tenant_id = domain.tenant_id and audit.property_id = domain.property_id and audit.operation = 'neon_first_initialization' and audit.target_id = domain.property_id and audit.details->>'source' = 'neon-first-initialization' and audit.details->>'runtimePath' = 'false')
+      and exists(select 1 from app_private.organization_write_audit_events audit where audit.tenant_id = domain.tenant_id and audit.property_id = domain.property_id and audit.operation = 'neon_first_initialization' and audit.details->>'source' = 'neon-first-initialization' and audit.details->>'runtimePath' = 'false')
+      and exists(select 1 from app_private.initialization_audit_events audit where audit.tenant_id = domain.tenant_id and audit.property_id = domain.property_id and audit.operation = 'neon_first_initialization' and audit.details->>'source' = 'neon-first-initialization' and audit.details->>'runtimePath' = 'false')
+      and not exists(select 1 from public.properties sibling where sibling.tenant_id = domain.tenant_id and sibling.status in ('initializing', 'active'))
+      and not exists(select 1 from public.property_domains sibling where sibling.tenant_id = domain.tenant_id and sibling.is_active)
+      and not exists(select 1 from public.user_accounts account where account.tenant_id = domain.tenant_id and account.property_id = domain.property_id and account.account_status = 'active')
+      and not exists(select 1 from public.user_accounts account join public.profiles profile on profile.id = account.user_id where account.tenant_id = domain.tenant_id and account.property_id = domain.property_id and profile.is_active)
+      and not exists(select 1 from public.tenant_memberships membership where membership.tenant_id = domain.tenant_id and membership.status = 'active')
+      and not exists(select 1 from public.property_memberships membership where membership.tenant_id = domain.tenant_id and membership.property_id = domain.property_id and membership.status = 'active')
+      and not exists(select 1 from public.role_assignments assignment where assignment.tenant_id = domain.tenant_id and assignment.property_id = domain.property_id and assignment.status = 'active')
+      and not exists(select 1 from public.roles role where role.tenant_id = domain.tenant_id and role.property_id = domain.property_id and role.is_active)
+      and not exists(select 1 from public.departments department where department.tenant_id = domain.tenant_id and department.property_id = domain.property_id and department.is_active)
+      and not exists(select 1 from public.operational_units unit where unit.tenant_id = domain.tenant_id and unit.property_id = domain.property_id and unit.is_active)
+      and not exists(select 1 from public.position_families family where family.tenant_id = domain.tenant_id and family.property_id = domain.property_id and family.is_active)
+      and not exists(select 1 from public.positions position where position.tenant_id = domain.tenant_id and position.property_id = domain.property_id and position.is_active)
+      and not exists(select 1 from public.position_department_assignments assignment where assignment.tenant_id = domain.tenant_id and assignment.property_id = domain.property_id and assignment.is_active)
+      and not exists(select 1 from public.employees employee where employee.tenant_id = domain.tenant_id and employee.property_id = domain.property_id and employee.is_active)
+      and not exists(select 1 from public.employee_external_identifiers identifier where identifier.tenant_id = domain.tenant_id and identifier.property_id = domain.property_id and identifier.is_active)
+    ) as terminal_acceptance
+    from public.property_domains domain
+    join public.tenants tenant on tenant.id = domain.tenant_id
+    join public.properties property on property.tenant_id = domain.tenant_id and property.id = domain.property_id
+    where domain.id = $1 and domain.hostname = $2 and domain.tenant_id = $3 and domain.property_id = $4`,
+  domainImportRelations: "select to_regclass('public.import_commits') as import_commits",
+  domainUnrevertedImportCommits: "select count(*)::integer as count from public.import_commits where tenant_id = $1 and property_id = $2 and status <> 'reverted'",
+  domainRebind: "update public.property_domains set tenant_id = $1, property_id = $2, verification_status = 'verified', is_active = true where id = $3 and hostname = $4 and tenant_id = $5 and property_id = $6 and is_active = false returning id, tenant_id, property_id, hostname, verification_status, is_active",
   profileExisting: "select id, display_name, email, is_active from public.profiles where id = $1 order by id",
   profileInsert: "insert into public.profiles (id, display_name, email, is_active) values ($1, $2, $3, true) on conflict do nothing",
   accountExisting: "select id, auth_user_id, user_id, tenant_id, property_id, account_status from public.user_accounts where id = $1 or auth_user_id = $2 or user_id = $3 order by id",
@@ -84,6 +121,53 @@ async function ensure(client, { selectSql, selectValues, insertSql, insertValues
   if (after.rows.length !== 1) fail("NEON_FIRST_INIT_ROW_MISSING");
   assertExpectedRow(after.rows[0], expected);
   return before.rows.length === 0;
+}
+
+function propertyDomainConflict(contract) {
+  fail(`NEON_FIRST_INIT_ROW_CONFLICT:PROPERTY_DOMAINS:${contract}`);
+}
+
+function isExpectedPropertyDomain(row, expected, preserveExistingId = false) {
+  return row && Object.entries(expected).every(([key, value]) => (preserveExistingId && key === "id") || row[key] === value);
+}
+
+async function ensurePropertyDomain(client, fixture) {
+  const expected = {
+    id: fixture.propertyDomain.id,
+    tenant_id: fixture.tenant.id,
+    property_id: fixture.property.id,
+    hostname: fixture.propertyDomain.hostname,
+    verification_status: "verified",
+    is_active: true,
+  };
+  const selectValues = [expected.id, expected.hostname];
+  let existing = await client.query(SQL.domainExisting, selectValues);
+  if (existing.rows.length > 1) propertyDomainConflict("ID_OR_HOSTNAME");
+  let created = false;
+  if (existing.rows.length === 0) {
+    await client.query(SQL.domainInsert, [expected.id, expected.tenant_id, expected.property_id, expected.hostname]);
+    created = true;
+    existing = await client.query(SQL.domainExisting, selectValues);
+    if (existing.rows.length !== 1) fail("NEON_FIRST_INIT_ROW_MISSING");
+  }
+  const current = existing.rows[0];
+  if (isExpectedPropertyDomain(current, expected, true)) return created;
+  if (current?.hostname !== expected.hostname) propertyDomainConflict("ID");
+  if (current?.is_active !== false) propertyDomainConflict("HOSTNAME");
+  if (!/^acc-[0-9a-f]{8}$/.test(fixture.tenant.code) || fixture.property.code !== fixture.tenant.code) propertyDomainConflict("HOSTNAME");
+  const ownership = await client.query(SQL.domainAcceptanceState, [current.id, current.hostname, current.tenant_id, current.property_id]);
+  const historical = ownership.rows?.[0];
+  if (ownership.rows.length !== 1 || historical?.terminal_acceptance !== true || !/^acc-[0-9a-f]{8}$/.test(historical.tenant_code) || historical.property_code !== historical.tenant_code) propertyDomainConflict("HOSTNAME");
+  const relations = await client.query(SQL.domainImportRelations);
+  if (relations.rows?.[0]?.import_commits) {
+    const importCommits = await client.query(SQL.domainUnrevertedImportCommits, [current.tenant_id, current.property_id]);
+    if (Number(importCommits.rows?.[0]?.count ?? -1) !== 0) propertyDomainConflict("HOSTNAME");
+  }
+  const rebound = await client.query(SQL.domainRebind, [expected.tenant_id, expected.property_id, current.id, current.hostname, current.tenant_id, current.property_id]);
+  if (rebound.rowCount !== 1 || rebound.rows?.[0]?.id !== current.id || !isExpectedPropertyDomain(rebound.rows[0], expected, true)) propertyDomainConflict("HOSTNAME");
+  const after = await client.query(SQL.domainExisting, selectValues);
+  if (after.rows.length !== 1 || after.rows[0]?.id !== current.id || !isExpectedPropertyDomain(after.rows[0], expected, true)) propertyDomainConflict("HOSTNAME");
+  return true;
 }
 
 function annotateDatabaseContract(error, contractCode) {
@@ -169,7 +253,10 @@ export async function initializeNeonFirstEnvironment({ connectionString, target,
       ["employeeIdentifier", SQL.identifierExisting, [fixture.developmentSeed.employeeIdentifierId, fixture.property.id], SQL.identifierInsert, [fixture.developmentSeed.employeeIdentifierId, fixture.tenant.id, fixture.property.id, fixture.developmentSeed.employeeId], { id: fixture.developmentSeed.employeeIdentifierId, tenant_id: fixture.tenant.id, property_id: fixture.property.id, employee_id: fixture.developmentSeed.employeeId, source_system: "neon-first-seed", identifier_value: "DEV-001", is_active: true }],
     ];
     for (const [name, selectSql, selectValues, insertSql, insertValues, expected] of specs.slice(0, 10)) {
-      if (await withDatabaseContract(DATABASE_CONTRACT_BY_SPEC[name], () => ensure(dbClient, { selectSql, selectValues, insertSql, insertValues, expected }))) created.push(name);
+      const didCreate = name === "propertyDomain"
+        ? await withDatabaseContract(DATABASE_CONTRACT_BY_SPEC[name], () => ensurePropertyDomain(dbClient, fixture))
+        : await withDatabaseContract(DATABASE_CONTRACT_BY_SPEC[name], () => ensure(dbClient, { selectSql, selectValues, insertSql, insertValues, expected }));
+      if (didCreate) created.push(name);
     }
     if (await withDatabaseContract("PROPERTY_INITIALIZATION_STEPS", () => ensureSteps(dbClient, fixture))) created.push("initializationSteps");
     for (const [name, selectSql, selectValues, insertSql, insertValues, expected] of specs.slice(10)) {
