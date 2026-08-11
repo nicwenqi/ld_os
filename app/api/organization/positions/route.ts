@@ -12,7 +12,7 @@ import {
   parseSavePositionWithDepartmentsInput,
 } from "./input.ts";
 
-/** Dark E4A endpoint. The Position registry remains on Supabase. */
+/** Neon E4A read endpoint. */
 export async function GET(request: Request) {
   const requestId = resolveRequestId(request);
   try {

@@ -43,14 +43,14 @@ test("administrator access is loaded through a restricted server boundary", asyn
   const [route, contract, repository] = await Promise.all([
     readFile(new URL("../app/api/initialization/access/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/repositories/contracts/initialization-repository.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/repositories/supabase/initialization-repository.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/repositories/neon/initialization-repository.ts", import.meta.url), "utf8"),
   ]);
   assert.match(route, /runAuthorizedNeonInitialization/);
   assert.match(route, /repository => repository\.getAccessSummary\("server"\)/);
   assert.doesNotMatch(route, /createServerAdminClient|\.from\s*\(/);
   assert.doesNotMatch(route, /service.role|user_metadata/i);
   assert.match(contract, /getAccessSummary/);
-  assert.match(repository, /\/api\/initialization\/access/);
+  assert.match(repository, /read_neon_initialization_access_summary/);
 });
 
 test("activation requires only identity, rules, one active department, and one active manager", () => {

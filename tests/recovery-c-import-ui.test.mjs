@@ -68,7 +68,7 @@ test("review data is explicit and Production cannot silently use it", async () =
   ]);
   assert.match(page, /受保护评审数据/);
   assert.match(page, /dataMode === "mock"/);
-  assert.match(environment, /Production cannot use local-review repositories/);
+  assert.match(environment, /Production must use the explicit Neon runtime/);
   assert.match(registry, /assertProductionDataBoundary/);
   assert.doesNotMatch(page, /synthetic-batch-202607/);
 });

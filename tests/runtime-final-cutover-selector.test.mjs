@@ -11,8 +11,6 @@ import {
 } from "../app/repositories/runtime/load-domain-registry.ts";
 
 const realData = {
-  NEXT_PUBLIC_SUPABASE_URL: "https://auth-adapter.example.test",
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
   PREVIEW_PROPERTY_HOSTNAME: "preview.hotel.example.test",
 };
 
@@ -42,7 +40,7 @@ test("enabled preview Neon selection gives every business domain the Neon source
   );
 });
 
-test("Neon selection without explicit rehearsal fails closed instead of selecting Supabase", () => {
+test("Neon selection without explicit rehearsal fails closed", () => {
   const environment = parseAppEnvironment({
     ...realData,
     APP_ENV: "preview",
@@ -71,21 +69,14 @@ test("Production hard-denies the Neon rehearsal selection", () => {
   );
 });
 
-test("Supabase fallback is selected only by an explicit Supabase data mode", () => {
-  const environment = parseAppEnvironment({
-    ...realData,
-    APP_ENV: "preview",
-    APP_DATA_MODE: "supabase",
-  });
-
-  assert.equal(
-    resolveRuntimeDomainSelection(environment, {}).source,
-    "supabase",
+test("removed fallback data modes fail before runtime selection", () => {
+  assert.throws(
+    () => parseAppEnvironment({ ...realData, APP_ENV: "preview", APP_DATA_MODE: "supabase" }),
+    /APP_DATA_MODE must be mock or neon/,
   );
 });
 
-test("a Neon registry failure stays visible and never invokes the Supabase loader", async () => {
-  let supabaseLoads = 0;
+test("a Neon registry failure stays visible and never invokes a fallback loader", async () => {
 
   await assert.rejects(
     () => loadRuntimeDomainRegistryWith({
@@ -96,16 +87,11 @@ test("a Neon registry failure stays visible and never invokes the Supabase loade
       createNeon: async () => {
         throw new Error("Neon unavailable");
       },
-      createSupabase: async () => {
-        supabaseLoads += 1;
-        return {};
-      },
       createMock: async () => ({}),
     }),
     /Neon unavailable/,
   );
 
-  assert.equal(supabaseLoads, 0);
 });
 
 test("a later retry creates a fresh loader attempt after a rejected runtime selection", async () => {

@@ -30,7 +30,7 @@ test("source audit enforces auth, saga ordering, and exact cleanup deletion", as
     readFile(new URL("../../app/services/import/storage-saga-coordinator.ts", import.meta.url), "utf8"),
     readFile(new URL("../../app/services/import/storage-cleanup-executor.ts", import.meta.url), "utf8"),
   ]);
-  assert.deepEqual(validateE5bImportStagingAuthorizationSource(authorization), { auth: "supabase-auth-user", scope: "neon-live-property", storage: "server-private-blob" });
+  assert.deepEqual(validateE5bImportStagingAuthorizationSource(authorization), { auth: "better-auth-user", scope: "neon-live-property", storage: "server-private-blob" });
   assert.equal(validateE5bImportStorageSagaCoordinatorSource(coordinator).order, "intent-upload-observe-verify-parse-stage");
   assert.equal(validateE5bImportStorageCleanupExecutorSource(cleanup).deletion, "exact-bucket-path");
 });

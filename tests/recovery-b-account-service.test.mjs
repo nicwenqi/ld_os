@@ -118,7 +118,7 @@ test("local-review administration APIs require the approved manager role", () =>
   );
 });
 
-test("new backend passwords have a complete forced-change and manager-reset flow", async () => {
+test("new backend passwords use the same-origin identity provider without a business-data reset path", async () => {
   assert.throws(() => validateBackendPassword("short"), /至少 12 位/);
   assert.throws(() => validateBackendPassword("letters-only-password"), /字母和数字/);
   assert.doesNotThrow(() => validateBackendPassword("HotelAccount2026"));
@@ -135,11 +135,11 @@ test("new backend passwords have a complete forced-change and manager-reset flow
   assert.match(sessionGate, /mustChangePassword/);
   assert.match(loginRoute, /change-password/);
   assert.match(changeRoute, /resolvePasswordChangeRequest/);
-  assert.match(changeRoute, /updateUserById/);
-  assert.match(changeRoute, /must_change_password:\s*false/);
+  assert.match(changeRoute, /getBetterAuth\(\)\.handler/);
+  assert.doesNotMatch(changeRoute, /updateUserById|\.from\s*\(/);
   assert.match(changePage, /保存新密码并继续/);
-  assert.match(accountRoute, /prepare_property_backend_account_password_reset/);
-  assert.match(accountRoute, /updateUserById/);
+  assert.match(accountRoute, /Neon-first 初始化不通过运行时账号接口重置凭据/);
+  assert.doesNotMatch(accountRoute, /updateUserById|prepare_property_backend_account_password_reset|\.from\s*\(/);
   assert.match(accountPage, /重置登录密码/);
   assert.match(accountPage, /本地验证资料不会创建或修改真实认证密码/);
 });

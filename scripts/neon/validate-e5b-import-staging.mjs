@@ -543,7 +543,7 @@ export function validateE5bImportStagingAuthorizationSource(source) {
     || /tenantId\s*:\s*[^,}]*request|propertyId\s*:\s*[^,}]*request|role\s*:\s*[^,}]*request/i.test(value)) {
     failSource("E5B_IMPORT_STAGING_AUTHORIZATION_BOUNDARY_VIOLATION");
   }
-  return { auth: "supabase-auth-user", scope: "neon-live-property", storage: "server-private-blob" };
+  return { auth: "better-auth-user", scope: "neon-live-property", storage: "server-private-blob" };
 }
 
 export function validateE5bImportStorageSagaCoordinatorSource(source) {

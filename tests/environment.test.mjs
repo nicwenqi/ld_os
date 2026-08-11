@@ -4,26 +4,24 @@ import test from "node:test";
 
 import { parseAppEnvironment } from "../app/lib/environment.ts";
 
-test("mock mode remains the safe default without Supabase credentials", () => {
+test("mock mode remains the safe default without external provider credentials", () => {
   assert.deepEqual(parseAppEnvironment({}), {
     appEnv: "local",
     dataMode: "mock",
     appBaseDomain: "ldchub.cn",
     devPropertyHostname: null,
     previewPropertyHostname: null,
-    supabaseUrl: null,
-    supabasePublishableKey: null,
   });
 });
 
 test("production can never fall back to local-review mock data", () => {
   assert.throws(
     () => parseAppEnvironment({ VERCEL_ENV: "production" }),
-    /Production cannot use local-review repositories/,
+    /Production must use the explicit Neon runtime/,
   );
   assert.throws(
     () => parseAppEnvironment({ APP_ENV: "production", APP_DATA_MODE: "mock" }),
-    /Production cannot use local-review repositories/,
+    /Production must use the explicit Neon runtime/,
   );
   assert.throws(
     () => parseAppEnvironment({
@@ -35,14 +33,14 @@ test("production can never fall back to local-review mock data", () => {
   );
 });
 
-test("Supabase data modes require a URL and publishable key", () => {
+test("removed legacy data modes are rejected", () => {
   assert.throws(
     () => parseAppEnvironment({ APP_DATA_MODE: "supabase" }),
-    /NEXT_PUBLIC_SUPABASE_URL is required/,
+    /APP_DATA_MODE must be mock or neon/,
   );
   assert.throws(
-    () => parseAppEnvironment({ APP_DATA_MODE: "hybrid", NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co" }),
-    /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required/,
+    () => parseAppEnvironment({ APP_DATA_MODE: "hybrid" }),
+    /APP_DATA_MODE must be mock or neon/,
   );
 });
 
@@ -53,21 +51,12 @@ test("environment names, URLs, and property hostnames are validated", () => {
     () => parseAppEnvironment({ DEV_PROPERTY_HOSTNAME: "https://hotel.example.test/path" }),
     /DEV_PROPERTY_HOSTNAME/,
   );
-  assert.throws(
-    () => parseAppEnvironment({
-      APP_DATA_MODE: "supabase",
-      NEXT_PUBLIC_SUPABASE_URL: "not-a-url",
-      NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
-    }),
-    /NEXT_PUBLIC_SUPABASE_URL/,
-  );
+  assert.throws(() => parseAppEnvironment({ APP_DATA_MODE: "legacy" }), /APP_DATA_MODE/);
 });
 
-test("hybrid mode requires the property hostname for local and preview environments", () => {
+test("Neon mode requires the property hostname for local and preview environments", () => {
   const base = {
-    APP_DATA_MODE: "hybrid",
-    NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: "sb_publishable_example",
+    APP_DATA_MODE: "neon",
   };
   assert.throws(() => parseAppEnvironment({ ...base, APP_ENV: "local" }), /DEV_PROPERTY_HOSTNAME/);
   assert.throws(() => parseAppEnvironment({ ...base, APP_ENV: "preview" }), /PREVIEW_PROPERTY_HOSTNAME/);

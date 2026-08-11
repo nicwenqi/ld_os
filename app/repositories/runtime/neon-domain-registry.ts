@@ -15,7 +15,7 @@ import { createHttpInitializationRepository } from "../http/initialization-repos
 import { createHttpImportRepository } from "../http/import-repository.ts";
 
 export type RuntimeDomainRegistry = {
-  source: "mock" | "neon" | "supabase";
+  source: "mock" | "neon";
   environment: Pick<AppEnvironment, "appEnv" | "dataMode">;
   department: DepartmentRepository;
   employee: EmployeeRepository;

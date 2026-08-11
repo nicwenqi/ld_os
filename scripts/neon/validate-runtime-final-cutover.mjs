@@ -38,7 +38,7 @@ export function validateRuntimeFinalCutoverSources(input) {
   if (
     !input.loader.includes('fetch("/api/runtime/rehearsal-mode"') ||
     !input.loader.includes('import("./neon-domain-registry.ts")') ||
-    !input.loader.includes('import("./supabase-domain-registry.ts")') ||
+    input.loader.includes("supabase-domain-registry") ||
     !input.loader.includes('return loaders.createNeon()')
   ) throw new Error("RUNTIME_LOADER_DRIFT");
   if (!input.modeSource.includes("resolveRuntimeDomainSelection") || !input.route.includes("resolveRuntimeDomainSelection")) {

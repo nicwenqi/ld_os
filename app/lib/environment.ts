@@ -1,5 +1,5 @@
 export type AppEnvironmentName = "local" | "preview" | "production";
-export type AppDataMode = "mock" | "hybrid" | "supabase" | "neon";
+export type AppDataMode = "mock" | "neon";
 
 export type AppEnvironment = {
   appEnv: AppEnvironmentName;
@@ -7,22 +7,20 @@ export type AppEnvironment = {
   appBaseDomain: string;
   devPropertyHostname: string | null;
   previewPropertyHostname: string | null;
-  supabaseUrl: string | null;
-  supabasePublishableKey: string | null;
 };
 
 type EnvironmentInput = Record<string, string | undefined>;
 
 const appEnvironments = new Set<AppEnvironmentName>(["local", "preview", "production"]);
-const dataModes = new Set<AppDataMode>(["mock", "hybrid", "supabase", "neon"]);
+const dataModes = new Set<AppDataMode>(["mock", "neon"]);
 
 export function assertProductionDataBoundary(
   appEnv: AppEnvironmentName,
   dataMode: AppDataMode,
 ) {
-  if (appEnv === "production" && dataMode === "mock") {
+  if (appEnv === "production" && dataMode !== "neon") {
     throw new Error(
-      "Production cannot use local-review repositories; set APP_DATA_MODE to hybrid or supabase",
+      "Production must use the explicit Neon runtime",
     );
   }
 }
@@ -36,7 +34,7 @@ export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironment
   const appEnv = (input.APP_ENV || inferredEnvironment(input.VERCEL_ENV)) as AppEnvironmentName;
   const dataMode = (input.APP_DATA_MODE || "mock") as AppDataMode;
   if (!appEnvironments.has(appEnv)) throw new Error("APP_ENV must be local, preview, or production");
-  if (!dataModes.has(dataMode)) throw new Error("APP_DATA_MODE must be mock, hybrid, supabase, or neon");
+  if (!dataModes.has(dataMode)) throw new Error("APP_DATA_MODE must be mock or neon");
   if (input.VERCEL_ENV === "production" && appEnv !== "production") {
     throw new Error("Vercel Production must run with APP_ENV=production");
   }
@@ -48,12 +46,7 @@ export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironment
   const appBaseDomain = validateHostname("APP_BASE_DOMAIN", input.APP_BASE_DOMAIN || "ldchub.cn", false)!;
   const devPropertyHostname = validateHostname("DEV_PROPERTY_HOSTNAME", input.DEV_PROPERTY_HOSTNAME);
   const previewPropertyHostname = validateHostname("PREVIEW_PROPERTY_HOSTNAME", input.PREVIEW_PROPERTY_HOSTNAME);
-  const supabaseUrl = optionalUrl("NEXT_PUBLIC_SUPABASE_URL", input.NEXT_PUBLIC_SUPABASE_URL);
-  const supabasePublishableKey = clean(input.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
-
   if (dataMode !== "mock") {
-    if (!supabaseUrl) throw new Error("NEXT_PUBLIC_SUPABASE_URL is required outside mock mode");
-    if (!supabasePublishableKey) throw new Error("NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY is required outside mock mode");
     if (appEnv === "local" && !devPropertyHostname)
       throw new Error("DEV_PROPERTY_HOSTNAME is required for local real-data modes");
     if (appEnv === "preview" && !previewPropertyHostname)
@@ -66,8 +59,6 @@ export function parseAppEnvironment(input: EnvironmentInput = defaultEnvironment
     appBaseDomain,
     devPropertyHostname,
     previewPropertyHostname,
-    supabaseUrl,
-    supabasePublishableKey,
   };
 }
 
@@ -79,8 +70,6 @@ function defaultEnvironmentInput(): EnvironmentInput {
     DEV_PROPERTY_HOSTNAME: process.env.DEV_PROPERTY_HOSTNAME,
     PREVIEW_PROPERTY_HOSTNAME: process.env.PREVIEW_PROPERTY_HOSTNAME,
     VERCEL_ENV: process.env.VERCEL_ENV,
-    NEXT_PUBLIC_SUPABASE_URL: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
   };
 }
 
@@ -93,20 +82,6 @@ function inferredEnvironment(vercelEnvironment: string | undefined): AppEnvironm
 function clean(value: string | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
-}
-
-function optionalUrl(name: string, value: string | undefined): string | null {
-  const normalized = clean(value);
-  if (!normalized) return null;
-  let parsed: URL;
-  try {
-    parsed = new URL(normalized);
-  } catch {
-    throw new Error(`${name} must be a valid HTTPS URL`);
-  }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.search || parsed.hash)
-    throw new Error(`${name} must be a valid HTTPS URL`);
-  return parsed.toString().replace(/\/$/, "");
 }
 
 function validateHostname(name: string, value: string | undefined, optional = true): string | null {

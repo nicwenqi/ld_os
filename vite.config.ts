@@ -2,7 +2,6 @@ import vinext from "vinext";
 import { defineConfig, loadEnv } from "vite";
 import hostingConfig from "./.openai/hosting.json";
 import { parseAppEnvironment } from "./app/lib/environment";
-import { resolveOrganizationRepositoryMode } from "./app/lib/organization-repository-mode";
 import { sites } from "./build/sites-vite-plugin";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
@@ -38,11 +37,6 @@ const localBindingConfig = {
 export default defineConfig(async ({ mode }) => {
   const environmentInput = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   const environment = parseAppEnvironment(environmentInput);
-  const organizationRepositoryMode = resolveOrganizationRepositoryMode(
-    environment,
-    environmentInput.APP_ORGANIZATION_REPOSITORY,
-    environmentInput.VERCEL_ENV,
-  );
   const browserEnvironmentDefines = {
     "process.env.APP_ENV": JSON.stringify(environment.appEnv),
     "process.env.APP_DATA_MODE": JSON.stringify(environment.dataMode),
@@ -50,9 +44,6 @@ export default defineConfig(async ({ mode }) => {
     "process.env.DEV_PROPERTY_HOSTNAME": JSON.stringify(environment.devPropertyHostname ?? ""),
     "process.env.PREVIEW_PROPERTY_HOSTNAME": JSON.stringify(environment.previewPropertyHostname ?? ""),
     "process.env.VERCEL_ENV": JSON.stringify(process.env.VERCEL_ENV ?? ""),
-    "process.env.NEXT_PUBLIC_SUPABASE_URL": JSON.stringify(environment.supabaseUrl ?? ""),
-    "process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": JSON.stringify(environment.supabasePublishableKey ?? ""),
-    "process.env.APP_ORGANIZATION_REPOSITORY": JSON.stringify(organizationRepositoryMode),
   };
 
   const isVercelDeployment =

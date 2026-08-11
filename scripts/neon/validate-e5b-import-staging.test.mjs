@@ -8,8 +8,19 @@ import {
   E5B_ENTRYPOINT_SIGNATURES,
   assertE5bBootstrapUrl,
   assertE5bRuntimeUrl,
+  hasUnsafeRawApplicationPrivilege,
   validateE5bImportStagingSource,
 } from "./validate-e5b-import-staging.mjs";
+
+test("canonical E5B storage metadata names the Vercel Blob provider, not a retired provider", async () => {
+  const source = await readFile(
+    new URL("../../neon/canonical/e5b/090_import_staging_schema.sql", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /storage_provider text not null default 'vercel_blob'/);
+  assert.match(source, /check \(storage_provider = 'vercel_blob'\)/);
+  assert.doesNotMatch(source, /supabase_storage/i);
+});
 
 test("E5B bootstrap guard accepts only the canonical final direct target", () => {
   const target = assertE5bBootstrapUrl(
@@ -64,18 +75,11 @@ test("source validation rejects a secured overload that is not the exact entrypo
   });
 });
 
-test("source validation ignores commented raw grants", async () => {
-  await withSourceFixture(async root => {
-    await writeFile(
-      join(root, "neon/canonical/090_import_staging_schema.sql"),
-      schemaSql(`
-        -- grant select on table public.import_batches to hotel_ld_application;
-        /* grant usage on schema storage to hotel_ld_application; */
-      `),
-    );
-
-    await assert.doesNotReject(validateE5bImportStagingSource({ root }));
-  });
+test("raw application grant scan ignores commented statements", () => {
+  assert.equal(hasUnsafeRawApplicationPrivilege(`
+    -- grant select on table public.import_batches to hotel_ld_application;
+    /* grant usage on schema storage to hotel_ld_application; */
+  `), false);
 });
 
 test("source validation rejects grouped comma-separated raw grants", async () => {

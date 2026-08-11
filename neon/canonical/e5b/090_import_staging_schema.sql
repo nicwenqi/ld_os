@@ -36,8 +36,8 @@ create table public.import_batches (
     sanitized_filename ~ '^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$'
     and sanitized_filename !~ '\\.\\.'
   ),
-  storage_provider text not null default 'supabase_storage'
-    check (storage_provider = 'supabase_storage'),
+  storage_provider text not null default 'vercel_blob'
+    check (storage_provider = 'vercel_blob'),
   storage_bucket text not null default 'property-import-files'
     check (storage_bucket = 'property-import-files'),
   object_path text not null check (

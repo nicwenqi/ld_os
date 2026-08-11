@@ -74,13 +74,12 @@ test("trusted staging preserves private evidence and returns aggregate-only insp
 });
 
 test("production routes use server-authorized property context and never accept a property id", async () => {
-  const [contextRoute, inspectionRoute, inspectionBoundary, inspectionAuthorization, tokenRoute, browserClient, loginPage, initializePage, importPage, fileInspectionStep] = await Promise.all([
+  const [contextRoute, inspectionRoute, inspectionBoundary, inspectionAuthorization, tokenRoute, loginPage, initializePage, importPage, fileInspectionStep] = await Promise.all([
     readFile(new URL("../app/api/property/context/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/services/import/neon-import-inspection-boundary.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/services/neon-import-staging-authorization.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/access-token/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../app/lib/supabase/browser.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/initialize/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/import/page.tsx", import.meta.url), "utf8"),
@@ -94,12 +93,9 @@ test("production routes use server-authorized property context and never accept 
   assert.match(inspectionBoundary, /declaredChecksumSha256:\s*checksum/);
   assert.doesNotMatch(inspectionBoundary, /safeSummary\.checksum/);
   assert.doesNotMatch(inspectionRoute, /form\.get\(["']propertyId["']\)/);
-  assert.match(tokenRoute, /resolveAuthenticatedRequest/);
+  assert.match(tokenRoute, /status:\s*404/);
   assert.match(tokenRoute, /["']Cache-Control["']\s*:\s*["']no-store["']/);
-  assert.doesNotMatch(tokenRoute, /SUPABASE_SECRET_KEY|secretKey/);
-  assert.match(browserClient, /accessToken/);
-  assert.match(browserClient, /\/api\/auth\/access-token/);
-  assert.doesNotMatch(browserClient, /SUPABASE_SECRET_KEY|service.role/i);
+  assert.doesNotMatch(tokenRoute, /accessToken|refreshToken|bearer/i);
   assert.match(loginPage, /\/api\/property\/context/);
   assert.match(initializePage, /session\.propertyId/);
   assert.match(importPage, /fetch\("\/api\/import\/inspect"/);
@@ -107,14 +103,15 @@ test("production routes use server-authorized property context and never accept 
   assert.match(fileInspectionStep, /type="file"/);
 });
 
-test("access-token release is limited by the server-resolved workspace role", async () => {
+test("browser never receives a provider bearer token while server resolves Neon authority", async () => {
   const [tokenRoute, requestAuthentication, authenticationService] = await Promise.all([
     readFile(new URL("../app/api/auth/access-token/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/services/request-authentication.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/services/authentication-service.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(tokenRoute, /resolveAuthenticatedRequest\(request\)/);
+  assert.match(tokenRoute, /status:\s*404/);
+  assert.doesNotMatch(tokenRoute, /accessToken|refreshToken|bearer/i);
   assert.match(
     requestAuthentication,
     /resolveNeonAuthorizationForAuthUser\(\s*identity\.userId,\s*identity\.hostname,\s*crypto\.randomUUID\(\),\s*\)/,
@@ -137,18 +134,17 @@ test("access-token release is limited by the server-resolved workspace role", as
   );
 });
 
-test("production auth keeps refresh credentials HttpOnly, renews an expired access cookie, and clears both cookies", async () => {
-  const [cookies, loginRoute, sessionRoute, logoutRoute] = await Promise.all([
-    readFile(new URL("../app/api/auth/cookies.ts", import.meta.url), "utf8"),
+test("same-origin Better Auth owns session refresh and logout cookies", async () => {
+  const [loginRoute, sessionRoute, logoutRoute, authRoute] = await Promise.all([
     readFile(new URL("../app/api/auth/login/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/session/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/logout/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/[...all]/route.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(cookies, /hotel_ld_refresh/);
-  assert.match(cookies, /HttpOnly/);
-  assert.match(loginRoute, /refreshToken/);
-  assert.match(sessionRoute, /readRefreshCookie/);
-  assert.match(logoutRoute, /expiredAuthCookies/);
+  assert.match(loginRoute, /resolveAccountForLogin/);
+  assert.match(sessionRoute, /resolveRequestAuthIdentity/);
+  assert.match(logoutRoute, /signOutWithBetterAuth/);
+  assert.match(authRoute, /getBetterAuth\(\)\.handler/);
 });
 
 test("public hostname resolver suppresses inactive and unknown private context", async () => {
@@ -166,8 +162,7 @@ test("Vite exposes only the validated public runtime boundary to browser reposit
     readFile(new URL("../app/components/initialization/InitializationStatusCard.tsx", import.meta.url), "utf8"),
   ]);
   assert.match(viteConfig, /browserEnvironmentDefines/);
-  assert.match(viteConfig, /NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY/);
-  assert.doesNotMatch(viteConfig, /SUPABASE_SECRET_KEY|SERVICE_ROLE/);
+  assert.doesNotMatch(viteConfig, /SUPABASE|AUTH_DATABASE_URL|BETTER_AUTH_SECRET/);
   assert.match(environment, /defaultEnvironmentInput/);
   assert.match(statusCard, /session\.propertyId/);
   assert.doesNotMatch(statusCard, /resolveContext\(hostname\)/);

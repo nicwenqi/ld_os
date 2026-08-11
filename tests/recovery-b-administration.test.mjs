@@ -70,9 +70,8 @@ test("account administration is restricted to the two approved backend roles", a
 
   assert.match(route, /requirePropertyManager/);
   assert.match(route, /requireLocalReviewManager/);
-  assert.match(route, /auth\.admin\.createUser/);
-  assert.match(route, /create_property_backend_account_foundation/);
-  assert.match(route, /update_property_backend_account/);
+  assert.match(route, /Neon-first 初始化 operator/);
+  assert.doesNotMatch(route, /auth\.admin|create_property_backend_account_foundation|update_property_backend_account|\.from\s*\(/);
   assert.doesNotMatch(route, /employee_participant|property_member/);
   assert.match(service, /property_ld_manager/);
   assert.match(service, /department_training_admin/);

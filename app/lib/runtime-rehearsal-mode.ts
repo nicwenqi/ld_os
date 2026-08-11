@@ -1,7 +1,7 @@
 import type { AppEnvironment } from "./environment.ts";
 
 export type RuntimeRehearsalMode = "disabled" | "enabled";
-export type RuntimeDomainSource = "mock" | "neon" | "supabase";
+export type RuntimeDomainSource = "mock" | "neon";
 export type RuntimeBusinessDomain =
   | "organization"
   | "people"
@@ -42,7 +42,7 @@ export function resolveRuntimeRehearsalMode(
 export function runtimeDomainSource(
   mode: RuntimeRehearsalMode,
 ): RuntimeDomainSource {
-  return mode === "enabled" ? "neon" : "supabase";
+  return mode === "enabled" ? "neon" : "mock";
 }
 
 export function resolveRuntimeDomainSelection(
@@ -69,7 +69,7 @@ export function resolveRuntimeDomainSelection(
   if (requested === "enabled") {
     throw new Error("Neon runtime rehearsal requires APP_DATA_MODE=neon");
   }
-  return selection(environment.dataMode === "mock" ? "mock" : "supabase");
+  return selection("mock");
 }
 
 function selection(source: RuntimeDomainSource): RuntimeDomainSelection {

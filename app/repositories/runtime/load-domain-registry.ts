@@ -1,15 +1,15 @@
 import type { RuntimeDomainRegistry } from "./neon-domain-registry.ts";
 
 type ModePayload = {
-  source: "mock" | "neon" | "supabase";
+  source: "mock" | "neon";
   domains: {
-    organization: "mock" | "neon" | "supabase";
-    people: "mock" | "neon" | "supabase";
-    position: "mock" | "neon" | "supabase";
-    employee: "mock" | "neon" | "supabase";
-    import: "mock" | "neon" | "supabase";
-    property: "mock" | "neon" | "supabase";
-    initialization: "mock" | "neon" | "supabase";
+    organization: "mock" | "neon";
+    people: "mock" | "neon";
+    position: "mock" | "neon";
+    employee: "mock" | "neon";
+    import: "mock" | "neon";
+    property: "mock" | "neon";
+    initialization: "mock" | "neon";
   };
 };
 
@@ -39,10 +39,6 @@ async function load(): Promise<RuntimeDomainRegistry> {
       const { createMockDomainRegistry } = await import("./mock-domain-registry.ts");
       return createMockDomainRegistry();
     },
-    createSupabase: async () => {
-      const { createSupabaseDomainRegistry } = await import("./supabase-domain-registry.ts");
-      return createSupabaseDomainRegistry();
-    },
   });
 }
 
@@ -52,7 +48,6 @@ type RuntimeDomainRegistryLoaders = {
   fetchMode: () => Promise<ModeResponse>;
   createNeon: () => Promise<RuntimeDomainRegistry>;
   createMock: () => Promise<RuntimeDomainRegistry>;
-  createSupabase: () => Promise<RuntimeDomainRegistry>;
 };
 
 export async function loadRuntimeDomainRegistryWith(
@@ -76,7 +71,7 @@ export async function loadRuntimeDomainRegistryWith(
   if (payload.source === "mock") {
     return loaders.createMock();
   }
-  return loaders.createSupabase();
+  throw new Error("运行时只能选择 mock 或 Neon 数据源");
 }
 
 export function createRetriableRuntimeDomainRegistryLoader(

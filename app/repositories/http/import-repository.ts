@@ -27,7 +27,7 @@ type MappingWorkflow = {
 };
 type StagingWorkflow = { batchId: string; fileName: string; workbookLifecycle: string; storageLifecycle: string; verificationStatus: string; version: number; createdAt: string; counts: { total: number; valid: number; warning: number; error: number } };
 
-/** Browser-safe adapter. It has no Supabase, pg, or scope-selection inputs. */
+/** Browser-safe adapter. It has no provider SDK, pg, or scope-selection inputs. */
 export function createHttpImportRepository(): ImportRepository {
   return {
     createBatch: unsupported("createBatch", "文件上传必须通过 /api/import/inspect"),

@@ -10,7 +10,7 @@ import {
   parseSavePositionFamilyInput,
 } from "../positions/input.ts";
 
-/** Dark E4A endpoint. The Position registry remains on Supabase. */
+/** Neon E4A read endpoint. */
 export async function GET(request: Request) {
   const requestId = resolveRequestId(request);
   try {
@@ -26,7 +26,7 @@ export async function GET(request: Request) {
   }
 }
 
-/** Dark E4B mutation endpoint; the Position registry remains on Supabase. */
+/** Neon E4B mutation endpoint. */
 export async function POST(request: Request) {
   const requestId = resolveRequestId(request);
   try {

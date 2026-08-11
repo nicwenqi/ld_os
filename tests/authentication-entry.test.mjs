@@ -75,11 +75,11 @@ test("login is Chinese-first User ID and password with no selectors or email",as
 
 test("server login keeps technical identities outside the browser",async()=>{
   const route=await read("../app/api/auth/login/route.ts");
-  const server=await read("../app/lib/supabase/server-admin.ts");
+  const server=await read("../app/lib/auth/better-auth.ts");
   const client=await read("../app/state/auth-session.tsx");
   assert.match(route,/resolveAccountForLogin/);
-  assert.match(server,/SUPABASE_SECRET_KEY/);
-  assert.doesNotMatch(client,/SUPABASE_SECRET_KEY|service_role|internalAuthIdentity|\.internal/);
+  assert.match(server,/AUTH_DATABASE_URL/);
+  assert.doesNotMatch(client,/AUTH_DATABASE_URL|BETTER_AUTH_SECRET|internalAuthIdentity|\.internal/);
 });
 
 test("browser never receives an authentication-provider bearer token", async () => {
@@ -140,7 +140,7 @@ test("browser never receives an authentication-provider bearer token", async () 
     read("../app/api/auth/access-token/route.ts"),
     read("../app/services/request-authentication.ts"),
   ]);
-  assert.match(route, /浏览器不会获得认证提供方 bearer token/);
+  assert.match(route, /此端点已移除/);
   assert.doesNotMatch(route, /accessToken|resolveAuthenticatedRequest/);
   assert.match(guard, /resolveBetterAuthIdentity/);
   assert.match(guard, /!session\.mustChangePassword/);

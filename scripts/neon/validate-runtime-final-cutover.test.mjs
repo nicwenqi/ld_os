@@ -6,7 +6,7 @@ import {
 } from "./validate-runtime-final-cutover.mjs";
 
 const valid = {
-  loader: `fetch("/api/runtime/rehearsal-mode"); import("./neon-domain-registry.ts"); import("./supabase-domain-registry.ts"); return loaders.createNeon();`,
+  loader: `fetch("/api/runtime/rehearsal-mode"); import("./neon-domain-registry.ts"); return loaders.createNeon();`,
   neonRegistry: `createHttpDepartmentRepository(); createHttpEmployeeRepository(); createHttpPositionRepository(); createHttpPropertyRepository(); createHttpInitializationRepository(); createHttpImportRepository();`,
   pages: [
     `RuntimeDomainRegistryBoundary`,
@@ -67,5 +67,15 @@ test("cutover source gate rejects a mixed domain matrix and browser Neon credent
       clientAssets: ["DATABASE_URL=postgresql://forbidden"],
     }),
     /BROWSER_NEON_SECRET_DRIFT/,
+  );
+});
+
+test("cutover source gate rejects a legacy Supabase registry loader instead of treating it as a fallback", () => {
+  assert.throws(
+    () => validateRuntimeFinalCutoverSources({
+      ...valid,
+      loader: `${valid.loader} import("./supabase-domain-registry.ts");`,
+    }),
+    /RUNTIME_LOADER_DRIFT/,
   );
 });

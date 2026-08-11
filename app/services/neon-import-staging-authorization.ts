@@ -48,7 +48,7 @@ export class ImportStagingApiError extends Error {
 }
 
 /**
- * Resolves Supabase Auth and the live Neon property scope before invoking a
+ * Resolves the Better Auth identity and the live Neon property scope before invoking a
  * constrained repository. Request bodies cannot select identity or scope.
  * Storage calls are deliberately supplied as an adapter; the repository facade
  * opens a fresh short Actor Context transaction per database operation, so the

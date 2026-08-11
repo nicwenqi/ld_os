@@ -27,7 +27,7 @@ async function main() {
   if (
     !loader.includes('fetch("/api/runtime/rehearsal-mode"') ||
     !loader.includes('import("./neon-domain-registry.ts")') ||
-    !loader.includes('import("./supabase-domain-registry.ts")')
+    loader.includes("supabase-domain-registry")
   ) throw new Error("RUNTIME_REHEARSAL_LAZY_LOADER_DRIFT");
   if (/supabase\/browser|repositories\/supabase|@supabase\/supabase-js|DATABASE_URL|from\s+["']pg["']/.test(neonRegistry)) {
     throw new Error("RUNTIME_REHEARSAL_NEON_REGISTRY_BOUNDARY_DRIFT");
@@ -40,7 +40,7 @@ async function main() {
     command,
     targetPages: TARGET_PAGES,
     sameOriginHttpOnly: true,
-    dynamicFallbackOnly: true,
+    noLegacyFallbackLoader: true,
     noBrowserNeonCredential: true,
   }));
 }

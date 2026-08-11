@@ -136,7 +136,7 @@ test("source gate requires the deterministic Neon contract and server-only resol
     neonAuthorizationContract: true,
     loginResolverFactory: true,
     sessionResolverFactory: true,
-    serverOnlySupabaseBoundary: true,
+    serverOnlyIdentityBoundary: true,
     browserRegistryGate: true,
   });
 });

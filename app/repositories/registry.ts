@@ -4,8 +4,6 @@ import {
   parseAppEnvironment,
   type AppEnvironment,
 } from "../lib/environment.ts";
-import { resolveOrganizationRepositoryMode, type OrganizationRepositoryMode } from "../lib/organization-repository-mode.ts";
-import { createBrowserSupabaseClient } from "../lib/supabase/browser.ts";
 import type { RepositoryDataSource } from "./contracts/models.ts";
 import type { PropertyRepository } from "./contracts/property-repository.ts";
 import type { DepartmentRepository } from "./contracts/department-repository.ts";
@@ -24,13 +22,7 @@ import { createMockPositionRepository } from "./mock/position-repository.ts";
 import { createMockPropertyRepository } from "./mock/property-repository.ts";
 import { createMockEmployeeRepository } from "./mock/employee-repository.ts";
 import { createMockImportRepository } from "./mock/import-repository.ts";
-import { createSupabaseDepartmentRepository } from "./supabase/department-repository.ts";
-import { createSupabasePositionRepository } from "./supabase/position-repository.ts";
-import { createSupabasePropertyRepository } from "./supabase/property-repository.ts";
-import { createSupabaseEmployeeRepository } from "./supabase/employee-repository.ts";
-import { createSupabaseImportRepository } from "./supabase/import-repository.ts";
 import { createMockInitializationRepository } from "./mock/initialization-repository.ts";
-import { createSupabaseInitializationRepository } from "./supabase/initialization-repository.ts";
 
 export type ModuleName =
   | "hotel-settings"
@@ -51,7 +43,7 @@ export type ModuleName =
 export function dataSourceForModule(
   moduleName: ModuleName,
   dataMode: AppDataMode,
-  organizationMode: OrganizationRepositoryMode = "supabase",
+  _organizationMode?: never,
 ): RepositoryDataSource {
   const foundationModules: ModuleName[] = [
     "hotel-settings",
@@ -62,8 +54,7 @@ export function dataSourceForModule(
   ];
   if (!foundationModules.includes(moduleName)) return "unavailable";
   if (dataMode === "neon") return "neon";
-  if (moduleName === "organization-management" && organizationMode === "neon") return "neon";
-  return dataMode === "mock" ? "mock" : "supabase";
+  return dataMode === "mock" ? "mock" : "neon";
 }
 
 export function createRepositoryRegistry(input?: {
@@ -77,62 +68,40 @@ export function createRepositoryRegistry(input?: {
 }) {
   const environment = input?.environment ?? parseAppEnvironment();
   assertProductionDataBoundary(environment.appEnv, environment.dataMode);
-  const organizationMode = resolveOrganizationRepositoryMode(
-    environment,
-    process.env.APP_ORGANIZATION_REPOSITORY,
-    process.env.VERCEL_ENV,
-  );
-  const needsSupabase = environment.dataMode !== "mock" && environment.dataMode !== "neon";
-  const client = needsSupabase ? createBrowserSupabaseClient(environment) : null;
   const propertySource = dataSourceForModule("hotel-settings", environment.dataMode);
   const property = input?.propertyRepository ?? (
-    propertySource === "supabase"
-      ? createSupabasePropertyRepository(client!, environment.supabaseUrl!)
-      : environment.dataMode === "neon"
+    environment.dataMode === "neon"
         ? createHttpPropertyRepository()
         : createMockPropertyRepository()
   );
   const departmentSource = dataSourceForModule(
     "organization-management",
     environment.dataMode,
-    organizationMode,
   );
   const department = input?.departmentRepository ?? (
     departmentSource === "neon"
       ? createHttpDepartmentRepository()
-      : departmentSource === "supabase"
-        ? createSupabaseDepartmentRepository(client!)
-        : environment.dataMode === "neon"
-          ? createHttpDepartmentRepository()
-          : createMockDepartmentRepository()
+      : createMockDepartmentRepository()
   );
   const position = input?.positionRepository ?? (
-    dataSourceForModule("position-management", environment.dataMode) === "supabase"
-      ? createSupabasePositionRepository(client!)
-      : dataSourceForModule("position-management", environment.dataMode) === "neon"
+    dataSourceForModule("position-management", environment.dataMode) === "neon"
         ? createHttpPositionRepository()
         : createMockPositionRepository()
   );
   const employee = input?.employeeRepository ?? (
-    dataSourceForModule("people", environment.dataMode) === "supabase"
-      ? createSupabaseEmployeeRepository(client!)
-      : dataSourceForModule("people", environment.dataMode) === "neon"
+    dataSourceForModule("people", environment.dataMode) === "neon"
         ? createHttpEmployeeRepository()
         : createMockEmployeeRepository()
   );
   const importCenter = input?.importRepository ?? (
-    dataSourceForModule("import", environment.dataMode) === "supabase"
-      ? createSupabaseImportRepository(client!)
-      : dataSourceForModule("import", environment.dataMode) === "neon"
+    dataSourceForModule("import", environment.dataMode) === "neon"
         ? createHttpImportRepository()
         : createMockImportRepository()
   );
   const initialization = input?.initializationRepository ?? (
-    propertySource === "supabase"
-      ? createSupabaseInitializationRepository(client!)
-      : environment.dataMode === "neon"
+    environment.dataMode === "neon"
         ? createHttpInitializationRepository()
         : createMockInitializationRepository()
   );
-  return { environment, property, department, position, employee, import: importCenter, initialization, dataSourceForModule: (moduleName: ModuleName) => dataSourceForModule(moduleName, environment.dataMode, organizationMode) };
+  return { environment, property, department, position, employee, import: importCenter, initialization, dataSourceForModule: (moduleName: ModuleName) => dataSourceForModule(moduleName, environment.dataMode) };
 }

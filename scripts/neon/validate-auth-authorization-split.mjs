@@ -17,8 +17,7 @@ export function validateAuthAuthorizationSplitSources(input) {
   if (/\b(?:NeonPreAuthLoginIdentity|resolveLoginIdentity|readSessionAuthority)\b/.test(contract)) {
     throw new Error("RETIRED_PRE_AUTH_LOGIN_CONTRACT_DRIFT");
   }
-  if (!/deriveDeterministicAuthEmail\s*\(/.test(contract) ||
-      !/export\s+type\s*\{\s*NeonAuthorizationFacts\s*\}/.test(contract) ||
+  if (!/export\s+type\s*\{\s*NeonAuthorizationFacts\s*\}/.test(contract) ||
       !/resolveAuthorizationForAuthUser\s*\(\s*authUserId\s*:\s*string\s*,\s*hostname\s*:\s*string\s*,\s*requestId\s*:\s*string\s*\)/.test(contract)) {
     throw new Error("NEON_AUTHORIZATION_CONTRACT_DRIFT");
   }
@@ -39,7 +38,7 @@ export function validateAuthAuthorizationSplitSources(input) {
     neonAuthorizationContract: true,
     loginResolverFactory: true,
     sessionResolverFactory: true,
-    serverOnlySupabaseBoundary: true,
+    serverOnlyIdentityBoundary: true,
     browserRegistryGate: true,
   };
 }

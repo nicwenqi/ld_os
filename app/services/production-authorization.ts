@@ -58,7 +58,7 @@ export async function requireProductionPropertyManager(
   request: Request,
 ): Promise<PropertyManagerActor> {
   const environment = parseAppEnvironment();
-  if (environment.appEnv !== "production" || environment.dataMode !== "supabase") {
+  if (environment.appEnv !== "production" || environment.dataMode !== "neon") {
     throw new AuthorizationError(404, "生产导入入口不可用");
   }
   return requirePropertyManager(request);

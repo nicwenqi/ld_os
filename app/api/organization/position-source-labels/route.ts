@@ -5,7 +5,7 @@ import {
 } from "../../../services/neon-organization-authorization.ts";
 import { runAuthorizedNeonPositionMapping } from "../../../services/neon-position-authorization.ts";
 
-/** Dark E4C endpoint. The Position registry remains on Supabase. */
+/** Neon E4C mapping endpoint. */
 export async function GET(request: Request) {
   const requestId = resolveRequestId(request);
   try {
