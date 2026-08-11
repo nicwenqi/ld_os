@@ -683,6 +683,70 @@ function createdEntrypointSignatures(source) {
   }));
 }
 
+export function validateCanonicalAuthAuthorizationSource(source) {
+  if (typeof source !== "string") fail("AUTHORIZATION_SOURCE_INVALID", "AUTHORIZATION_SOURCE_INVALID");
+  const normalized = normalizeQuotedIdentifiers(stripSqlComments(source));
+  const topLevel = stripDollarQuotedBlocks(normalized).replace(/\s+/g, " ").trim();
+  const expectedSignature = "public.read_neon_authorization_session(text)";
+
+  if (!/^begin\s*;\s*set\s+local\s+role\s+hotel_ld_migration_owner\s*;/i.test(topLevel)
+    || !/commit\s*;\s*$/i.test(topLevel)) {
+    fail("AUTHORIZATION_TRANSACTION_FRAME_INVALID", "AUTHORIZATION_TRANSACTION_FRAME_INVALID");
+  }
+  if (/(?:^|;)\s*set\s+(?!local\b)/i.test(topLevel)) {
+    fail("AUTHORIZATION_PERSISTENT_SET", "AUTHORIZATION_PERSISTENT_SET");
+  }
+  if (/\bset_config\s*\(/i.test(normalized)) {
+    fail("AUTHORIZATION_ACTOR_CONTEXT_MUTATION", "AUTHORIZATION_ACTOR_CONTEXT_MUTATION");
+  }
+  if (/\bresolve_neon_login_identity\b|\bp_login_id\b/i.test(normalized)) {
+    fail("AUTHORIZATION_ACTOR_FREE_LOOKUP_FORBIDDEN", "AUTHORIZATION_ACTOR_FREE_LOOKUP_FORBIDDEN");
+  }
+  if (/\b(?:auth|storage)\s*\./i.test(normalized)) {
+    fail("AUTHORIZATION_FORBIDDEN_SCHEMA", "AUTHORIZATION_FORBIDDEN_SCHEMA");
+  }
+  if (/\bcreate\s+policy\b|\balter\s+table\b[^;]*\brow\s+level\s+security\b/i.test(topLevel)) {
+    fail("AUTHORIZATION_RLS_POLICY_CHANGE", "RLS_POLICY_CHANGE");
+  }
+  if (/\bcreate\s+(?:table|index|role)\b/i.test(topLevel)) {
+    fail("AUTHORIZATION_OBJECT_FORBIDDEN", "AUTHORIZATION_OBJECT_FORBIDDEN");
+  }
+  if (/\bgrant\s+(?:execute|all(?:\s+privileges)?)\s+on\s+(?:function|all\s+functions)[^;]*\bto\s+public\b/i.test(topLevel)) {
+    fail("AUTHORIZATION_PUBLIC_EXECUTE", "PUBLIC_EXECUTE");
+  }
+  try {
+    requireNoRawRuntimeGrants(normalized, "hotel_ld_application");
+  } catch (error) {
+    if (error?.code === "CANONICAL_NEON_APPLICATION_RAW_TABLE_PRIVILEGE") {
+      fail("AUTHORIZATION_RAW_APPLICATION_PRIVILEGE", "RAW_APPLICATION_PRIVILEGE");
+    }
+    throw error;
+  }
+
+  const created = createdEntrypointSignatures(normalized).filter(signature => signature.startsWith("public."));
+  if (created.length !== 1 || created[0] !== expectedSignature) {
+    fail("AUTHORIZATION_ENTRYPOINT_MISSING", "AUTHORIZATION_ENTRYPOINT_MISSING");
+  }
+  const block = functionBlocks(normalized)[0] ?? "";
+  if (!/\breturns\s+jsonb\s+language\s+plpgsql\s+volatile\s+security\s+definer\s+set\s+search_path\s*=\s*''\s+as\b/i.test(block)) {
+    fail("AUTHORIZATION_DEFINER_SEARCH_PATH", "DEFINER_SEARCH_PATH");
+  }
+  if (!/\brevoke\s+all\s+on\s+function\s+public\.read_neon_authorization_session\s*\(\s*text\s*\)\s+from\s+public\s*;/i.test(topLevel)) {
+    fail("AUTHORIZATION_PUBLIC_REVOKE_MISSING", "PUBLIC_REVOKE_MISSING");
+  }
+  const granted = grantedEntrypointSignatures(normalized, "hotel_ld_application");
+  if (granted.length !== 1 || granted[0] !== expectedSignature) {
+    fail("AUTHORIZATION_APPLICATION_EXECUTE_MISSING", "APPLICATION_EXECUTE_MISSING");
+  }
+  const executeGrants = topLevel.match(/\bgrant\s+execute\s+on\s+function\b[^;]+;/gi) ?? [];
+  if (executeGrants.length !== 1
+    || !/\bto\s+hotel_ld_application\s*;/i.test(executeGrants[0])) {
+    fail("AUTHORIZATION_EXECUTE_GRANT_DRIFT", "AUTHORIZATION_EXECUTE_GRANT_DRIFT");
+  }
+
+  return { entrypointSignatures: [expectedSignature] };
+}
+
 function rejectUnsafeSource(source, manifest) {
   const exclusions = [
     ...manifest.exclusions.schemas,
@@ -742,6 +806,8 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
     fail("CANONICAL_NEON_MISSING_MODULE", `canonical module inventory is incomplete: ${missingPaths.join(", ")}`);
   }
   const sources = await Promise.all(modules.map(({ path }) => readFile(join(canonicalRoot, path), "utf8")));
+  const authorizationModule = modules.findIndex(({ path }) => path === "085_auth_authorization.sql");
+  if (authorizationModule !== -1) validateCanonicalAuthAuthorizationSource(sources[authorizationModule]);
   const descriptorSource = stripSqlComments(sources.join("\n"));
   const source = normalizeQuotedIdentifiers(descriptorSource);
   rejectUnsafeSource(source, manifest);
@@ -1125,23 +1191,23 @@ function catalogInventories(bundle) {
   ];
 }
 
-function assertBootstrapIdentity(row) {
+function assertBootstrapIdentity(row, target = EXPECTED_NEON_TARGET) {
   if (
-    Math.trunc(Number(row?.server_version_num) / 10_000) !== EXPECTED_NEON_TARGET.postgresMajor
-    || row?.database_name !== EXPECTED_NEON_TARGET.database
-    || row?.database_owner !== EXPECTED_NEON_TARGET.bootstrapRole
-    || row?.current_role !== EXPECTED_NEON_TARGET.bootstrapRole
-    || row?.session_role !== EXPECTED_NEON_TARGET.bootstrapRole
+    Math.trunc(Number(row?.server_version_num) / 10_000) !== target.postgresMajor
+    || row?.database_name !== target.database
+    || row?.database_owner !== target.bootstrapRole
+    || row?.current_role !== target.bootstrapRole
+    || row?.session_role !== target.bootstrapRole
   ) {
     fail("CANONICAL_NEON_DATABASE_IDENTITY_MISMATCH", "connected database identity does not match the authorized PostgreSQL 18 bootstrap target");
   }
 }
 
-function assertRuntimeIdentity(row) {
+function assertRuntimeIdentity(row, target = EXPECTED_NEON_TARGET) {
   if (
-    Math.trunc(Number(row?.server_version_num) / 10_000) !== EXPECTED_NEON_TARGET.postgresMajor
-    || row?.database_name !== EXPECTED_NEON_TARGET.database
-    || row?.database_owner !== EXPECTED_NEON_TARGET.bootstrapRole
+    Math.trunc(Number(row?.server_version_num) / 10_000) !== target.postgresMajor
+    || row?.database_name !== target.database
+    || row?.database_owner !== target.bootstrapRole
     || row?.current_role !== "hotel_ld_application"
     || row?.session_role !== "hotel_ld_application"
   ) {
@@ -1373,6 +1439,7 @@ export function runtimeSmokeValues(signature, seed) {
     "public.read_neon_people_manager_facets(text)": () => [seed.hostnameA],
     "public.read_neon_initialization_access_summary(text)": () => [seed.hostnameA],
     "public.read_neon_property(text)": () => [seed.hostnameA],
+    "public.read_neon_authorization_session(text)": () => [seed.hostnameA],
     "public.read_neon_position_families(text)": () => [seed.hostnameA],
     "public.read_neon_position_source_labels(text)": () => [seed.hostnameA],
     "public.read_neon_positions(text)": () => [seed.hostnameA],
@@ -1867,10 +1934,10 @@ export async function validateCanonicalNeon({
     try {
       runtimePool = await injected.createRuntimePool(runtimeConnectionString);
       await runWithPool(bootstrapPool, async (client) => {
-        assertBootstrapIdentity(await readIdentity(client));
+        assertBootstrapIdentity(await readIdentity(client), expectedTarget);
         await readCatalog(client, bundle);
       });
-      await runWithPool(runtimePool, async (client) => assertRuntimeIdentity(await readIdentity(client)));
+      await runWithPool(runtimePool, async (client) => assertRuntimeIdentity(await readIdentity(client), expectedTarget));
       const matrix = await injected.runRuntimeMatrix({ bootstrapPool, runtimePool, bundle });
       await runWithPool(bootstrapPool, async (client) => await readCatalog(client, bundle));
       return { mode, matrix, finalRowsZero: true };
@@ -1883,7 +1950,7 @@ export async function validateCanonicalNeon({
   const pool = await injected.createBootstrapPool(bootstrapConnectionString);
   try {
     return await runWithPool(pool, async (client) => {
-      assertBootstrapIdentity(await readIdentity(client));
+      assertBootstrapIdentity(await readIdentity(client), expectedTarget);
       if (mode === "dry-run") {
         return { mode, counts: await executeInstall(client, bundle, { rollback: true }), rolledBack: true };
       }

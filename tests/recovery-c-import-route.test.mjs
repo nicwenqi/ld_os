@@ -252,7 +252,8 @@ test("Recovery C staging source uses only the authenticated actor client and ser
   assert.doesNotMatch(route, /createServerAdminClient/);
   assert.doesNotMatch(route, /form\.get\(["']propertyId["']\)/);
   assert.doesNotMatch(route, /\.from\(["'](?:import_batches|import_sheets|import_field_mappings|import_source_rows|import_issues|department_aliases|position_aliases)["']\)/);
-  assert.match(authorization, /createServerActorClient\(resolved\.accessToken\)/);
+  assert.match(authorization, /resolveAuthenticatedRequestWithAuthority/);
+  assert.doesNotMatch(authorization, /createServerActorClient|\.from\s*\(/);
   assert.doesNotMatch(authorization, /createServerAdminClient/);
   assert.match(serverClient, /const token = accessToken\.trim\(\)/);
   assert.match(serverClient, /Authorization:\s*`Bearer \$\{token\}`/);

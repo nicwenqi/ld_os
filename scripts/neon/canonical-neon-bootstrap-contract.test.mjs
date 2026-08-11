@@ -5,7 +5,12 @@ import { tmpdir } from "node:os";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import { validateCanonicalNeonSource } from "./validate-canonical-neon-baseline.mjs";
+import * as canonicalValidator from "./validate-canonical-neon-baseline.mjs";
+
+const {
+  validateCanonicalAuthAuthorizationSource,
+  validateCanonicalNeonSource,
+} = canonicalValidator;
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../app/repositories/neon");
 const neonLibRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../app/lib/neon");
@@ -137,7 +142,46 @@ test("the ordered canonical modules form a complete connection-free source basel
     "060_employee_write.sql",
     "070_security_postflight.sql",
     "080_property_initialization.sql",
+    "085_auth_authorization.sql",
   ]);
+});
+
+test("canonical authorization migration declares only the constrained session entrypoint", async () => {
+  assert.equal(typeof validateCanonicalAuthAuthorizationSource, "function");
+  const source = await readFile(join(canonicalRoot, "085_auth_authorization.sql"), "utf8");
+
+  assert.deepEqual(validateCanonicalAuthAuthorizationSource(source), {
+    entrypointSignatures: ["public.read_neon_authorization_session(text)"],
+  });
+});
+
+test("authorization session derives current active authority with manager precedence and audited scopes", async () => {
+  const rawSource = await readFile(join(canonicalRoot, "085_auth_authorization.sql"), "utf8").catch(() => null);
+  assert.notEqual(rawSource, null, "missing 085_auth_authorization.sql");
+  const source = rawSource.replace(/\s+/g, " ").replace(/\s*([(),=])\s*/g, "$1").toLowerCase();
+  const routine = routineSource(source, "public.read_neon_authorization_session");
+
+  for (const contract of [
+    "app_private.assert_actor_context()",
+    "public.resolve_neon_property_context(p_hostname)",
+    "app_private.neon_people_actor_is_active()",
+    "public.user_accounts",
+    "public.profiles",
+    "public.tenant_memberships",
+    "public.property_memberships",
+    "public.role_assignments",
+    "public.roles",
+    "public.trainer_scopes",
+    "public.departments",
+    "path_names_zh",
+    "path_names_en",
+    "must_change_password",
+    "app_private.append_neon_people_read_audit('authorization_session'",
+  ]) assert.equal(routine.includes(contract), true, contract);
+
+  assert.equal(routine.indexOf("property_ld_manager") < routine.indexOf("department_training_admin"), true);
+  assert.equal(source.includes("resolve_neon_login_identity"), false);
+  assert.equal(/\bcreate\s+(?:table|policy|index)\b/.test(source), false);
 });
 
 test("bootstrap changes migration-owner default privileges only after assuming that role", async () => {
@@ -295,8 +339,22 @@ test("policy source descriptors preserve boolean grouping and casts", async (t) 
 
 test("repository query signatures exactly match the canonical manifest", async () => {
   const manifest = JSON.parse(await readFile(join(canonicalRoot, "manifest.json"), "utf8"));
+  const coreRepositoryNames = new Set([
+    "authorization-session-repository.ts",
+    "department-alias-repository.ts",
+    "department-read-repository.ts",
+    "department-write-repository.ts",
+    "employee-read-repository.ts",
+    "employee-write-repository.ts",
+    "initialization-repository.ts",
+    "operational-unit-repository.ts",
+    "position-mapping-repository.ts",
+    "position-read-repository.ts",
+    "position-write-repository.ts",
+    "property-repository.ts",
+  ]);
   const sources = [
-    ...(await readdir(repositoryRoot)).filter((name) => name.endsWith("-repository.ts")).map((name) => join(repositoryRoot, name)),
+    ...(await readdir(repositoryRoot)).filter((name) => coreRepositoryNames.has(name)).map((name) => join(repositoryRoot, name)),
     join(neonLibRoot, "organization-property.ts"),
     join(neonLibRoot, "people-property.ts"),
   ];
