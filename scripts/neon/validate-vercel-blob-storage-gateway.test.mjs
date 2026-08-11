@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import { registerHooks } from "node:module";
 import test from "node:test";
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "server-only") return { url: "data:text/javascript,export%20{}", shortCircuit: true };
+    return nextResolve(specifier, context);
+  },
+});
 
 const gatewayModule = await import("../../app/services/import/vercel-blob-storage-gateway.ts");
 
 const PATH = "tenant/property/imports/batch/workbook.csv";
 const BYTES = new TextEncoder().encode("employee_number,name\n001,Ada\n");
+
+test("Vercel Blob gateway implementation is itself server-only", async () => {
+  const source = await readFile(new URL("../../app/services/import/vercel-blob-storage-gateway.ts", import.meta.url), "utf8");
+  assert.equal(source.startsWith('import "server-only";'), true);
+});
 
 test("Vercel Blob gateway rejects a missing server token", () => {
   assert.throws(

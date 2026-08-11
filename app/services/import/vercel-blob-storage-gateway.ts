@@ -1,3 +1,5 @@
+import "server-only";
+
 import { BlobNotFoundError, del, get, put } from "@vercel/blob";
 
 import type { ImportStorageGateway } from "../neon-import-staging-authorization.ts";
