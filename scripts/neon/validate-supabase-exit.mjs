@@ -15,10 +15,10 @@ import { dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 export const APPROVED_SUPABASE_EXIT_PREVIEW = Object.freeze({
-  commit: "e06832a107566d3b5af40da0adb61c2379366719",
   url: "https://hotel-ld-os-git-codex-canonical-neon-beb82a-nicwenqis-projects.vercel.app",
   projectId: "prj_LWWqjlOsHToxi7cVemxm6xKtw9m1",
   teamId: "team_CB00d6Y3s9dIbPfRHEK46n18",
+  branch: "codex/canonical-neon-baseline",
 });
 
 const GATE_NAMES = Object.freeze([
@@ -55,7 +55,12 @@ function cleanText(value) {
 
 export function validateSupabaseExitPreflight(input) {
   if (!input || typeof input !== "object") failure("SUPABASE_EXIT_PREFLIGHT_INVALID");
-  if (cleanText(input.commit) !== APPROVED_SUPABASE_EXIT_PREVIEW.commit) failure("SUPABASE_EXIT_COMMIT_UNAPPROVED");
+  const localCommit = cleanText(input.localCommit);
+  const deploymentCommit = cleanText(input.deploymentCommit);
+  if (!/^[0-9a-f]{40}$/i.test(localCommit) || deploymentCommit !== localCommit) failure("SUPABASE_EXIT_COMMIT_UNAPPROVED");
+  if (cleanText(input.branch) !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || cleanText(input.deploymentBranch) !== APPROVED_SUPABASE_EXIT_PREVIEW.branch) failure("SUPABASE_EXIT_BRANCH_UNAPPROVED");
+  if (cleanText(input.projectId) !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || cleanText(input.teamId) !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId) failure("SUPABASE_EXIT_DEPLOYMENT_OWNER_UNAPPROVED");
+  if (cleanText(input.deploymentTarget).toLowerCase() === "production") failure("SUPABASE_EXIT_PRODUCTION_FORBIDDEN");
   if (cleanText(input.previewUrl) !== APPROVED_SUPABASE_EXIT_PREVIEW.url || /(?:^|[.-])production(?:[.-]|$)/i.test(cleanText(input.previewUrl))) failure("SUPABASE_EXIT_PREVIEW_FORBIDDEN");
   const environment = input.environment;
   if (!environment || typeof environment !== "object") failure("SUPABASE_EXIT_ENV_MISSING");
@@ -77,14 +82,42 @@ function commitFromMetadata(value) {
   return null;
 }
 
+function findMetadataKey(value, keys) {
+  if (!value || typeof value !== "object") return null;
+  for (const [key, candidate] of Object.entries(value)) {
+    if (keys.includes(key)) return { found: true, value: candidate };
+    const nested = findMetadataKey(candidate, keys);
+    if (nested) return nested;
+  }
+  return null;
+}
+
 /** Vercel CLI metadata is the authority for the deployed source, not local HEAD. */
-export function readApprovedDeploymentCommit(serialized) {
+export function readApprovedDeploymentMetadata(serialized, expected) {
   let metadata;
   try { metadata = JSON.parse(serialized); } catch { failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID"); }
   const commit = commitFromMetadata(metadata);
   if (!commit) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
-  if (commit !== APPROVED_SUPABASE_EXIT_PREVIEW.commit) failure("SUPABASE_EXIT_COMMIT_UNAPPROVED");
-  return commit;
+  const strings = [];
+  const collect = value => {
+    if (!value || typeof value !== "object") return;
+    for (const [key, candidate] of Object.entries(value)) {
+      if (typeof candidate === "string") strings.push([key, candidate]);
+      else collect(candidate);
+    }
+  };
+  collect(metadata);
+  const branch = strings.find(([key]) => ["githubCommitRef", "gitCommitRef", "gitBranch", "branch", "ref"].includes(key))?.[1];
+  const projectId = strings.find(([key]) => ["projectId", "project_id"].includes(key))?.[1];
+  const teamId = strings.find(([key]) => ["teamId", "team_id"].includes(key))?.[1];
+  const targetNode = findMetadataKey(metadata, ["target", "deploymentTarget"]);
+  const target = targetNode?.value === null ? "preview" : typeof targetNode?.value === "string" ? targetNode.value : null;
+  if (!branch || !projectId || !teamId || !target || commit !== expected.localCommit || branch !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || projectId !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || teamId !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId || target.toLowerCase() === "production") failure(target?.toLowerCase() === "production" ? "SUPABASE_EXIT_PRODUCTION_FORBIDDEN" : "SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED");
+  return { commit, branch, projectId, teamId, target };
+}
+
+export function readApprovedDeploymentCommit(serialized, expectedCommit) {
+  return readApprovedDeploymentMetadata(serialized, { localCommit: expectedCommit }).commit;
 }
 
 export function createSupabaseExitFixture({ authUserId, nonce = randomBytes(8).toString("hex"), hostname = "preview.ldchub.test" } = {}) {
@@ -168,7 +201,7 @@ async function execute(command, args, { cwd = process.cwd(), timeoutMs = 45_000 
     let output = "";
     const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
     child.stdout.on("data", value => { output += value; });
-    child.stderr.on("data", value => { output += value; });
+    child.stderr.on("data", () => {});
     child.once("error", rejectPromise);
     child.once("close", code => {
       clearTimeout(timer);
@@ -256,10 +289,12 @@ async function validateImportWorkflow({ request, fixture }) {
 }
 
 async function defaultPreflight() {
-  validateSupabaseExitPreflight({ commit: APPROVED_SUPABASE_EXIT_PREVIEW.commit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: process.env, activeSource: await projectSource() });
+  const localCommit = cleanText(await execute("git", ["rev-parse", "HEAD"]));
+  const branch = cleanText(await execute("git", ["branch", "--show-current"]));
+  validateSupabaseExitPreflight({ localCommit, deploymentCommit: localCommit, branch, deploymentBranch: branch, projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, deploymentTarget: "preview", previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: process.env, activeSource: await projectSource() });
   await execute("vercel", ["whoami"]);
   const deployment = await execute("vercel", ["inspect", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--json"]);
-  readApprovedDeploymentCommit(deployment);
+  readApprovedDeploymentMetadata(deployment, { localCommit });
   const cookieJar = `/private/tmp/supabase-exit-${randomUUID()}.cookies`;
   await writeFile(cookieJar, "", { mode: 0o600 });
   const request = await createVercelRequest({ cookieJar });
@@ -358,8 +393,15 @@ function printResult(result) {
 async function main() {
   const command = process.argv[2];
   if (command === "source" && process.argv.length === 3) {
+    const sourceCommit = "a".repeat(40);
     validateSupabaseExitPreflight({
-      commit: APPROVED_SUPABASE_EXIT_PREVIEW.commit,
+      localCommit: sourceCommit,
+      deploymentCommit: sourceCommit,
+      branch: APPROVED_SUPABASE_EXIT_PREVIEW.branch,
+      deploymentBranch: APPROVED_SUPABASE_EXIT_PREVIEW.branch,
+      projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId,
+      teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId,
+      deploymentTarget: "preview",
       previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url,
       environment: { APP_ENV: "preview", VERCEL_ENV: "preview", NEON_BOOTSTRAP_DATABASE_URL: "source", DATABASE_URL: "source", BLOB_READ_WRITE_TOKEN: "source", PREVIEW_PROPERTY_HOSTNAME: "preview.ldchub.test" },
       activeSource: await projectSource(),
