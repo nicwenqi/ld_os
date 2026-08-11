@@ -26,6 +26,29 @@ The catalog validator now normalizes PostgreSQL's `timestamp with time zone` rep
 
 ## Runtime status
 
-Not complete. The compute reports `pooler_enabled=false`; the required pooled `hotel_ld_application` runtime connection did not establish within the runtime guard and was interrupted. The runtime bootstrap phase had already created only its two `validation-a` / `validation-b` fixtures, which remain pending cleanup. No Product, Supabase, Storage, or prior acceptance target was touched.
+**CODE COMPLETE · CATALOG VALIDATED · LIVE POOLED RUNTIME = PLATFORM BLOCKED**
 
-Do not use this target for application traffic. Resume only after the pooled endpoint is enabled and the existing approved runtime-seed cleanup path is authorized to remove those exact fixtures. Then rerun the complete runtime matrix, including real Auth adapter session, manager and department scope, refresh re-resolution, cross-property denial, raw-table denial, Actor Context cleanup, and pooled reuse.
+The control plane generated a syntactically valid SSL pooled runtime connection for
+`hotel_ld_application` and `neondb`. Its hostname contains `-pooler` and resolves
+to the exact endpoint tuple above. The runtime validator used that pooled connection
+only: it did not substitute the direct bootstrap connection for runtime work.
+
+The endpoint continued to report `pooler_enabled=false`. A bounded pooled runtime
+attempt produced no successful query or matrix result and was cancelled. This is an
+endpoint-side Neon pooling-availability blocker, not a schema, RLS, privilege, or
+runtime-topology failure.
+
+The interrupted attempt created its two deterministic fixtures a second time. Both
+fixture graphs were removed immediately by a one-time operator transaction using
+the direct bootstrap identity. The transaction was limited to the verified
+`validation-a` and `validation-b` tenant IDs and their dependent records; it made no
+policy, privilege, RLS, or role changes and used no `SET ROLE`. Final verification
+returned zero remaining fixture tenants. No Production, Supabase, Storage, or prior
+acceptance target was touched.
+
+Do not use this target for application traffic. When Neon pooling is available for
+this endpoint, rerun **only** the final pooled runtime matrix: real Auth adapter
+boundary, Neon authorization session, manager and department scope, refresh
+re-resolution, cross-property denial, raw-table denial, Actor Context cleanup, and
+pooled connection reuse. Do not rerun architectural, migration, dry-run, apply, or
+catalog work solely to clear this platform blocker.
