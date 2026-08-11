@@ -63,3 +63,22 @@ test("cleanup succeeds when the approved target has no E5B relations yet", async
   assert.equal(result.status, "terminalized");
   assert.equal(result.auditRetained, false);
 });
+
+test("cleanup deactivates the scoped position assignment before its position and department", async () => {
+  let assignmentInactive = false;
+  const client = {
+    query: async sql => {
+      if (/to_regclass/i.test(sql)) return { rows: [{ import_batches: null, import_commits: null, import_activity_events: null, import_decision_audit_events: null, import_commit_audit_events: null }] };
+      if (/update public\.position_department_assignments set is_active = false/i.test(sql)) assignmentInactive = true;
+      if (/update public\.(?:positions|departments) set is_active = false/i.test(sql) && !assignmentInactive) {
+        throw Object.assign(new Error("active assignment still references the row"), { code: "23514" });
+      }
+      return /as terminal/i.test(sql) ? { rows: [{ terminal: true }] } : { rowCount: 1, rows: [] };
+    },
+    release() {},
+  };
+  const target = { environment: "staging", projectId: "withered-bar-40598816", branchId: "br-wispy-flower-avd4hssa", endpointId: "ep-lingering-pine-avbdti90", database: "neondb", directHostPrefix: "ep-lingering-pine-avbdti90." };
+  const result = await cleanupSupabaseExitFixture({ fixture, target, connectionString: "postgresql://neondb_owner:redacted@ep-lingering-pine-avbdti90.example/neondb?sslmode=require", client });
+  assert.equal(result.status, "terminalized");
+  assert.equal(assignmentInactive, true);
+});

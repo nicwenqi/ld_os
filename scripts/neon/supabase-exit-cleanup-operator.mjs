@@ -94,8 +94,9 @@ export async function cleanupSupabaseExitFixture({ fixture, target = APPROVED_NE
       ? "and not exists(select 1 from public.import_commits where tenant_id = $1 and property_id = $2 and status <> 'reverted')"
       : "";
     if (relations.import_commits && Number((await db.query(SQL.committedImportCount, pair)).rows?.[0]?.count ?? 0) !== 0) fail("SUPABASE_EXIT_CLEANUP_IMPORT_NOT_REVERTED");
-    for (const key of ["importedEmployees", "identifiers", "positions", "families", "units", "departments"]) await db.query(SQL[key], pair);
+    for (const key of ["importedEmployees", "identifiers"]) await db.query(SQL[key], pair);
     await db.query(SQL.positionDepartmentAssignments, [...pair, fixture.positionDepartmentAssignmentId]);
+    for (const key of ["positions", "families", "units", "departments"]) await db.query(SQL[key], pair);
     await db.query(SQL.assignments, pair);
     await db.query(SQL.propertyMemberships, pair);
     await db.query(SQL.tenantMemberships, [fixture.tenantId, fixture.profileId]);
