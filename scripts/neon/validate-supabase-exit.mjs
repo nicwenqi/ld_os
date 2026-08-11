@@ -9,9 +9,9 @@
  * transaction.  It never serializes process environments or HTTP bodies.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { readFile, writeFile, rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { dirname, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 export const APPROVED_SUPABASE_EXIT_PREVIEW = Object.freeze({
@@ -37,6 +37,7 @@ const REQUIRED_ENVIRONMENT = Object.freeze([
   "NEON_BOOTSTRAP_DATABASE_URL",
   "DATABASE_URL",
   "BLOB_READ_WRITE_TOKEN",
+  "VERCEL_AUTOMATION_BYPASS_SECRET",
   "VERCEL_ENV",
   "APP_ENV",
   "PREVIEW_PROPERTY_HOSTNAME",
@@ -51,6 +52,11 @@ function failure(code) {
 
 function cleanText(value) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function requireOperation(operation) {
+  if (typeof operation !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(operation)) failure("SUPABASE_EXIT_OPERATION_INVALID");
+  return operation;
 }
 
 function normalizePreviewHostname(value) {
@@ -224,8 +230,7 @@ export async function runSupabaseExitAcceptance(dependencies) {
 }
 
 export async function execute(command, args, { operation, cwd = process.cwd(), timeoutMs = 45_000 } = {}) {
-  if (typeof operation !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(operation)) failure("SUPABASE_EXIT_OPERATION_INVALID");
-  const operationName = operation;
+  const operationName = requireOperation(operation);
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env });
     let output = "";
@@ -280,16 +285,85 @@ async function createPreviewIdentity({ request, fixture }) {
   return { userId, password };
 }
 
-async function createVercelRequest({ cookieJar }) {
-  return async (path, { method = "GET", body, formFile, operation = "PREVIEW_REQUEST" } = {}) => {
-    if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) failure("SUPABASE_EXIT_REQUEST_INVALID");
-    const forwarded = ["--max-time", "45", "--silent", "--show-error", "--fail", "--cookie", cookieJar, "--cookie-jar", cookieJar];
-    if (method !== "GET") forwarded.push("-X", method);
-    if (body !== undefined) forwarded.push("-H", "content-type: application/json", "--data", JSON.stringify(body));
-    if (formFile) forwarded.push("-F", `file=@${formFile};type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`);
-    const output = await execute("vercel", ["curl", path, "--deployment", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--yes", "--", ...forwarded], { operation });
-    try { return JSON.parse(output); } catch { failure("SUPABASE_EXIT_RESPONSE_INVALID"); }
+function createMemoryCookieJar() {
+  const cookies = new Map();
+  return {
+    absorb(headers) {
+      const values = typeof headers?.getSetCookie === "function"
+        ? headers.getSetCookie()
+        : cleanText(headers?.get?.("set-cookie")) ? [headers.get("set-cookie")] : [];
+      for (const value of values) {
+        const pair = cleanText(value).split(";", 1)[0];
+        const separator = pair.indexOf("=");
+        if (separator > 0) cookies.set(pair.slice(0, separator), pair.slice(separator + 1));
+      }
+    },
+    header() {
+      return [...cookies.entries()].map(([name, value]) => `${name}=${value}`).join("; ");
+    },
+    clear() {
+      cookies.clear();
+    },
   };
+}
+
+function approvedPreviewOrigin(baseUrl) {
+  if (cleanText(baseUrl) !== APPROVED_SUPABASE_EXIT_PREVIEW.url) failure("SUPABASE_EXIT_PREVIEW_FORBIDDEN");
+  const expected = new URL(APPROVED_SUPABASE_EXIT_PREVIEW.url);
+  if (expected.protocol !== "https:" || !expected.hostname) failure("SUPABASE_EXIT_PREVIEW_FORBIDDEN");
+  return expected;
+}
+
+/** Direct server-side transport through Vercel Protection Bypass, never browser code. */
+export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = globalThis.fetch, baseUrl = APPROVED_SUPABASE_EXIT_PREVIEW.url, timeoutMs = 45_000 } = {}) {
+  const secret = cleanText(bypassSecret);
+  if (!secret) failure("SUPABASE_EXIT_BYPASS_SECRET_MISSING");
+  if (typeof fetchImpl !== "function") failure("SUPABASE_EXIT_PREVIEW_TRANSPORT_UNAVAILABLE");
+  const origin = approvedPreviewOrigin(baseUrl);
+  const cookieJar = createMemoryCookieJar();
+  const request = async (path, { method = "GET", body, formFile, operation = "PREVIEW_REQUEST", responseKind = "json" } = {}) => {
+    const operationName = requireOperation(operation);
+    if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) failure("SUPABASE_EXIT_REQUEST_INVALID");
+    const target = new URL(path, origin);
+    if (target.origin !== origin.origin || target.protocol !== "https:") failure("SUPABASE_EXIT_PREVIEW_FORBIDDEN");
+    const headers = new Headers({
+      accept: "application/json",
+      "x-vercel-protection-bypass": secret,
+      "x-vercel-set-bypass-cookie": "true",
+    });
+    const cookie = cookieJar.header();
+    if (cookie) headers.set("cookie", cookie);
+    let requestBody;
+    if (body !== undefined) {
+      headers.set("content-type", "application/json");
+      requestBody = JSON.stringify(body);
+    } else if (formFile) {
+      const bytes = await readFile(formFile);
+      const form = new FormData();
+      form.set("file", new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }), basename(formFile));
+      requestBody = form;
+    }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetchImpl(target, { method, headers, body: requestBody, signal: controller.signal, redirect: "error" });
+    } catch {
+      if (controller.signal.aborted) failure(`SUPABASE_EXIT_OPERATOR_TIMEOUT:${operationName}`);
+      failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (!response?.ok) failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}:HTTP_${Number.isInteger(response?.status) ? response.status : "UNKNOWN"}`);
+    cookieJar.absorb(response.headers);
+    if (responseKind === "status") return { status: response.status };
+    if (responseKind !== "json") failure("SUPABASE_EXIT_RESPONSE_INVALID");
+    let serialized;
+    try { serialized = await response.text(); } catch { failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`); }
+    try { return JSON.parse(serialized); } catch { failure("SUPABASE_EXIT_RESPONSE_INVALID"); }
+  };
+  request.clearCookies = () => cookieJar.clear();
+  return request;
 }
 
 async function writeAcceptanceWorkbook(fixture) {
@@ -353,12 +427,10 @@ async function defaultPreflight() {
   if (typeof inspected?.id !== "string" || !/^dpl_[A-Za-z0-9]+$/.test(inspected.id)) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
   const deployment = await execute("vercel", ["api", `/v13/deployments/${inspected.id}`], { operation: "VERCEL_API" });
   readApprovedDeploymentMetadata(deployment, { localCommit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url });
-  const cookieJar = `/private/tmp/supabase-exit-${randomUUID()}.cookies`;
-  await writeFile(cookieJar, "", { mode: 0o600 });
-  const request = await createVercelRequest({ cookieJar });
-  await request("/", { operation: "PREVIEW_PROBE" });
+  const request = createProtectedPreviewRequest({ bypassSecret: process.env.VERCEL_AUTOMATION_BYPASS_SECRET });
+  await request("/", { operation: "PREVIEW_PROBE", responseKind: "status" });
   await execute("node", ["--test", "tests/supabase-exit-source.test.mjs"], { operation: "SOURCE_GATE" });
-  return { cookieJar, request };
+  return { request };
 }
 
 export async function cleanupSupabaseExitBlobObjects({ cleanup, token, blob } = {}) {
@@ -386,7 +458,7 @@ async function defaultCleanup(fixture, identity, context) {
     try { await cleanupSupabaseExitBlobObjects({ cleanup: fixture.cleanup, token: process.env.BLOB_READ_WRITE_TOKEN }); }
     finally {
       await cleanupNeonFixture(fixture);
-      if (context?.cookieJar) await rm(context.cookieJar, { force: true });
+      context?.request?.clearCookies?.();
     }
   }
 }
@@ -439,7 +511,7 @@ export async function runLiveSupabaseExit() {
       cleanup: (fixture, identity) => defaultCleanup(fixture, identity, context),
     });
   } finally {
-    if (context?.cookieJar) await rm(context.cookieJar, { force: true });
+    context?.request?.clearCookies?.();
   }
 }
 
@@ -461,7 +533,7 @@ async function main() {
       teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId,
       deploymentTarget: "preview",
       previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url,
-      environment: { APP_ENV: "preview", VERCEL_ENV: "preview", NEON_BOOTSTRAP_DATABASE_URL: "source", DATABASE_URL: "source", BLOB_READ_WRITE_TOKEN: "source", PREVIEW_PROPERTY_HOSTNAME: "preview.ldchub.test" },
+      environment: { APP_ENV: "preview", VERCEL_ENV: "preview", NEON_BOOTSTRAP_DATABASE_URL: "source", DATABASE_URL: "source", BLOB_READ_WRITE_TOKEN: "source", VERCEL_AUTOMATION_BYPASS_SECRET: "source", PREVIEW_PROPERTY_HOSTNAME: "preview.ldchub.test" },
       activeSource: await projectSource(),
     });
     process.stdout.write("ZERO_SUPABASE_RUNTIME=PASS\n");

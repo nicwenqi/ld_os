@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   APPROVED_SUPABASE_EXIT_PREVIEW,
   cleanupSupabaseExitBlobObjects,
+  createProtectedPreviewRequest,
   createSupabaseExitFixture,
   execute,
   readApprovedDeploymentMetadata,
@@ -16,6 +17,7 @@ const REQUIRED = Object.freeze({
   NEON_BOOTSTRAP_DATABASE_URL: "postgresql://neondb_owner:redacted@ep-lingering-pine-avbdti90.example/neondb?sslmode=require",
   DATABASE_URL: "postgresql://hotel_ld_application:redacted@ep-lingering-pine-avbdti90-pooler.example/neondb?sslmode=require",
   BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_preview_store_redacted",
+  VERCEL_AUTOMATION_BYPASS_SECRET: "vercel_automation_bypass_preview_redacted",
   VERCEL_ENV: "preview",
   APP_ENV: "preview",
   PREVIEW_PROPERTY_HOSTNAME: "preview.ldchub.test",
@@ -106,6 +108,43 @@ test("child-process diagnostics identify operation and never expose secrets", as
   assert.equal(inspectError.code, "SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:VERCEL_INSPECT:EXIT_23");
   assert.equal(timeoutError.code, "SUPABASE_EXIT_OPERATOR_TIMEOUT:RUNTIME_VALIDATION");
   assert.doesNotMatch(JSON.stringify({ previewFailure, inspectError, timeoutError }), new RegExp(secret));
+});
+
+test("protected direct Preview transport sends bypass header and retains only in-memory cookies", async () => {
+  const calls = [];
+  const bypassSecret = "protected-bypass-value";
+  const fetchImpl = async (url, options) => {
+    calls.push({ url: String(url), headers: new Headers(options.headers) });
+    return {
+      ok: true,
+      status: 200,
+      headers: { getSetCookie: () => ["better-auth.session_token=opaque-session; Path=/; HttpOnly"] },
+      text: async () => JSON.stringify({ ok: true }),
+    };
+  };
+  const request = createProtectedPreviewRequest({ bypassSecret, fetchImpl });
+  assert.deepEqual(await request("/", { operation: "PREVIEW_PROBE" }), { ok: true });
+  assert.deepEqual(await request("/api/auth/session", { operation: "AUTH_SESSION" }), { ok: true });
+  assert.equal(calls[0].url, `${APPROVED_SUPABASE_EXIT_PREVIEW.url}/`);
+  assert.equal(calls[0].headers.get("x-vercel-protection-bypass"), bypassSecret);
+  assert.equal(calls[0].headers.get("x-vercel-set-bypass-cookie"), "true");
+  assert.equal(calls[1].headers.get("cookie"), "better-auth.session_token=opaque-session");
+  assert.doesNotMatch(JSON.stringify(await request("/api/auth/session", { operation: "AUTH_SESSION" })), new RegExp(bypassSecret));
+});
+
+test("direct Preview transport fails closed for missing bypass secret and wrong or Production host", () => {
+  assert.throws(() => createProtectedPreviewRequest({ bypassSecret: "" }), /SUPABASE_EXIT_BYPASS_SECRET_MISSING/);
+  assert.throws(() => createProtectedPreviewRequest({ bypassSecret: "redacted", baseUrl: "https://wrong-preview.example" }), /SUPABASE_EXIT_PREVIEW_FORBIDDEN/);
+  assert.throws(() => createProtectedPreviewRequest({ bypassSecret: "redacted", baseUrl: "https://hotel-ld-os.vercel.app" }), /SUPABASE_EXIT_PREVIEW_FORBIDDEN/);
+});
+
+test("direct Preview transport exposes only a stable operation code when fetch fails", async () => {
+  const bypassSecret = "protected-bypass-value";
+  const request = createProtectedPreviewRequest({ bypassSecret, fetchImpl: async () => { throw new Error(bypassSecret); } });
+  await assert.rejects(
+    () => request("/", { operation: "PREVIEW_PROBE" }),
+    error => error.code === "SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:PREVIEW_PROBE" && !String(error.code).includes(bypassSecret),
+  );
 });
 
 test("fixture is unique, acceptance-only, and retains only exact cleanup identifiers", () => {
