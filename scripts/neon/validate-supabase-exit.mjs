@@ -60,7 +60,8 @@ export function validateSupabaseExitPreflight(input) {
   if (!/^[0-9a-f]{40}$/i.test(localCommit) || deploymentCommit !== localCommit) failure("SUPABASE_EXIT_COMMIT_UNAPPROVED");
   if (cleanText(input.branch) !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || cleanText(input.deploymentBranch) !== APPROVED_SUPABASE_EXIT_PREVIEW.branch) failure("SUPABASE_EXIT_BRANCH_UNAPPROVED");
   if (cleanText(input.projectId) !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || cleanText(input.teamId) !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId) failure("SUPABASE_EXIT_DEPLOYMENT_OWNER_UNAPPROVED");
-  if (cleanText(input.deploymentTarget).toLowerCase() === "production") failure("SUPABASE_EXIT_PRODUCTION_FORBIDDEN");
+  const deploymentTarget = cleanText(input.deploymentTarget).toLowerCase();
+  if (!deploymentTarget || deploymentTarget === "production") failure(deploymentTarget === "production" ? "SUPABASE_EXIT_PRODUCTION_FORBIDDEN" : "SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED");
   if (cleanText(input.previewUrl) !== APPROVED_SUPABASE_EXIT_PREVIEW.url || /(?:^|[.-])production(?:[.-]|$)/i.test(cleanText(input.previewUrl))) failure("SUPABASE_EXIT_PREVIEW_FORBIDDEN");
   const environment = input.environment;
   if (!environment || typeof environment !== "object") failure("SUPABASE_EXIT_ENV_MISSING");
@@ -69,6 +70,19 @@ export function validateSupabaseExitPreflight(input) {
   if (cleanText(environment.PREVIEW_PROPERTY_HOSTNAME).includes(":") || cleanText(environment.PREVIEW_PROPERTY_HOSTNAME).includes("/")) failure("SUPABASE_EXIT_PREVIEW_HOST_INVALID");
   const source = cleanText(input.activeSource);
   if (!source || /@supabase\/|\bsupabase(?:_|\b)|create(?:Browser|Server)(?:Actor|Admin|Password)?Client/i.test(source)) failure("SUPABASE_EXIT_SOURCE_DRIFT");
+  return true;
+}
+
+/**
+ * The deployment must be built from the tracked source at local HEAD.  The
+ * SDD progress ledger is deliberately not source and may remain dirty; all
+ * other tracked changes fail closed. Untracked scratch files are naturally
+ * outside this check because they cannot be part of the tracked commit.
+ */
+export function validateTrackedWorktreePaths(serializedPaths) {
+  const paths = cleanText(serializedPaths).split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+  const unexpected = paths.filter(path => !/^\.superpowers\/sdd\/[^/]+\/progress\.md$/.test(path));
+  if (unexpected.length > 0) failure("SUPABASE_EXIT_WORKTREE_DRIFT");
   return true;
 }
 
@@ -108,16 +122,19 @@ export function readApprovedDeploymentMetadata(serialized, expected) {
   };
   collect(metadata);
   const branch = strings.find(([key]) => ["githubCommitRef", "gitCommitRef", "gitBranch", "branch", "ref"].includes(key))?.[1];
-  const projectId = strings.find(([key]) => ["projectId", "project_id"].includes(key))?.[1];
-  const teamId = strings.find(([key]) => ["teamId", "team_id"].includes(key))?.[1];
+  const projectId = strings.find(([key]) => ["projectId", "project_id"].includes(key))?.[1] ?? metadata.project?.id;
+  const teamId = strings.find(([key]) => ["teamId", "team_id", "ownerId"].includes(key))?.[1] ?? metadata.team?.id;
   const targetNode = findMetadataKey(metadata, ["target", "deploymentTarget"]);
   const target = targetNode?.value === null ? "preview" : typeof targetNode?.value === "string" ? targetNode.value : null;
-  if (!branch || !projectId || !teamId || !target || commit !== expected.localCommit || branch !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || projectId !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || teamId !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId || target.toLowerCase() === "production") failure(target?.toLowerCase() === "production" ? "SUPABASE_EXIT_PRODUCTION_FORBIDDEN" : "SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED");
+  const readyState = findMetadataKey(metadata, ["readyState", "status"])?.value;
+  const aliasesNode = findMetadataKey(metadata, ["alias", "aliases", "automaticAliases"]);
+  const aliases = Array.isArray(aliasesNode?.value) ? aliasesNode.value : [];
+  if (!branch || !projectId || !teamId || !target || readyState !== "READY" || !aliases.includes(expected.previewUrl) || commit !== expected.localCommit || branch !== APPROVED_SUPABASE_EXIT_PREVIEW.branch || projectId !== APPROVED_SUPABASE_EXIT_PREVIEW.projectId || teamId !== APPROVED_SUPABASE_EXIT_PREVIEW.teamId || target.toLowerCase() === "production") failure(target?.toLowerCase() === "production" ? "SUPABASE_EXIT_PRODUCTION_FORBIDDEN" : "SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED");
   return { commit, branch, projectId, teamId, target };
 }
 
 export function readApprovedDeploymentCommit(serialized, expectedCommit) {
-  return readApprovedDeploymentMetadata(serialized, { localCommit: expectedCommit }).commit;
+  return readApprovedDeploymentMetadata(serialized, { localCommit: expectedCommit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }).commit;
 }
 
 export function createSupabaseExitFixture({ authUserId, nonce = randomBytes(8).toString("hex"), hostname = "preview.ldchub.test" } = {}) {
@@ -291,10 +308,18 @@ async function validateImportWorkflow({ request, fixture }) {
 async function defaultPreflight() {
   const localCommit = cleanText(await execute("git", ["rev-parse", "HEAD"]));
   const branch = cleanText(await execute("git", ["branch", "--show-current"]));
+  validateTrackedWorktreePaths(await execute("git", ["diff", "--name-only", "HEAD", "--"]));
+  validateTrackedWorktreePaths(await execute("git", ["diff", "--cached", "--name-only", "HEAD", "--"]));
   validateSupabaseExitPreflight({ localCommit, deploymentCommit: localCommit, branch, deploymentBranch: branch, projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, deploymentTarget: "preview", previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: process.env, activeSource: await projectSource() });
   await execute("vercel", ["whoami"]);
-  const deployment = await execute("vercel", ["inspect", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--json"]);
-  readApprovedDeploymentMetadata(deployment, { localCommit });
+  const inspectedOutput = await execute("vercel", ["inspect", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--json"]);
+  const inspectedStart = inspectedOutput.indexOf("{");
+  if (inspectedStart < 0) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
+  let inspected;
+  try { inspected = JSON.parse(inspectedOutput.slice(inspectedStart)); } catch { failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID"); }
+  if (typeof inspected?.id !== "string" || !/^dpl_[A-Za-z0-9]+$/.test(inspected.id)) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
+  const deployment = await execute("vercel", ["api", `/v13/deployments/${inspected.id}`]);
+  readApprovedDeploymentMetadata(deployment, { localCommit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url });
   const cookieJar = `/private/tmp/supabase-exit-${randomUUID()}.cookies`;
   await writeFile(cookieJar, "", { mode: 0o600 });
   const request = await createVercelRequest({ cookieJar });

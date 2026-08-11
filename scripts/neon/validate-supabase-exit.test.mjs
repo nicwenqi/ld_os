@@ -7,6 +7,7 @@ import {
   createSupabaseExitFixture,
   readApprovedDeploymentMetadata,
   runSupabaseExitAcceptance,
+  validateTrackedWorktreePaths,
   validateSupabaseExitPreflight,
 } from "./validate-supabase-exit.mjs";
 
@@ -38,17 +39,19 @@ test("Blob cleanup is exact-prefix only and treats object-not-found as idempoten
 
 test("deployment metadata must contain exact local HEAD, branch, owner and Preview target", () => {
   const local = "a".repeat(40);
-  const metadata = { projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, target: "preview", gitSource: { sha: local, ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } };
-  assert.equal(readApprovedDeploymentMetadata(JSON.stringify(metadata), { localCommit: local }).commit, local);
-  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: "d".repeat(40), ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } }), { localCommit: local }), /SUPABASE_EXIT_COMMIT_UNAPPROVED|SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
-  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: local, ref: "codex/other" } }), { localCommit: local }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
-  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, target: "production" }), { localCommit: local }), /SUPABASE_EXIT_PRODUCTION_FORBIDDEN/);
-  assert.throws(() => readApprovedDeploymentMetadata("not-json", { localCommit: local }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID/);
+  const metadata = { projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, target: "preview", readyState: "READY", alias: [APPROVED_SUPABASE_EXIT_PREVIEW.url], gitSource: { sha: local, ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } };
+  assert.equal(readApprovedDeploymentMetadata(JSON.stringify(metadata), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }).commit, local);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: "e06832a107566d3b5af40da0adb61c2379366719", ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_COMMIT_UNAPPROVED|SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: "d".repeat(40), ref: APPROVED_SUPABASE_EXIT_PREVIEW.branch } }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_COMMIT_UNAPPROVED|SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, gitSource: { sha: local, ref: "codex/other" } }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_UNAPPROVED/);
+  assert.throws(() => readApprovedDeploymentMetadata(JSON.stringify({ ...metadata, target: "production" }), { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_PRODUCTION_FORBIDDEN/);
+  assert.throws(() => readApprovedDeploymentMetadata("not-json", { localCommit: local, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url }), /SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID/);
 });
 
 test("preflight accepts exact local HEAD and rejects static self-reference", async () => {
   const source = await (await import("node:fs/promises")).readFile(new URL("./validate-supabase-exit.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /e06832a107566d3b5af40da0adb61c2379366719/);
+  assert.doesNotMatch(source, /(?:commit|sha)\s*:\s*["'][0-9a-f]{40}["']/i);
   const local = "b".repeat(40);
   assert.equal(validateSupabaseExitPreflight({ localCommit: local, deploymentCommit: local, branch: APPROVED_SUPABASE_EXIT_PREVIEW.branch, deploymentBranch: APPROVED_SUPABASE_EXIT_PREVIEW.branch, projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, deploymentTarget: "preview", previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: REQUIRED, activeSource: "export const mode = 'neon';" }), true);
   assert.throws(() => validateSupabaseExitPreflight({ localCommit: local, deploymentCommit: local, branch: "codex/other", deploymentBranch: "codex/other", projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, deploymentTarget: "preview", previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: REQUIRED, activeSource: "export const mode = 'neon';" }), /SUPABASE_EXIT_BRANCH_UNAPPROVED/);
@@ -73,6 +76,13 @@ test("preflight rejects production, unapproved Preview, missing protected inputs
   assert.throws(() => validateSupabaseExitPreflight({ ...valid, environment: { ...REQUIRED, APP_ENV: "production" } }), /SUPABASE_EXIT_PRODUCTION_FORBIDDEN/);
   assert.throws(() => validateSupabaseExitPreflight({ ...valid, environment: { ...REQUIRED, DATABASE_URL: "" } }), /SUPABASE_EXIT_ENV_MISSING/);
   assert.throws(() => validateSupabaseExitPreflight({ ...valid, activeSource: "import '@supabase/supabase-js';" }), /SUPABASE_EXIT_SOURCE_DRIFT/);
+});
+
+test("tracked worktree validation excludes only the progress ledger", () => {
+  assert.equal(validateTrackedWorktreePaths(".superpowers/sdd/example/progress.md\n"), true);
+  assert.equal(validateTrackedWorktreePaths(""), true);
+  assert.throws(() => validateTrackedWorktreePaths("scripts/neon/validate-supabase-exit.mjs"), /SUPABASE_EXIT_WORKTREE_DRIFT/);
+  assert.throws(() => validateTrackedWorktreePaths("app/api/import/route.ts\n.superpowers/sdd/example/progress.md"), /SUPABASE_EXIT_WORKTREE_DRIFT/);
 });
 
 test("fixture is unique, acceptance-only, and retains only exact cleanup identifiers", () => {
