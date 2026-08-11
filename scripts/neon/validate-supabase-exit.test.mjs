@@ -5,6 +5,7 @@ import {
   APPROVED_SUPABASE_EXIT_PREVIEW,
   cleanupSupabaseExitBlobObjects,
   createSupabaseExitFixture,
+  execute,
   readApprovedDeploymentMetadata,
   runSupabaseExitAcceptance,
   validateTrackedWorktreePaths,
@@ -90,6 +91,23 @@ test("tracked worktree validation excludes only the progress ledger", () => {
   assert.throws(() => validateTrackedWorktreePaths("app/api/import/route.ts\n.superpowers/sdd/example/progress.md"), /SUPABASE_EXIT_WORKTREE_DRIFT/);
 });
 
+test("child-process diagnostics identify operation and never expose secrets", async () => {
+  const secret = "operator-secret-must-not-appear";
+  const captureFailure = async action => {
+    let captured;
+    try { await action(); } catch (error) { captured = error; }
+    assert.ok(captured);
+    return captured;
+  };
+  const previewFailure = await captureFailure(() => execute(process.execPath, ["-e", `process.stderr.write(${JSON.stringify(secret)}); process.exit(17)`], { operation: "PREVIEW_PROBE", timeoutMs: 1_000 }));
+  const inspectError = await captureFailure(() => execute(process.execPath, ["-e", `process.stderr.write(${JSON.stringify(secret)}); process.exit(23)`], { operation: "VERCEL_INSPECT", timeoutMs: 1_000 }));
+  const timeoutError = await captureFailure(() => execute(process.execPath, ["-e", "setTimeout(() => {}, 5_000)"], { operation: "RUNTIME_VALIDATION", timeoutMs: 20 }));
+  assert.equal(previewFailure.code, "SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:PREVIEW_PROBE:EXIT_17");
+  assert.equal(inspectError.code, "SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:VERCEL_INSPECT:EXIT_23");
+  assert.equal(timeoutError.code, "SUPABASE_EXIT_OPERATOR_TIMEOUT:RUNTIME_VALIDATION");
+  assert.doesNotMatch(JSON.stringify({ previewFailure, inspectError, timeoutError }), new RegExp(secret));
+});
+
 test("fixture is unique, acceptance-only, and retains only exact cleanup identifiers", () => {
   const fixture = createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "a1b2c3d4" });
   assert.equal(fixture.kind, "supabase-exit-acceptance");
@@ -136,4 +154,30 @@ test("operator reports cleanup failure as final failure even when acceptance sta
   assert.equal(result.gates.FIXTURE_CLEANUP, "FAIL");
   assert.equal(result.gates.SUPABASE_SAFE_TO_DELETE, "FAIL");
   assert.equal(result.detail, "CLEANUP_FAILED");
+});
+
+test("child failure after fixture creation still runs cleanup with stable operation detail", async () => {
+  const calls = [];
+  const result = await runSupabaseExitAcceptance({
+    preflight: async () => {},
+    createIdentity: async () => ({ userId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", password: "never-output" }),
+    initialize: async () => {},
+    validateRuntime: async () => execute(process.execPath, ["-e", "process.exit(31)"], { operation: "RUNTIME_VALIDATION", timeoutMs: 1_000 }),
+    cleanup: async fixture => { calls.push(fixture.cleanup.propertyId); },
+    fixtureFactory: () => createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "c0ffee11" }),
+  });
+  assert.equal(result.detail, "SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:RUNTIME_VALIDATION:EXIT_31");
+  assert.equal(result.gates.FIXTURE_CLEANUP, "PASS");
+  assert.equal(calls.length, 1);
+});
+
+test("pre-fixture child failure leaves cleanup PASS", async () => {
+  const result = await runSupabaseExitAcceptance({
+    preflight: async () => execute(process.execPath, ["-e", "process.exit(37)"], { operation: "PREVIEW_PROBE", timeoutMs: 1_000 }),
+    createIdentity: async () => { throw new Error("must-not-run"); },
+    cleanup: async () => { throw new Error("must-not-run"); },
+  });
+  assert.equal(result.detail, "SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:PREVIEW_PROBE:EXIT_37");
+  assert.equal(result.gates.FIXTURE_CLEANUP, "PASS");
+  assert.equal(result.ok, false);
 });

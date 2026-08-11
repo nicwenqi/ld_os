@@ -223,18 +223,40 @@ export async function runSupabaseExitAcceptance(dependencies) {
   return { ok: accepted, gates, detail };
 }
 
-async function execute(command, args, { cwd = process.cwd(), timeoutMs = 45_000 } = {}) {
+export async function execute(command, args, { operation, cwd = process.cwd(), timeoutMs = 45_000 } = {}) {
+  if (typeof operation !== "string" || !/^[A-Z][A-Z0-9_]*$/.test(operation)) failure("SUPABASE_EXIT_OPERATION_INVALID");
+  const operationName = operation;
   return new Promise((resolvePromise, rejectPromise) => {
     const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"], env: process.env });
     let output = "";
-    const timer = setTimeout(() => child.kill("SIGTERM"), timeoutMs);
+    let timedOut = false;
+    let settled = false;
+    let timer;
+    const settleReject = error => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      rejectPromise(error);
+    };
+    timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGTERM");
+    }, timeoutMs);
     child.stdout.on("data", value => { output += value; });
     child.stderr.on("data", () => {});
-    child.once("error", rejectPromise);
+    child.once("error", () => settleReject(Object.assign(new Error("SUPABASE_EXIT_OPERATOR_COMMAND_FAILED"), { code: `SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:${operationName}:EXIT_SPAWN` })));
     child.once("close", code => {
       clearTimeout(timer);
-      if (code === 0) resolvePromise(output);
-      else rejectPromise(Object.assign(new Error("SUPABASE_EXIT_OPERATOR_COMMAND_FAILED"), { code: "SUPABASE_EXIT_OPERATOR_COMMAND_FAILED" }));
+      if (settled) return;
+      if (timedOut) {
+        settled = true;
+        rejectPromise(Object.assign(new Error("SUPABASE_EXIT_OPERATOR_TIMEOUT"), { code: `SUPABASE_EXIT_OPERATOR_TIMEOUT:${operationName}` }));
+      } else if (code === 0) {
+        settled = true;
+        resolvePromise(output);
+      } else {
+        settleReject(Object.assign(new Error("SUPABASE_EXIT_OPERATOR_COMMAND_FAILED"), { code: `SUPABASE_EXIT_OPERATOR_COMMAND_FAILED:${operationName}:EXIT_${Number.isInteger(code) ? code : "UNKNOWN"}` }));
+      }
     });
   });
 }
@@ -252,20 +274,20 @@ function fixtureForInitializer(fixture) {
 
 async function createPreviewIdentity({ request, fixture }) {
   const password = randomBytes(24).toString("base64url");
-  const response = await request("/api/auth/sign-up/email", { method: "POST", body: { name: fixture.manager.displayName, email: fixture.manager.email, password } });
+  const response = await request("/api/auth/sign-up/email", { method: "POST", operation: "AUTH_SIGNUP", body: { name: fixture.manager.displayName, email: fixture.manager.email, password } });
   const userId = response?.user?.id;
   if (!UUID.test(cleanText(userId))) failure("SUPABASE_EXIT_AUTH_CREATE_FAILED");
   return { userId, password };
 }
 
 async function createVercelRequest({ cookieJar }) {
-  return async (path, { method = "GET", body, formFile } = {}) => {
+  return async (path, { method = "GET", body, formFile, operation = "PREVIEW_REQUEST" } = {}) => {
     if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) failure("SUPABASE_EXIT_REQUEST_INVALID");
     const forwarded = ["--max-time", "45", "--silent", "--show-error", "--fail", "--cookie", cookieJar, "--cookie-jar", cookieJar];
     if (method !== "GET") forwarded.push("-X", method);
     if (body !== undefined) forwarded.push("-H", "content-type: application/json", "--data", JSON.stringify(body));
     if (formFile) forwarded.push("-F", `file=@${formFile};type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`);
-    const output = await execute("vercel", ["curl", path, "--deployment", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--yes", "--", ...forwarded]);
+    const output = await execute("vercel", ["curl", path, "--deployment", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--yes", "--", ...forwarded], { operation });
     try { return JSON.parse(output); } catch { failure("SUPABASE_EXIT_RESPONSE_INVALID"); }
   };
 }
@@ -286,30 +308,30 @@ async function writeAcceptanceWorkbook(fixture) {
 async function validateImportWorkflow({ request, fixture }) {
   const workbook = await writeAcceptanceWorkbook(fixture);
   try {
-    const inspected = await request("/api/import/inspect", { method: "POST", formFile: workbook });
+    const inspected = await request("/api/import/inspect", { method: "POST", operation: "IMPORT_VALIDATION", formFile: workbook });
     const batchId = cleanText(inspected?.batchId);
     if (!UUID.test(batchId)) failure("SUPABASE_EXIT_IMPORT_STAGE_FAILED");
-    let workflow = await request(`/api/import/batches/${batchId}/mapping`);
+    let workflow = await request(`/api/import/batches/${batchId}/mapping`, { operation: "IMPORT_VALIDATION" });
     const mappings = workflow?.mappings?.items;
     if (!Array.isArray(mappings) || mappings.length === 0 || !Number.isSafeInteger(workflow?.decisionVersion)) failure("SUPABASE_EXIT_IMPORT_MAPPING_FAILED");
     workflow = await request(`/api/import/batches/${batchId}/mapping`, { method: "POST", body: {
       expectedDecisionVersion: workflow.decisionVersion,
       decisions: mappings.map(item => ({ mappingId: item.mappingId, mappingStatus: "confirmed", targetField: item.targetField, transformationRule: item.transformationRule ?? { trim: true, preserveText: false } })),
-    } });
+    }, operation: "IMPORT_VALIDATION" });
     const labelDecisions = Array.isArray(workflow?.sourceLabels?.items) ? workflow.sourceLabels.items.map(item => item.resolutionType === "department"
       ? { sourceLabelId: item.sourceLabelId, action: "department", targetDepartmentId: fixture.developmentSeed.departmentId }
       : { sourceLabelId: item.sourceLabelId, action: "position", targetPositionId: fixture.developmentSeed.positionId }) : [];
-    if (labelDecisions.length > 0) workflow = await request(`/api/import/batches/${batchId}/labels`, { method: "POST", body: { expectedDecisionVersion: workflow.decisionVersion, decisions: labelDecisions } });
+    if (labelDecisions.length > 0) workflow = await request(`/api/import/batches/${batchId}/labels`, { method: "POST", operation: "IMPORT_VALIDATION", body: { expectedDecisionVersion: workflow.decisionVersion, decisions: labelDecisions } });
     const issueDecisions = Array.isArray(workflow?.issues?.items) ? workflow.issues.items.filter(item => item.status === "open").map(item => ({ issueId: item.issueId, status: item.severity === "error" ? "excluded" : "ignored", correction: {}, resolutionNote: "acceptance" })) : [];
-    if (issueDecisions.length > 0) workflow = await request(`/api/import/batches/${batchId}/issues`, { method: "POST", body: { expectedDecisionVersion: workflow.decisionVersion, decisions: issueDecisions } });
-    const preview = await request(`/api/import/batches/${batchId}/preview?decisionVersion=${workflow.decisionVersion}`);
+    if (issueDecisions.length > 0) workflow = await request(`/api/import/batches/${batchId}/issues`, { method: "POST", operation: "IMPORT_VALIDATION", body: { expectedDecisionVersion: workflow.decisionVersion, decisions: issueDecisions } });
+    const preview = await request(`/api/import/batches/${batchId}/preview?decisionVersion=${workflow.decisionVersion}`, { operation: "IMPORT_VALIDATION" });
     if (preview?.state !== "ready" || !/^[0-9a-f]{64}$/.test(cleanText(preview.previewHash))) failure("SUPABASE_EXIT_IMPORT_PREVIEW_FAILED");
-    const batch = await request(`/api/import/batches/${batchId}`);
-    const committed = await request(`/api/import/batches/${batchId}/commit`, { method: "POST", body: { expectedBatchVersion: batch.version, expectedDecisionVersion: preview.decisionVersion, previewHash: preview.previewHash, confirmed: true } });
+    const batch = await request(`/api/import/batches/${batchId}`, { operation: "IMPORT_VALIDATION" });
+    const committed = await request(`/api/import/batches/${batchId}/commit`, { method: "POST", operation: "IMPORT_VALIDATION", body: { expectedBatchVersion: batch.version, expectedDecisionVersion: preview.decisionVersion, previewHash: preview.previewHash, confirmed: true } });
     if (!UUID.test(cleanText(committed?.commitId))) failure("SUPABASE_EXIT_IMPORT_COMMIT_FAILED");
-    const revert = await request(`/api/import/batches/${batchId}/revert`);
+    const revert = await request(`/api/import/batches/${batchId}/revert`, { operation: "IMPORT_VALIDATION" });
     if (revert?.safe !== true || !Number.isSafeInteger(revert?.commitVersion)) failure("SUPABASE_EXIT_IMPORT_REVERT_PREVIEW_FAILED");
-    const reverted = await request(`/api/import/batches/${batchId}/revert`, { method: "POST", body: { expectedCommitVersion: revert.commitVersion, confirmed: true } });
+    const reverted = await request(`/api/import/batches/${batchId}/revert`, { method: "POST", operation: "IMPORT_VALIDATION", body: { expectedCommitVersion: revert.commitVersion, confirmed: true } });
     if (reverted?.status !== "reverted") failure("SUPABASE_EXIT_IMPORT_REVERT_FAILED");
   } finally {
     await rm(workbook, { force: true });
@@ -317,25 +339,25 @@ async function validateImportWorkflow({ request, fixture }) {
 }
 
 async function defaultPreflight() {
-  const localCommit = cleanText(await execute("git", ["rev-parse", "HEAD"]));
-  const branch = cleanText(await execute("git", ["branch", "--show-current"]));
-  validateTrackedWorktreePaths(await execute("git", ["diff", "--name-only", "HEAD", "--"]));
-  validateTrackedWorktreePaths(await execute("git", ["diff", "--cached", "--name-only", "HEAD", "--"]));
+  const localCommit = cleanText(await execute("git", ["rev-parse", "HEAD"], { operation: "GIT_HEAD" }));
+  const branch = cleanText(await execute("git", ["branch", "--show-current"], { operation: "GIT_BRANCH" }));
+  validateTrackedWorktreePaths(await execute("git", ["diff", "--name-only", "HEAD", "--"], { operation: "GIT_WORKTREE" }));
+  validateTrackedWorktreePaths(await execute("git", ["diff", "--cached", "--name-only", "HEAD", "--"], { operation: "GIT_WORKTREE" }));
   validateSupabaseExitPreflight({ localCommit, deploymentCommit: localCommit, branch, deploymentBranch: branch, projectId: APPROVED_SUPABASE_EXIT_PREVIEW.projectId, teamId: APPROVED_SUPABASE_EXIT_PREVIEW.teamId, deploymentTarget: "preview", previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: process.env, activeSource: await projectSource() });
-  await execute("vercel", ["whoami"]);
-  const inspectedOutput = await execute("vercel", ["inspect", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--json"]);
+  await execute("vercel", ["whoami"], { operation: "VERCEL_WHOAMI" });
+  const inspectedOutput = await execute("vercel", ["inspect", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--json"], { operation: "VERCEL_INSPECT" });
   const inspectedStart = inspectedOutput.indexOf("{");
   if (inspectedStart < 0) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
   let inspected;
   try { inspected = JSON.parse(inspectedOutput.slice(inspectedStart)); } catch { failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID"); }
   if (typeof inspected?.id !== "string" || !/^dpl_[A-Za-z0-9]+$/.test(inspected.id)) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
-  const deployment = await execute("vercel", ["api", `/v13/deployments/${inspected.id}`]);
+  const deployment = await execute("vercel", ["api", `/v13/deployments/${inspected.id}`], { operation: "VERCEL_API" });
   readApprovedDeploymentMetadata(deployment, { localCommit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url });
   const cookieJar = `/private/tmp/supabase-exit-${randomUUID()}.cookies`;
   await writeFile(cookieJar, "", { mode: 0o600 });
   const request = await createVercelRequest({ cookieJar });
-  await request("/");
-  await execute("node", ["--test", "tests/supabase-exit-source.test.mjs"]);
+  await request("/", { operation: "PREVIEW_PROBE" });
+  await execute("node", ["--test", "tests/supabase-exit-source.test.mjs"], { operation: "SOURCE_GATE" });
   return { cookieJar, request };
 }
 
@@ -359,7 +381,7 @@ export async function cleanupSupabaseExitBlobObjects({ cleanup, token, blob } = 
 async function defaultCleanup(fixture, identity, context) {
   try {
     if (!identity?.password || !context?.request) failure("SUPABASE_EXIT_AUTH_CLEANUP_UNAVAILABLE");
-    await context.request("/api/auth/delete-user", { method: "POST", body: { password: identity.password } });
+    await context.request("/api/auth/delete-user", { method: "POST", operation: "AUTH_CLEANUP", body: { password: identity.password } });
   } finally {
     try { await cleanupSupabaseExitBlobObjects({ cleanup: fixture.cleanup, token: process.env.BLOB_READ_WRITE_TOKEN }); }
     finally {
@@ -397,18 +419,18 @@ export async function runLiveSupabaseExit() {
       await initializeNeonFirstEnvironment({ connectionString: process.env.NEON_BOOTSTRAP_DATABASE_URL, target, fixture: fixtureForInitializer(fixture), authUserId: fixture.authUserId, environment: { APP_ENV: "staging" } });
     },
     validateRuntime: async (fixture, identity) => {
-      const login = await context.request("/api/auth/login", { method: "POST", body: { loginId: fixture.manager.loginId, password: identity.password } });
+      const login = await context.request("/api/auth/login", { method: "POST", operation: "AUTH_LOGIN", body: { loginId: fixture.manager.loginId, password: identity.password } });
       if (!login?.authenticated || login?.role !== "property_ld_manager" || login?.propertyId !== fixture.property.id) failure("SUPABASE_EXIT_NEON_AUTHORIZATION_FAILED");
-      const session = await context.request("/api/auth/session");
+      const session = await context.request("/api/auth/session", { operation: "AUTH_SESSION" });
       if (!session?.authenticated || session?.userId !== fixture.manager.profileId) failure("SUPABASE_EXIT_SESSION_REFRESH_FAILED");
-      const property = await context.request("/api/property/context");
+      const property = await context.request("/api/property/context", { operation: "NEON_AUTHORIZATION" });
       if (!property?.configured || property?.propertyId !== fixture.property.id) failure("SUPABASE_EXIT_PROPERTY_CONTEXT_FAILED");
     },
     validateBusiness: async () => {
-      for (const path of ["/api/organization/departments", "/api/organization/positions", "/api/people/employees?limit=1"]) await context.request(path);
+      for (const path of ["/api/organization/departments", "/api/organization/positions", "/api/people/employees?limit=1"]) await context.request(path, { operation: "BUSINESS_VALIDATION" });
     },
     validateProperty: async () => {
-      for (const path of ["/api/property", "/api/initialization/access", "/api/initialization/progress"]) await context.request(path);
+      for (const path of ["/api/property", "/api/initialization/access", "/api/initialization/progress"]) await context.request(path, { operation: "PROPERTY_INITIALIZATION" });
     },
     validateImport: async fixture => validateImportWorkflow({ request: context.request, fixture }),
     validateZeroSupabase: async () => {
