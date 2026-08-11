@@ -6,7 +6,7 @@ const IMPORT_BUCKET = "property-import-files" as const;
 
 type BlobOperations = Readonly<{
   put(pathname: string, body: Uint8Array, options: { access: "private"; addRandomSuffix: false; allowOverwrite: false; contentType: string; token: string }): Promise<unknown>;
-  get(pathname: string, options: { access: "private"; token: string }): Promise<{ stream: ReadableStream<Uint8Array> } | null>;
+  get(pathname: string, options: { access: "private"; useCache: false; token: string }): Promise<{ stream: ReadableStream<Uint8Array> } | null>;
   del(pathname: string, options: { token: string }): Promise<void>;
 }>;
 
@@ -33,7 +33,7 @@ export function createVercelBlobImportStorageGateway(
     },
     async download(bucket, objectPath) {
       assertImportObjectReference(bucket, objectPath);
-      const result = await blob.get(objectPath, { access: "private", token });
+      const result = await blob.get(objectPath, { access: "private", useCache: false, token });
       if (!result?.stream) throw new Error("IMPORT_STORAGE_READBACK_FAILED");
       return new Uint8Array(await new Response(result.stream).arrayBuffer());
     },

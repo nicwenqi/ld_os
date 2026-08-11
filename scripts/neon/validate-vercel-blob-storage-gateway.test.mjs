@@ -38,7 +38,7 @@ test("Vercel Blob gateway uploads/downloads/deletes one exact private object", a
 
   assert.deepEqual(calls, [
     { kind: "put", pathname: PATH, bytes: BYTES, options: { access: "private", addRandomSuffix: false, allowOverwrite: false, contentType: "text/csv", token: "test-token" } },
-    { kind: "get", pathname: PATH, options: { access: "private", token: "test-token" } },
+    { kind: "get", pathname: PATH, options: { access: "private", useCache: false, token: "test-token" } },
     { kind: "del", pathname: PATH, options: { token: "test-token" } },
   ]);
 });
