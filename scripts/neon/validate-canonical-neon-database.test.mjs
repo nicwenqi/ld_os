@@ -60,8 +60,8 @@ const catalogRow = {
   schema_count: 2,
   type_count: 9,
   table_count: 36,
-  routine_count: 102,
-  entrypoint_count: 36,
+  routine_count: 103,
+  entrypoint_count: 37,
   policy_count: 36,
   trigger_count: 18,
   rls_table_count: 36,
@@ -133,7 +133,7 @@ function bootstrapHandler(text, values) {
   if (text.includes("canonical_empty_state")) return { rows: [emptyRow] };
   if (text.includes("canonical_catalog_matrix")) {
     const exactInventory = Array.isArray(values)
-      && [2, 9, 36, 102, 36, 36, 18, 13].every((length, index) => values[index]?.length === length)
+      && [2, 9, 36, 103, 37, 36, 18, 13].every((length, index) => values[index]?.length === length)
       && text.includes("namespace.nspname::text")
       && text.includes("pg_catalog.oidvectortypes(routine.proargtypes)");
     return { rows: [{ ...catalogRow, tables_exact: exactInventory }] };

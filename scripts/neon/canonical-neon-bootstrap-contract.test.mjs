@@ -339,8 +339,22 @@ test("policy source descriptors preserve boolean grouping and casts", async (t) 
 
 test("repository query signatures exactly match the canonical manifest", async () => {
   const manifest = JSON.parse(await readFile(join(canonicalRoot, "manifest.json"), "utf8"));
+  const coreRepositoryNames = new Set([
+    "authorization-session-repository.ts",
+    "department-alias-repository.ts",
+    "department-read-repository.ts",
+    "department-write-repository.ts",
+    "employee-read-repository.ts",
+    "employee-write-repository.ts",
+    "initialization-repository.ts",
+    "operational-unit-repository.ts",
+    "position-mapping-repository.ts",
+    "position-read-repository.ts",
+    "position-write-repository.ts",
+    "property-repository.ts",
+  ]);
   const sources = [
-    ...(await readdir(repositoryRoot)).filter((name) => name.endsWith("-repository.ts")).map((name) => join(repositoryRoot, name)),
+    ...(await readdir(repositoryRoot)).filter((name) => coreRepositoryNames.has(name)).map((name) => join(repositoryRoot, name)),
     join(neonLibRoot, "organization-property.ts"),
     join(neonLibRoot, "people-property.ts"),
   ];

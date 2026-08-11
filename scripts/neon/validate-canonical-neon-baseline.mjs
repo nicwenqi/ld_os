@@ -1191,23 +1191,23 @@ function catalogInventories(bundle) {
   ];
 }
 
-function assertBootstrapIdentity(row) {
+function assertBootstrapIdentity(row, target = EXPECTED_NEON_TARGET) {
   if (
-    Math.trunc(Number(row?.server_version_num) / 10_000) !== EXPECTED_NEON_TARGET.postgresMajor
-    || row?.database_name !== EXPECTED_NEON_TARGET.database
-    || row?.database_owner !== EXPECTED_NEON_TARGET.bootstrapRole
-    || row?.current_role !== EXPECTED_NEON_TARGET.bootstrapRole
-    || row?.session_role !== EXPECTED_NEON_TARGET.bootstrapRole
+    Math.trunc(Number(row?.server_version_num) / 10_000) !== target.postgresMajor
+    || row?.database_name !== target.database
+    || row?.database_owner !== target.bootstrapRole
+    || row?.current_role !== target.bootstrapRole
+    || row?.session_role !== target.bootstrapRole
   ) {
     fail("CANONICAL_NEON_DATABASE_IDENTITY_MISMATCH", "connected database identity does not match the authorized PostgreSQL 18 bootstrap target");
   }
 }
 
-function assertRuntimeIdentity(row) {
+function assertRuntimeIdentity(row, target = EXPECTED_NEON_TARGET) {
   if (
-    Math.trunc(Number(row?.server_version_num) / 10_000) !== EXPECTED_NEON_TARGET.postgresMajor
-    || row?.database_name !== EXPECTED_NEON_TARGET.database
-    || row?.database_owner !== EXPECTED_NEON_TARGET.bootstrapRole
+    Math.trunc(Number(row?.server_version_num) / 10_000) !== target.postgresMajor
+    || row?.database_name !== target.database
+    || row?.database_owner !== target.bootstrapRole
     || row?.current_role !== "hotel_ld_application"
     || row?.session_role !== "hotel_ld_application"
   ) {
@@ -1934,10 +1934,10 @@ export async function validateCanonicalNeon({
     try {
       runtimePool = await injected.createRuntimePool(runtimeConnectionString);
       await runWithPool(bootstrapPool, async (client) => {
-        assertBootstrapIdentity(await readIdentity(client));
+        assertBootstrapIdentity(await readIdentity(client), expectedTarget);
         await readCatalog(client, bundle);
       });
-      await runWithPool(runtimePool, async (client) => assertRuntimeIdentity(await readIdentity(client)));
+      await runWithPool(runtimePool, async (client) => assertRuntimeIdentity(await readIdentity(client), expectedTarget));
       const matrix = await injected.runRuntimeMatrix({ bootstrapPool, runtimePool, bundle });
       await runWithPool(bootstrapPool, async (client) => await readCatalog(client, bundle));
       return { mode, matrix, finalRowsZero: true };
@@ -1950,7 +1950,7 @@ export async function validateCanonicalNeon({
   const pool = await injected.createBootstrapPool(bootstrapConnectionString);
   try {
     return await runWithPool(pool, async (client) => {
-      assertBootstrapIdentity(await readIdentity(client));
+      assertBootstrapIdentity(await readIdentity(client), expectedTarget);
       if (mode === "dry-run") {
         return { mode, counts: await executeInstall(client, bundle, { rollback: true }), rolledBack: true };
       }
