@@ -6,6 +6,24 @@ import { APPROVED_NEON_FIRST_INITIALIZATION_TARGETS } from "./neon-first-initial
 const { Pool } = pg;
 const ALLOWED_URL_QUERY_KEYS = new Set(["sslmode", "channel_binding"]);
 const CONFIRMED_STEPS = new Set(["identity", "organization", "positions", "access"]);
+const DATABASE_CONTRACT_BY_SPEC = Object.freeze({
+  tenant: "TENANTS",
+  property: "PROPERTIES",
+  propertyDomain: "PROPERTY_DOMAINS",
+  profile: "PROFILES",
+  userAccount: "USER_ACCOUNTS",
+  tenantMembership: "TENANT_MEMBERSHIPS",
+  propertyMembership: "PROPERTY_MEMBERSHIPS",
+  role: "ROLES",
+  roleAssignment: "ROLE_ASSIGNMENTS",
+  propertySettings: "PROPERTY_SETTINGS",
+  department: "DEPARTMENTS",
+  positionFamily: "POSITION_FAMILIES",
+  position: "POSITIONS",
+  positionDepartmentAssignment: "POSITION_DEPARTMENT_ASSIGNMENTS",
+  employee: "EMPLOYEES",
+  employeeIdentifier: "EMPLOYEE_EXTERNAL_IDENTIFIERS",
+});
 
 const SQL = Object.freeze({
   tenantExisting: "select id, code, name, status from public.tenants where id = $1 or code = $2 order by id",
@@ -37,7 +55,7 @@ const SQL = Object.freeze({
   positionExisting: "select id, tenant_id, property_id, is_active from public.positions where id = $1 or (property_id = $2 and code = 'DEV-OPS-001') order by id",
   positionInsert: "insert into public.positions (id, tenant_id, property_id, position_family_id, code, name_zh, name_en, grade_or_band, is_active) values ($1, $2, $3, $4, 'DEV-OPS-001', '开发运营经理', 'Development Operations Manager', 'M1', true) on conflict do nothing",
   assignmentSeedExisting: "select id, tenant_id, property_id, position_id, department_id, is_active from public.position_department_assignments where id = $1 or (position_id = $2 and department_id = $3) order by id",
-  assignmentSeedInsert: "insert into public.position_department_assignments (id, tenant_id, property_id, position_id, department_id, is_primary, is_active) values ($1, $2, $3, $4, $5, true, true) on conflict do nothing",
+  assignmentSeedInsert: "insert into public.position_department_assignments (id, tenant_id, property_id, position_id, department_id, is_active) values ($1, $2, $3, $4, $5, true) on conflict do nothing",
   employeeExisting: "select id, tenant_id, property_id, employee_number, is_active from public.employees where id = $1 or (property_id = $2 and employee_number = 'DEV-001') order by id",
   employeeInsert: "insert into public.employees (id, tenant_id, property_id, employee_number, name_zh, name_en, department_id, position_id, position_family_id, grade_or_band, employment_status, is_active) values ($1, $2, $3, 'DEV-001', '开发示例员工', 'Development Seed Employee', $4, $5, $6, 'M1', 'active', true) on conflict do nothing",
   identifierExisting: "select id, tenant_id, property_id, employee_id, source_system, identifier_value, is_active from public.employee_external_identifiers where id = $1 or (property_id = $2 and source_system = 'neon-first-seed' and identifier_value = 'DEV-001') order by id",
@@ -66,6 +84,19 @@ async function ensure(client, { selectSql, selectValues, insertSql, insertValues
   if (after.rows.length !== 1) fail("NEON_FIRST_INIT_ROW_MISSING");
   assertExpectedRow(after.rows[0], expected);
   return before.rows.length === 0;
+}
+
+function annotateDatabaseContract(error, contractCode) {
+  if (!error || typeof error !== "object" || !/^[0-9A-Z]{5}$/.test(String(error.code ?? "").toUpperCase())) return error;
+  try {
+    Object.defineProperty(error, "databaseContractCode", { configurable: true, value: contractCode });
+  } catch { /* a frozen driver error is still safely mapped to the generic canonical contract */ }
+  return error;
+}
+
+async function withDatabaseContract(contractCode, operation) {
+  try { return await operation(); }
+  catch (error) { throw annotateDatabaseContract(error, contractCode); }
 }
 
 async function ensureSteps(client, fixture) {
@@ -137,13 +168,17 @@ export async function initializeNeonFirstEnvironment({ connectionString, target,
       ["employee", SQL.employeeExisting, [fixture.developmentSeed.employeeId, fixture.property.id], SQL.employeeInsert, [fixture.developmentSeed.employeeId, fixture.tenant.id, fixture.property.id, fixture.developmentSeed.departmentId, fixture.developmentSeed.positionId, fixture.developmentSeed.positionFamilyId], { id: fixture.developmentSeed.employeeId, tenant_id: fixture.tenant.id, property_id: fixture.property.id, employee_number: "DEV-001", is_active: true }],
       ["employeeIdentifier", SQL.identifierExisting, [fixture.developmentSeed.employeeIdentifierId, fixture.property.id], SQL.identifierInsert, [fixture.developmentSeed.employeeIdentifierId, fixture.tenant.id, fixture.property.id, fixture.developmentSeed.employeeId], { id: fixture.developmentSeed.employeeIdentifierId, tenant_id: fixture.tenant.id, property_id: fixture.property.id, employee_id: fixture.developmentSeed.employeeId, source_system: "neon-first-seed", identifier_value: "DEV-001", is_active: true }],
     ];
-    for (const [name, selectSql, selectValues, insertSql, insertValues, expected] of specs.slice(0, 10)) if (await ensure(dbClient, { selectSql, selectValues, insertSql, insertValues, expected })) created.push(name);
-    if (await ensureSteps(dbClient, fixture)) created.push("initializationSteps");
-    for (const [name, selectSql, selectValues, insertSql, insertValues, expected] of specs.slice(10)) if (await ensure(dbClient, { selectSql, selectValues, insertSql, insertValues, expected })) created.push(name);
+    for (const [name, selectSql, selectValues, insertSql, insertValues, expected] of specs.slice(0, 10)) {
+      if (await withDatabaseContract(DATABASE_CONTRACT_BY_SPEC[name], () => ensure(dbClient, { selectSql, selectValues, insertSql, insertValues, expected }))) created.push(name);
+    }
+    if (await withDatabaseContract("PROPERTY_INITIALIZATION_STEPS", () => ensureSteps(dbClient, fixture))) created.push("initializationSteps");
+    for (const [name, selectSql, selectValues, insertSql, insertValues, expected] of specs.slice(10)) {
+      if (await withDatabaseContract(DATABASE_CONTRACT_BY_SPEC[name], () => ensure(dbClient, { selectSql, selectValues, insertSql, insertValues, expected }))) created.push(name);
+    }
     const details = JSON.stringify({ source: "neon-first-initialization", seedVersion: fixture.seedVersion, created, runtimePath: false, credentialsRecorded: false, authUserId });
-    await dbClient.query(SQL.organizationAudit, [requestId, authUserId, fixture.manager.profileId, fixture.tenant.id, fixture.property.id, fixture.developmentSeed.departmentId, details]);
-    await dbClient.query(SQL.propertyAudit, [requestId, authUserId, fixture.tenant.id, fixture.property.id, fixture.property.id, details]);
-    await dbClient.query(SQL.initializationAudit, [requestId, authUserId, fixture.tenant.id, fixture.property.id, details]);
+    await withDatabaseContract("ORGANIZATION_WRITE_AUDIT_EVENTS", () => dbClient.query(SQL.organizationAudit, [requestId, authUserId, fixture.manager.profileId, fixture.tenant.id, fixture.property.id, fixture.developmentSeed.departmentId, details]));
+    await withDatabaseContract("PROPERTY_WRITE_AUDIT_EVENTS", () => dbClient.query(SQL.propertyAudit, [requestId, authUserId, fixture.tenant.id, fixture.property.id, fixture.property.id, details]));
+    await withDatabaseContract("INITIALIZATION_AUDIT_EVENTS", () => dbClient.query(SQL.initializationAudit, [requestId, authUserId, fixture.tenant.id, fixture.property.id, details]));
     await dbClient.query(dryRun ? "rollback" : "commit");
     return { status: dryRun ? "dry_run" : created.length === 0 ? "already_present" : "created", created, requestId, authUserId, tenantId: fixture.tenant.id, propertyId: fixture.property.id, profileId: fixture.manager.profileId, roleAssignmentId: fixture.manager.roleAssignmentId, seedVersion: fixture.seedVersion, committedAt: now.toISOString() };
   } catch (error) {

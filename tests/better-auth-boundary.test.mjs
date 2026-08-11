@@ -19,6 +19,7 @@ test("Better Auth is server-only, uses only AUTH_DATABASE_URL, and supplies UUID
   assert.doesNotMatch(schema, /id\s+uuid\s+(?:default\s+[^,]+\s+)?primary\s+key\s+default/i);
   assert.match(source, /modelName:\s*["']auth_user["']/);
   assert.match(source, /modelName:\s*["']auth_session["']/);
+  assert.match(source, /deleteUser:\s*\{\s*enabled:\s*true,?\s*\}/);
   assert.doesNotMatch(source, /process\.env\.DATABASE_URL/);
   assert.doesNotMatch(source, /supabase/i);
 });

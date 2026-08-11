@@ -373,6 +373,29 @@ test("operator fails closed and always executes exact cleanup after a workflow f
   assert.doesNotMatch(JSON.stringify(result), /never-output/);
 });
 
+test("initialization SQLSTATE identifies its safe contract and cleanup still succeeds", async () => {
+  const calls = [];
+  const secret = "database-detail-must-not-appear";
+  const result = await runSupabaseExitAcceptance({
+    preflight: async () => { calls.push("preflight"); },
+    createIdentity: async () => ({ userId: "05a561ea-1e14-4920-abd1-ff41b9e29bee" }),
+    fixtureFactory: () => createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "42703bad" }),
+    initialize: async () => {
+      throw Object.assign(new Error(secret), { code: "42703", databaseContractCode: "POSITION_DEPARTMENT_ASSIGNMENTS", column: "is_primary" });
+    },
+    validateRuntime: async () => { throw new Error("must-not-run"); },
+    validateBusiness: async () => { throw new Error("must-not-run"); },
+    validateProperty: async () => { throw new Error("must-not-run"); },
+    validateImport: async () => { throw new Error("must-not-run"); },
+    validateZeroSupabase: async () => { throw new Error("must-not-run"); },
+    cleanup: async fixture => { calls.push(`cleanup:${fixture.nonce}`); },
+  });
+  assert.equal(result.detail, "SUPABASE_EXIT_DATABASE_FAILED:NEON_INITIALIZE:SQLSTATE_42703:POSITION_DEPARTMENT_ASSIGNMENTS");
+  assert.equal(result.gates.FIXTURE_CLEANUP, "PASS");
+  assert.deepEqual(calls, ["preflight", "cleanup:42703bad"]);
+  assert.doesNotMatch(JSON.stringify(result), new RegExp(`${secret}|is_primary`));
+});
+
 test("operator reports cleanup failure as final failure even when acceptance stages pass", async () => {
   const result = await runSupabaseExitAcceptance({
     preflight: async () => {},

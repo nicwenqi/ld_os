@@ -51,6 +51,9 @@ test("operator creates the minimum runnable graph atomically and records no Auth
     async query(text, values = []) {
       calls.push({ text, values });
       if (text === "begin" || text === "rollback" || text === "commit" || text.includes("audit_events")) return { rows: [] };
+      if (text.includes("insert into public.position_department_assignments") && /\bis_primary\b/i.test(text)) {
+        throw Object.assign(new Error("column is_primary does not exist"), { code: "42703", column: "is_primary" });
+      }
       if (text.includes("from public.property_initialization_steps")) return { rows: initializationSteps };
       if (text.includes("insert into public.property_initialization_steps")) {
         initializationSteps.push({ id: values[0], tenant_id: values[1], property_id: values[2], step_key: values[3], explicitly_confirmed: values[4] });

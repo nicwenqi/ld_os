@@ -184,6 +184,22 @@ function codeOf(error) {
   return cleanText(error?.code) || "SUPABASE_EXIT_FAILED";
 }
 
+function databaseFailureCode(error, operation) {
+  const sqlstate = cleanText(error?.code).toUpperCase();
+  if (!/^[0-9A-Z]{5}$/.test(sqlstate)) return null;
+  const candidate = cleanText(error?.databaseContractCode);
+  const contractCode = /^[A-Z][A-Z0-9_]{0,80}$/.test(candidate) ? candidate : "CANONICAL_CONTRACT";
+  return `SUPABASE_EXIT_DATABASE_FAILED:${operation}:SQLSTATE_${sqlstate}:${contractCode}`;
+}
+
+function normalizedDatabaseFailure(error, operation) {
+  const code = databaseFailureCode(error, operation);
+  if (!code) return error;
+  const normalized = new Error(code);
+  normalized.code = code;
+  return normalized;
+}
+
 /** Testable lifecycle coordinator. Every path that has a fixture invokes cleanup. */
 export async function runSupabaseExitAcceptance(dependencies) {
   const gates = initialGates();
@@ -197,7 +213,8 @@ export async function runSupabaseExitAcceptance(dependencies) {
     if (!UUID.test(cleanText(identity?.userId))) failure("SUPABASE_EXIT_AUTH_USER_INVALID");
     fixture = dependencies.fixtureFactory({ authUserId: identity.userId });
     gates.AUTH_DISPOSABLE_USER = "PASS";
-    await dependencies.initialize(fixture, identity);
+    try { await dependencies.initialize(fixture, identity); }
+    catch (error) { throw normalizedDatabaseFailure(error, "NEON_INITIALIZE"); }
     gates.NEON_FIRST_INITIALIZATION = "PASS";
     await dependencies.validateRuntime(fixture, identity);
     gates.NEON_AUTHORIZATION_AND_SCOPE = "PASS";
@@ -219,7 +236,7 @@ export async function runSupabaseExitAcceptance(dependencies) {
         gates.FIXTURE_CLEANUP = "PASS";
       } catch (error) {
         gates.FIXTURE_CLEANUP = "FAIL";
-        detail ??= codeOf(error);
+        detail ??= codeOf(normalizedDatabaseFailure(error, "CLEANUP"));
       }
     } else {
       gates.FIXTURE_CLEANUP = "PASS";
