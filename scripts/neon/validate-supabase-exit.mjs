@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
 import { ProxyAgent } from "undici";
+const { deriveDeterministicAuthEmail } = await import("../../app/lib/auth/deterministic-login-identity-core.ts");
 
 export const APPROVED_SUPABASE_EXIT_PREVIEW = Object.freeze({
   url: "https://hotel-ld-os-git-codex-canonical-neon-beb82a-nicwenqis-projects.vercel.app",
@@ -161,6 +162,7 @@ export function createSupabaseExitFixture({ authUserId, nonce = randomBytes(8).t
   const ids = Array.from({ length: 16 }, () => randomUUID());
   const [tenantId, propertyId, domainId, profileId, accountId, tenantMembershipId, propertyMembershipId, roleId, roleAssignmentId, settingsId, identityStep, rulesStep, organizationStep, positionsStep, uploadStep, mappingStep] = ids;
   const extra = Array.from({ length: 4 }, () => randomUUID());
+  const positionDepartmentAssignmentId = randomUUID();
   const tag = `acceptance-${nonce.toLowerCase()}`;
   return Object.freeze({
     kind: "supabase-exit-acceptance",
@@ -169,11 +171,19 @@ export function createSupabaseExitFixture({ authUserId, nonce = randomBytes(8).t
     tenant: { id: tenantId, code: `acc-${nonce.slice(0, 8).toLowerCase()}`, name: `Acceptance ${nonce.slice(0, 8)}` },
     property: { id: propertyId, code: `acc-${nonce.slice(0, 8).toLowerCase()}`, nameZh: "验收酒店", nameEn: "Acceptance Hotel", countryRegion: "CN", timezone: "Asia/Shanghai", defaultLanguage: "zh-CN" },
     propertyDomain: { id: domainId, hostname: hostname.toLowerCase() },
-    manager: { profileId, accountId, tenantMembershipId, propertyMembershipId, roleId, roleAssignmentId, displayName: "Acceptance Manager", email: `${tag}@${hostname.toLowerCase()}`, loginId: tag },
+    manager: { profileId, accountId, tenantMembershipId, propertyMembershipId, roleId, roleAssignmentId, displayName: "Acceptance Manager", email: deriveDeterministicAuthEmail(tag, hostname), loginId: tag },
     initialization: { settingsId, steps: { identity: identityStep, rules: rulesStep, organization: organizationStep, positions: positionsStep, upload: uploadStep, mapping: mappingStep, access: extra[0], readiness: extra[1] } },
-    developmentSeed: { departmentId: extra[2], positionFamilyId: extra[3], positionId: randomUUID(), positionDepartmentAssignmentId: randomUUID(), employeeId: randomUUID(), employeeIdentifierId: randomUUID() },
-    cleanup: Object.freeze({ tenantId, propertyId, authUserId, profileId, accountId, roleAssignmentId, objectPrefix: `${tenantId}/${propertyId}/imports/` }),
+    developmentSeed: { departmentId: extra[2], positionFamilyId: extra[3], positionId: randomUUID(), positionDepartmentAssignmentId, employeeId: randomUUID(), employeeIdentifierId: randomUUID() },
+    cleanup: Object.freeze({ tenantId, propertyId, authUserId, profileId, accountId, roleAssignmentId, positionDepartmentAssignmentId, objectPrefix: `${tenantId}/${propertyId}/imports/` }),
   });
+}
+
+export function validateAcceptanceAuthIdentity(fixture) {
+  const loginId = cleanText(fixture?.manager?.loginId).toLowerCase();
+  const hostname = cleanText(fixture?.propertyDomain?.hostname).toLowerCase();
+  const expectedEmail = deriveDeterministicAuthEmail(loginId, hostname);
+  if (cleanText(fixture?.manager?.email).toLowerCase() !== expectedEmail) failure("SUPABASE_EXIT_AUTH_IDENTITY_MISMATCH");
+  return expectedEmail;
 }
 
 function initialGates() {
@@ -295,7 +305,8 @@ function fixtureForInitializer(fixture) {
   return { seedVersion: "neon-first-development-v1", ...initializerFixture };
 }
 
-async function createPreviewIdentity({ request, fixture }) {
+export async function createPreviewIdentity({ request, fixture }) {
+  validateAcceptanceAuthIdentity(fixture);
   const password = randomBytes(24).toString("base64url");
   const response = await request("/api/auth/sign-up/email", { method: "POST", operation: "AUTH_SIGNUP", body: { name: fixture.manager.displayName, email: fixture.manager.email, password } });
   const userId = response?.user?.id;

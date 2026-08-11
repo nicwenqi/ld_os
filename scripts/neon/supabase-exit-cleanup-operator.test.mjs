@@ -10,8 +10,10 @@ const fixture = Object.freeze({
   profileId: "44444444-4444-4444-8444-444444444444",
   accountId: "55555555-5555-4555-8555-555555555555",
   roleAssignmentId: "66666666-6666-4666-8666-666666666666",
+  positionDepartmentAssignmentId: "77777777-7777-4777-8777-777777777777",
   objectPrefix: "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/imports/",
 });
+const E5B_RELATIONS = { import_batches: "public.import_batches", import_commits: "public.import_commits", import_activity_events: "app_private.import_activity_events", import_decision_audit_events: "app_private.import_decision_audit_events", import_commit_audit_events: "app_private.import_commit_audit_events" };
 
 test("cleanup validates the exact non-production direct bootstrap boundary", () => {
   const target = { environment: "staging", projectId: "withered-bar-40598816", branchId: "br-wispy-flower-avd4hssa", endpointId: "ep-lingering-pine-avbdti90", database: "neondb", directHostPrefix: "ep-lingering-pine-avbdti90." };
@@ -22,7 +24,7 @@ test("cleanup validates the exact non-production direct bootstrap boundary", () 
 
 test("cleanup is one transaction, exact-ID scoped, terminalizes retained history, and never SET ROLE", async () => {
   const calls = [];
-  const client = { query: async (sql, values = []) => { calls.push([sql, values]); return /as terminal/i.test(sql) ? { rows: [{ terminal: true }] } : { rowCount: 0, rows: [] }; }, release() {} };
+  const client = { query: async (sql, values = []) => { calls.push([sql, values]); return /to_regclass/i.test(sql) ? { rows: [E5B_RELATIONS] } : /as terminal/i.test(sql) ? { rows: [{ terminal: true }] } : { rowCount: 0, rows: [] }; }, release() {} };
   const target = { environment: "staging", projectId: "withered-bar-40598816", branchId: "br-wispy-flower-avd4hssa", endpointId: "ep-lingering-pine-avbdti90", database: "neondb", directHostPrefix: "ep-lingering-pine-avbdti90." };
   const result = await cleanupSupabaseExitFixture({ fixture, target, connectionString: "postgresql://neondb_owner:redacted@ep-lingering-pine-avbdti90.example/neondb?sslmode=require", client });
   assert.equal(result.status, "terminalized");
@@ -31,16 +33,33 @@ test("cleanup is one transaction, exact-ID scoped, terminalizes retained history
   const sql = calls.map(([statement]) => statement).join("\n");
   assert.doesNotMatch(sql, /set\s+(?:local\s+)?role/i);
   assert.match(sql, /update public\.properties set status = 'inactive'/i);
+  assert.match(sql, /update public\.position_department_assignments set is_active = false/i);
+  assert.match(sql, /position_department_assignments.*is_active/i);
   assert.match(sql, /import_commits.*status <> 'reverted'/i);
   assert.ok(calls.filter(([, values]) => values.includes(fixture.tenantId) || values.includes(fixture.propertyId) || values.includes(fixture.profileId)).length > 10);
 });
 
 test("retained append-only audit is valid cleanup evidence, not a cleanup failure", async () => {
   const calls = [];
-  const client = { query: async (sql, values = []) => { calls.push([sql, values]); return /import_activity_events/.test(sql) ? { rows: [{ count: 4 }] } : /as terminal/i.test(sql) ? { rows: [{ terminal: true }] } : { rowCount: 1, rows: [] }; }, release() {} };
+  const client = { query: async (sql, values = []) => { calls.push([sql, values]); return /to_regclass/i.test(sql) ? { rows: [E5B_RELATIONS] } : /import_activity_events/.test(sql) ? { rows: [{ count: 4 }] } : /as terminal/i.test(sql) ? { rows: [{ terminal: true }] } : { rowCount: 1, rows: [] }; }, release() {} };
   const target = { environment: "staging", projectId: "withered-bar-40598816", branchId: "br-wispy-flower-avd4hssa", endpointId: "ep-lingering-pine-avbdti90", database: "neondb", directHostPrefix: "ep-lingering-pine-avbdti90." };
   const result = await cleanupSupabaseExitFixture({ fixture, target, connectionString: "postgresql://neondb_owner:redacted@ep-lingering-pine-avbdti90.example/neondb?sslmode=require", client });
   assert.equal(result.status, "terminalized");
   assert.equal(result.auditRetained, true);
   assert.equal(calls.at(-1)[0], "commit");
+});
+
+test("cleanup succeeds when the approved target has no E5B relations yet", async () => {
+  const client = {
+    query: async sql => {
+      if (/to_regclass/i.test(sql)) return { rows: [{ import_batches: null, import_commits: null, import_activity_events: null, import_decision_audit_events: null, import_commit_audit_events: null }] };
+      if (/import_activity_events|import_commits/i.test(sql)) throw Object.assign(new Error("relation does not exist"), { code: "42P01" });
+      return /as terminal/i.test(sql) ? { rows: [{ terminal: true }] } : { rowCount: 0, rows: [] };
+    },
+    release() {},
+  };
+  const target = { environment: "staging", projectId: "withered-bar-40598816", branchId: "br-wispy-flower-avd4hssa", endpointId: "ep-lingering-pine-avbdti90", database: "neondb", directHostPrefix: "ep-lingering-pine-avbdti90." };
+  const result = await cleanupSupabaseExitFixture({ fixture, target, connectionString: "postgresql://neondb_owner:redacted@ep-lingering-pine-avbdti90.example/neondb?sslmode=require", client });
+  assert.equal(result.status, "terminalized");
+  assert.equal(result.auditRetained, false);
 });

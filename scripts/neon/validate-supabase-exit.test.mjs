@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -12,6 +13,7 @@ import {
   validateTrackedWorktreePaths,
   validateSupabaseExitPreflight,
 } from "./validate-supabase-exit.mjs";
+import * as exitOperator from "./validate-supabase-exit.mjs";
 
 const REQUIRED = Object.freeze({
   NEON_BOOTSTRAP_DATABASE_URL: "postgresql://neondb_owner:redacted@ep-lingering-pine-avbdti90.example/neondb?sslmode=require",
@@ -352,6 +354,40 @@ test("fixture is unique, acceptance-only, and retains only exact cleanup identif
   assert.equal(fixture.cleanup.propertyId, fixture.property.id);
   assert.equal(fixture.cleanup.authUserId, "05a561ea-1e14-4920-abd1-ff41b9e29bee");
   assert.match(fixture.manager.loginId, /^acceptance-a1b2c3d4$/);
+  assert.equal(fixture.manager.email, "acceptance-a1b2c3d4@preview.ldchub.test");
+});
+
+test("acceptance signup rejects an email that does not match the deterministic login identity", () => {
+  const fixture = createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "a1b2c3d4" });
+  fixture.manager.email = "alternate@example.test";
+  assert.equal(typeof exitOperator.validateAcceptanceAuthIdentity, "function");
+  assert.throws(() => exitOperator.validateAcceptanceAuthIdentity(fixture), /SUPABASE_EXIT_AUTH_IDENTITY_MISMATCH/);
+});
+
+test("acceptance identity remains exact when the property hostname changes", () => {
+  const fixture = createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "a1b2c3d4" });
+  fixture.propertyDomain.hostname = "other-property.example.test";
+  assert.equal(typeof exitOperator.validateAcceptanceAuthIdentity, "function");
+  assert.throws(() => exitOperator.validateAcceptanceAuthIdentity(fixture), /SUPABASE_EXIT_AUTH_IDENTITY_MISMATCH/);
+  assert.doesNotMatch(String(fixture.manager.email), /other-property\.example\.test/);
+});
+
+test("disposable signup sends the same deterministic identity used by application login", async () => {
+  const fixture = createSupabaseExitFixture({ authUserId: "05a561ea-1e14-4920-abd1-ff41b9e29bee", nonce: "a1b2c3d4" });
+  const requests = [];
+  const identity = await exitOperator.createPreviewIdentity({
+    fixture,
+    request: async (path, options) => {
+      requests.push({ path, options });
+      return { user: { id: "05a561ea-1e14-4920-abd1-ff41b9e29bee" } };
+    },
+  });
+  assert.equal(requests[0].path, "/api/auth/sign-up/email");
+  assert.equal(requests[0].options.body.email, "acceptance-a1b2c3d4@preview.ldchub.test");
+  assert.equal(typeof identity.password, "string");
+  const source = await readFile(new URL("./validate-supabase-exit.mjs", import.meta.url), "utf8");
+  assert.match(source, /deriveDeterministicAuthEmail/);
+  assert.doesNotMatch(source, /\$\{tag\}@/);
 });
 
 test("operator fails closed and always executes exact cleanup after a workflow failure", async () => {

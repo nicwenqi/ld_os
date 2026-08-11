@@ -623,14 +623,18 @@ commit;
 
 async function isolatedDeterministicLoginIdentity(t) {
   const sourcePath = resolve("app/lib/auth/deterministic-login-identity.ts");
+  const corePath = resolve("app/lib/auth/deterministic-login-identity-core.ts");
   const source = await readFile(sourcePath, "utf8").catch(() => null);
+  const core = await readFile(corePath, "utf8").catch(() => null);
   assert.notEqual(source, null, "missing deterministic-login-identity.ts");
+  assert.notEqual(core, null, "missing deterministic-login-identity-core.ts");
   assert.match(source, /^import ["']server-only["'];/);
   assert.doesNotMatch(source, /(?:supabase|createNeonPool|\.query\s*\(|\bfetch\s*\()/i);
 
   const root = await mkdtemp(join(tmpdir(), "deterministic-login-identity-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const target = join(root, "deterministic-login-identity.ts");
+  await writeFile(join(root, "deterministic-login-identity-core.ts"), core);
   await writeFile(target, source.replace(/^import ["']server-only["'];\s*/, ""));
   return import(`${pathToFileURL(target).href}?test=${Date.now()}`);
 }
