@@ -13,6 +13,7 @@ import { readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, resolve } from "node:path";
 import { spawn } from "node:child_process";
+import { ProxyAgent } from "undici";
 
 export const APPROVED_SUPABASE_EXIT_PREVIEW = Object.freeze({
   url: "https://hotel-ld-os-git-codex-canonical-neon-beb82a-nicwenqis-projects.vercel.app",
@@ -314,12 +315,32 @@ function approvedPreviewOrigin(baseUrl) {
   return expected;
 }
 
-/** Direct server-side transport through Vercel Protection Bypass, never browser code. */
-export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = globalThis.fetch, baseUrl = APPROVED_SUPABASE_EXIT_PREVIEW.url, timeoutMs = 45_000 } = {}) {
+function createPreviewProxyDispatcher(httpsProxy, ProxyAgentImpl) {
+  const proxy = cleanText(httpsProxy);
+  if (!proxy) return undefined;
+  let parsed;
+  try {
+    parsed = new URL(proxy);
+  } catch {
+    failure("SUPABASE_EXIT_PROXY_INVALID");
+  }
+  if (!parsed || !["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || parsed.search || parsed.hash) {
+    failure("SUPABASE_EXIT_PROXY_INVALID");
+  }
+  try {
+    return new ProxyAgentImpl(proxy);
+  } catch {
+    failure("SUPABASE_EXIT_PROXY_INVALID");
+  }
+}
+
+/** Server-side direct-or-explicit-proxy transport through Vercel Protection Bypass, never browser code. */
+export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = globalThis.fetch, baseUrl = APPROVED_SUPABASE_EXIT_PREVIEW.url, timeoutMs = 45_000, httpsProxy = process.env.HTTPS_PROXY, ProxyAgentImpl = ProxyAgent } = {}) {
   const secret = cleanText(bypassSecret);
   if (!secret) failure("SUPABASE_EXIT_BYPASS_SECRET_MISSING");
   if (typeof fetchImpl !== "function") failure("SUPABASE_EXIT_PREVIEW_TRANSPORT_UNAVAILABLE");
   const origin = approvedPreviewOrigin(baseUrl);
+  const dispatcher = createPreviewProxyDispatcher(httpsProxy, ProxyAgentImpl);
   const cookieJar = createMemoryCookieJar();
   const request = async (path, { method = "GET", body, formFile, operation = "PREVIEW_REQUEST", responseKind = "json" } = {}) => {
     const operationName = requireOperation(operation);
@@ -347,7 +368,9 @@ export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = global
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let response;
     try {
-      response = await fetchImpl(target, { method, headers, body: requestBody, signal: controller.signal, redirect: "error" });
+      const options = { method, headers, body: requestBody, signal: controller.signal, redirect: "error" };
+      if (dispatcher) options.dispatcher = dispatcher;
+      response = await fetchImpl(target, options);
     } catch {
       if (controller.signal.aborted) failure(`SUPABASE_EXIT_OPERATOR_TIMEOUT:${operationName}`);
       failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`);
@@ -363,6 +386,9 @@ export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = global
     try { return JSON.parse(serialized); } catch { failure("SUPABASE_EXIT_RESPONSE_INVALID"); }
   };
   request.clearCookies = () => cookieJar.clear();
+  request.closeTransport = async () => {
+    try { await dispatcher?.close?.(); } catch { /* operator process exit closes a local proxy transport too */ }
+  };
   return request;
 }
 
@@ -512,6 +538,7 @@ export async function runLiveSupabaseExit() {
     });
   } finally {
     context?.request?.clearCookies?.();
+    await context?.request?.closeTransport?.();
   }
 }
 

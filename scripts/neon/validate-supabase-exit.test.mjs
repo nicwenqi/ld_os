@@ -132,6 +132,56 @@ test("protected direct Preview transport sends bypass header and retains only in
   assert.doesNotMatch(JSON.stringify(await request("/api/auth/session", { operation: "AUTH_SESSION" })), new RegExp(bypassSecret));
 });
 
+test("Preview transport stays direct when HTTPS_PROXY is absent", async () => {
+  let fetchOptions;
+  const request = createProtectedPreviewRequest({
+    bypassSecret: "protected-bypass-value",
+    httpsProxy: "",
+    ProxyAgentImpl: () => { throw new Error("must-not-create-proxy-agent"); },
+    fetchImpl: async (_url, options) => {
+      fetchOptions = options;
+      return { ok: true, status: 200, headers: { getSetCookie: () => [] }, text: async () => JSON.stringify({ ok: true }) };
+    },
+  });
+  await request("/", { operation: "PREVIEW_PROBE" });
+  assert.equal(Object.hasOwn(fetchOptions, "dispatcher"), false);
+});
+
+test("Preview transport uses an explicit HTTPS proxy dispatcher and preserves bypass headers", async () => {
+  const bypassSecret = "protected-bypass-value";
+  const proxyUrl = "http://127.0.0.1:7897";
+  const dispatcher = { kind: "proxy-dispatcher" };
+  let createdWith;
+  const calls = [];
+  const request = createProtectedPreviewRequest({
+    bypassSecret,
+    httpsProxy: proxyUrl,
+    ProxyAgentImpl: function ProxyAgentImpl(url) {
+      createdWith = url;
+      return dispatcher;
+    },
+    fetchImpl: async (_url, options) => {
+      calls.push(options);
+      return { ok: true, status: 200, headers: { getSetCookie: () => ["better-auth.session_token=opaque; Path=/; HttpOnly"] }, text: async () => JSON.stringify({ ok: true }) };
+    },
+  });
+  assert.deepEqual(await request("/", { operation: "PREVIEW_PROBE" }), { ok: true });
+  assert.deepEqual(await request("/api/auth/session", { operation: "AUTH_SESSION" }), { ok: true });
+  assert.equal(createdWith, proxyUrl);
+  assert.equal(calls[0].dispatcher, dispatcher);
+  assert.equal(new Headers(calls[0].headers).get("x-vercel-protection-bypass"), bypassSecret);
+  assert.equal(new Headers(calls[1].headers).get("cookie"), "better-auth.session_token=opaque");
+  assert.doesNotMatch(JSON.stringify({ calls, createdWith }), new RegExp(bypassSecret));
+});
+
+test("Preview transport rejects a malformed HTTPS_PROXY without exposing it", () => {
+  const proxySecret = "http://proxy-user:proxy-password@ bad host";
+  assert.throws(
+    () => createProtectedPreviewRequest({ bypassSecret: "protected-bypass-value", httpsProxy: proxySecret }),
+    error => error.code === "SUPABASE_EXIT_PROXY_INVALID" && !String(error.code).includes(proxySecret),
+  );
+});
+
 test("direct Preview transport fails closed for missing bypass secret and wrong or Production host", () => {
   assert.throws(() => createProtectedPreviewRequest({ bypassSecret: "" }), /SUPABASE_EXIT_BYPASS_SECRET_MISSING/);
   assert.throws(() => createProtectedPreviewRequest({ bypassSecret: "redacted", baseUrl: "https://wrong-preview.example" }), /SUPABASE_EXIT_PREVIEW_FORBIDDEN/);
@@ -140,10 +190,18 @@ test("direct Preview transport fails closed for missing bypass secret and wrong 
 
 test("direct Preview transport exposes only a stable operation code when fetch fails", async () => {
   const bypassSecret = "protected-bypass-value";
-  const request = createProtectedPreviewRequest({ bypassSecret, fetchImpl: async () => { throw new Error(bypassSecret); } });
+  const proxySecret = "http://proxy-user:proxy-password@127.0.0.1:7897";
+  const request = createProtectedPreviewRequest({
+    bypassSecret,
+    httpsProxy: proxySecret,
+    ProxyAgentImpl: function ProxyAgentImpl() { return { close() {} }; },
+    fetchImpl: async () => { throw new Error(`${bypassSecret}:${proxySecret}`); },
+  });
   await assert.rejects(
     () => request("/", { operation: "PREVIEW_PROBE" }),
-    error => error.code === "SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:PREVIEW_PROBE" && !String(error.code).includes(bypassSecret),
+    error => error.code === "SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:PREVIEW_PROBE"
+      && !String(error.code).includes(bypassSecret)
+      && !String(error.code).includes(proxySecret),
   );
 });
 
