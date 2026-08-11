@@ -15,7 +15,7 @@ function fail(code) {
 function validateFixture(fixture) {
   if (!fixture || typeof fixture !== "object" || Array.isArray(fixture) || Object.keys(fixture).length !== KEYS.length || KEYS.some(key => !(key in fixture))) fail("SUPABASE_EXIT_CLEANUP_FIXTURE_INVALID");
   for (const key of KEYS.slice(0, -1)) if (!UUID.test(fixture[key])) fail("SUPABASE_EXIT_CLEANUP_FIXTURE_INVALID");
-  const expectedPrefix = `imports/${fixture.tenantId}/${fixture.propertyId}/`;
+  const expectedPrefix = `${fixture.tenantId}/${fixture.propertyId}/imports/`;
   if (fixture.objectPrefix !== expectedPrefix) fail("SUPABASE_EXIT_CLEANUP_FIXTURE_INVALID");
 }
 
@@ -33,46 +33,37 @@ const SQL = Object.freeze({
       (select count(*) from app_private.import_decision_audit_events where tenant_id = $1 and property_id = $2) +
       (select count(*) from app_private.import_commit_audit_events where tenant_id = $1 and property_id = $2)
     )::integer as count`,
-  importCommitItems: "delete from public.import_commit_items where tenant_id = $1 and property_id = $2",
-  importCommits: "delete from public.import_commits where tenant_id = $1 and property_id = $2",
-  issueResolutions: "delete from public.import_issue_resolutions where tenant_id = $1 and property_id = $2",
-  labelDecisions: "delete from public.import_source_label_decisions where tenant_id = $1 and property_id = $2",
-  mappingDecisions: "delete from public.import_field_mapping_decisions where tenant_id = $1 and property_id = $2",
-  decisionVersions: "delete from public.import_decision_versions where tenant_id = $1 and property_id = $2",
-  storageOperations: "delete from app_private.import_storage_operations where tenant_id = $1 and property_id = $2",
-  labels: "delete from public.import_source_label_resolutions where tenant_id = $1 and property_id = $2",
-  issues: "delete from public.import_issues where tenant_id = $1 and property_id = $2",
-  mappings: "delete from public.import_field_mappings where tenant_id = $1 and property_id = $2",
-  sourceRows: "delete from public.import_source_rows where tenant_id = $1 and property_id = $2",
-  sheets: "delete from public.import_sheets where tenant_id = $1 and property_id = $2",
-  batches: "delete from public.import_batches where tenant_id = $1 and property_id = $2",
-  identifiers: "delete from public.employee_external_identifiers where tenant_id = $1 and property_id = $2",
-  employees: "delete from public.employees where tenant_id = $1 and property_id = $2",
-  positionAliases: "delete from public.position_aliases where tenant_id = $1 and property_id = $2",
-  positionAssignments: "delete from public.position_department_assignments where tenant_id = $1 and property_id = $2",
-  positions: "delete from public.positions where tenant_id = $1 and property_id = $2",
-  families: "delete from public.position_families where tenant_id = $1 and property_id = $2",
-  unitAliases: "delete from public.operational_unit_aliases where tenant_id = $1 and property_id = $2",
-  units: "delete from public.operational_units where tenant_id = $1 and property_id = $2",
-  departmentAliases: "delete from public.department_aliases where tenant_id = $1 and property_id = $2",
-  closure: "delete from public.department_closure where tenant_id = $1 and property_id = $2",
-  departments: "delete from public.departments where tenant_id = $1 and property_id = $2",
-  steps: "delete from public.property_initialization_steps where tenant_id = $1 and property_id = $2",
-  settings: "delete from public.property_settings where tenant_id = $1 and property_id = $2",
-  assignments: "delete from public.role_assignments where id = $3 and tenant_id = $1 and property_id = $2",
-  propertyMemberships: "delete from public.property_memberships where tenant_id = $1 and property_id = $2 and user_id = $3",
-  tenantMemberships: "delete from public.tenant_memberships where tenant_id = $1 and user_id = $3",
-  accounts: "delete from public.user_accounts where id = $3 and auth_user_id = $4 and tenant_id = $1 and property_id = $2",
-  profiles: "delete from public.profiles where id = $1",
-  domains: "delete from public.property_domains where tenant_id = $1 and property_id = $2",
-  properties: "delete from public.properties where tenant_id = $1 and id = $2",
-  tenants: "delete from public.tenants where id = $1",
+  committedImportCount: "select count(*)::integer as count from public.import_commits where tenant_id = $1 and property_id = $2 and status <> 'reverted'",
+  importedEmployees: "update public.employees set is_active = false, employment_status = 'inactive' where tenant_id = $1 and property_id = $2 and is_active",
+  identifiers: "update public.employee_external_identifiers set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  positions: "update public.positions set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  families: "update public.position_families set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  units: "update public.operational_units set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  departments: "update public.departments set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  assignments: "update public.role_assignments set status = 'inactive' where tenant_id = $1 and property_id = $2 and status = 'active'",
+  propertyMemberships: "update public.property_memberships set status = 'inactive' where tenant_id = $1 and property_id = $2 and status = 'active'",
+  tenantMemberships: "update public.tenant_memberships set status = 'inactive' where tenant_id = $1 and user_id = $3 and status = 'active'",
+  accounts: "update public.user_accounts set account_status = 'inactive' where id = $3 and auth_user_id = $4 and tenant_id = $1 and property_id = $2 and account_status = 'active'",
+  profiles: "update public.profiles set is_active = false where id = $1 and is_active",
+  roles: "update public.roles set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  domains: "update public.property_domains set is_active = false where tenant_id = $1 and property_id = $2 and is_active",
+  properties: "update public.properties set status = 'inactive' where tenant_id = $1 and id = $2 and status <> 'inactive'",
+  tenants: "update public.tenants set status = 'inactive' where id = $1 and status <> 'inactive'",
+  terminalProof: `select
+    not exists(select 1 from public.user_accounts where id = $3 and auth_user_id = $4 and account_status = 'active')
+    and not exists(select 1 from public.property_memberships where tenant_id = $1 and property_id = $2 and status = 'active')
+    and not exists(select 1 from public.role_assignments where tenant_id = $1 and property_id = $2 and status = 'active')
+    and not exists(select 1 from public.properties where tenant_id = $1 and id = $2 and status in ('initializing','active'))
+    and not exists(select 1 from public.property_domains where tenant_id = $1 and property_id = $2 and is_active)
+    and not exists(select 1 from public.employees where tenant_id = $1 and property_id = $2 and is_active)
+    and not exists(select 1 from public.import_commits where tenant_id = $1 and property_id = $2 and status <> 'reverted')
+    as terminal`,
 });
 
 /**
- * Exact-ID cleanup only. Append-only Import audit is intentionally retained;
- * once a workflow has created it, physical fixture deletion is rejected rather
- * than altering a trigger, schema, RLS, or historical evidence.
+ * Exact-ID cleanup only. Append-only Import audit/history remains retained;
+ * the aggregate is instead terminalized so it has no active identity, domain,
+ * membership, role, employee, or import-commit execution path.
  */
 export async function cleanupSupabaseExitFixture({ fixture, target = APPROVED_NEON_FIRST_INITIALIZATION_TARGETS[0], connectionString, client, pool } = {}) {
   validateSupabaseExitCleanup({ fixture, target, connectionString });
@@ -83,19 +74,21 @@ export async function cleanupSupabaseExitFixture({ fixture, target = APPROVED_NE
   try {
     await db.query("begin");
     const audit = await db.query(SQL.preservedImportAuditCount, pair);
-    if (Number(audit.rows?.[0]?.count ?? 0) > 0) fail("SUPABASE_EXIT_CLEANUP_AUDIT_RETENTION_REQUIRED");
-    const propertyDeletes = ["importCommitItems", "importCommits", "issueResolutions", "labelDecisions", "mappingDecisions", "decisionVersions", "storageOperations", "labels", "issues", "mappings", "sourceRows", "sheets", "batches", "identifiers", "employees", "positionAliases", "positionAssignments", "positions", "families", "unitAliases", "units", "departmentAliases", "closure", "departments", "steps", "settings"];
-    for (const key of propertyDeletes) await db.query(SQL[key], pair);
-    await db.query(SQL.assignments, [...pair, fixture.roleAssignmentId]);
-    await db.query(SQL.propertyMemberships, [...pair, fixture.profileId]);
+    if (Number((await db.query(SQL.committedImportCount, pair)).rows?.[0]?.count ?? 0) !== 0) fail("SUPABASE_EXIT_CLEANUP_IMPORT_NOT_REVERTED");
+    for (const key of ["importedEmployees", "identifiers", "positions", "families", "units", "departments"]) await db.query(SQL[key], pair);
+    await db.query(SQL.assignments, pair);
+    await db.query(SQL.propertyMemberships, pair);
     await db.query(SQL.tenantMemberships, [fixture.tenantId, fixture.profileId]);
     await db.query(SQL.accounts, [...pair, fixture.accountId, fixture.authUserId]);
     await db.query(SQL.profiles, [fixture.profileId]);
+    await db.query(SQL.roles, pair);
     await db.query(SQL.domains, pair);
     await db.query(SQL.properties, pair);
     await db.query(SQL.tenants, [fixture.tenantId]);
+    const proof = await db.query(SQL.terminalProof, [...pair, fixture.accountId, fixture.authUserId]);
+    if (proof.rows?.[0]?.terminal !== true) fail("SUPABASE_EXIT_CLEANUP_TERMINAL_PROOF_FAILED");
     await db.query("commit");
-    return { status: "cleaned", credentialsRecorded: false };
+    return { status: "terminalized", auditRetained: Number(audit.rows?.[0]?.count ?? 0) > 0, credentialsRecorded: false };
   } catch (error) {
     try { await db.query("rollback"); } catch { /* preserve exact failure */ }
     throw error;

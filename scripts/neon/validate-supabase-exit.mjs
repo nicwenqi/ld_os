@@ -104,7 +104,7 @@ export function createSupabaseExitFixture({ authUserId, nonce = randomBytes(8).t
     manager: { profileId, accountId, tenantMembershipId, propertyMembershipId, roleId, roleAssignmentId, displayName: "Acceptance Manager", email: `${tag}@${hostname.toLowerCase()}`, loginId: tag },
     initialization: { settingsId, steps: { identity: identityStep, rules: rulesStep, organization: organizationStep, positions: positionsStep, upload: uploadStep, mapping: mappingStep, access: extra[0], readiness: extra[1] } },
     developmentSeed: { departmentId: extra[2], positionFamilyId: extra[3], positionId: randomUUID(), positionDepartmentAssignmentId: randomUUID(), employeeId: randomUUID(), employeeIdentifierId: randomUUID() },
-    cleanup: Object.freeze({ tenantId, propertyId, authUserId, profileId, accountId, roleAssignmentId, objectPrefix: `imports/${tenantId}/${propertyId}/` }),
+    cleanup: Object.freeze({ tenantId, propertyId, authUserId, profileId, accountId, roleAssignmentId, objectPrefix: `${tenantId}/${propertyId}/imports/` }),
   });
 }
 
@@ -268,13 +268,28 @@ async function defaultPreflight() {
   return { cookieJar, request };
 }
 
+export async function cleanupSupabaseExitBlobObjects({ cleanup, token, blob } = {}) {
+  if (!cleanup || typeof cleanup.objectPrefix !== "string" || !/^[0-9a-f-]+\/[0-9a-f-]+\/imports\/$/i.test(cleanup.objectPrefix) || !cleanText(token)) failure("SUPABASE_EXIT_BLOB_CLEANUP_INVALID");
+  if (!blob) blob = await import("@vercel/blob");
+  const listed = await blob.list({ prefix: cleanup.objectPrefix, token });
+  const urls = Array.isArray(listed?.blobs) ? listed.blobs.map(item => item?.url).filter(value => typeof value === "string") : null;
+  if (!urls) failure("SUPABASE_EXIT_BLOB_CLEANUP_INVALID");
+  if (urls.length > 0) await blob.del(urls, { token });
+  const after = await blob.list({ prefix: cleanup.objectPrefix, token });
+  if (!Array.isArray(after?.blobs) || after.blobs.length !== 0) failure("SUPABASE_EXIT_BLOB_CLEANUP_INCOMPLETE");
+  return { status: "cleaned", objectCount: urls.length };
+}
+
 async function defaultCleanup(fixture, identity, context) {
   try {
     if (!identity?.password || !context?.request) failure("SUPABASE_EXIT_AUTH_CLEANUP_UNAVAILABLE");
     await context.request("/api/auth/delete-user", { method: "POST", body: { password: identity.password } });
   } finally {
-    await cleanupNeonFixture(fixture);
-    if (context?.cookieJar) await rm(context.cookieJar, { force: true });
+    try { await cleanupSupabaseExitBlobObjects({ cleanup: fixture.cleanup, token: process.env.BLOB_READ_WRITE_TOKEN }); }
+    finally {
+      await cleanupNeonFixture(fixture);
+      if (context?.cookieJar) await rm(context.cookieJar, { force: true });
+    }
   }
 }
 

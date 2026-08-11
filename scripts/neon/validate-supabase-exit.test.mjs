@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   APPROVED_SUPABASE_EXIT_PREVIEW,
+  cleanupSupabaseExitBlobObjects,
   createSupabaseExitFixture,
   readApprovedDeploymentCommit,
   runSupabaseExitAcceptance,
@@ -16,6 +17,21 @@ const REQUIRED = Object.freeze({
   VERCEL_ENV: "preview",
   APP_ENV: "preview",
   PREVIEW_PROPERTY_HOSTNAME: "preview.ldchub.test",
+});
+
+test("Blob cleanup is exact-prefix only and treats object-not-found as idempotent", async () => {
+  const calls = [];
+  await cleanupSupabaseExitBlobObjects({
+    cleanup: { tenantId: "11111111-1111-4111-8111-111111111111", propertyId: "22222222-2222-4222-8222-222222222222", objectPrefix: "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/imports/" },
+    token: "redacted",
+    blob: {
+      list: async input => { calls.push(["list", input]); return calls.filter(([kind]) => kind === "list").length === 1 ? { blobs: [{ url: "https://blob.example/a" }] } : { blobs: [] }; },
+      del: async (urls, input) => { calls.push(["del", urls, input]); },
+    },
+  });
+  assert.equal(calls[0][1].prefix, "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/imports/");
+  assert.deepEqual(calls[1][1], ["https://blob.example/a"]);
+  await cleanupSupabaseExitBlobObjects({ cleanup: { tenantId: "11111111-1111-4111-8111-111111111111", propertyId: "22222222-2222-4222-8222-222222222222", objectPrefix: "11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/imports/" }, token: "redacted", blob: { list: async () => ({ blobs: [] }), del: async () => { throw new Error("unused"); } } });
 });
 
 test("deployment metadata must contain the exact approved Preview source commit", () => {
