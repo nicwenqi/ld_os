@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   APPROVED_SUPABASE_EXIT_PREVIEW,
   createSupabaseExitFixture,
+  readApprovedDeploymentCommit,
   runSupabaseExitAcceptance,
   validateSupabaseExitPreflight,
 } from "./validate-supabase-exit.mjs";
@@ -15,6 +16,12 @@ const REQUIRED = Object.freeze({
   VERCEL_ENV: "preview",
   APP_ENV: "preview",
   PREVIEW_PROPERTY_HOSTNAME: "preview.ldchub.test",
+});
+
+test("deployment metadata must contain the exact approved Preview source commit", () => {
+  assert.equal(readApprovedDeploymentCommit(JSON.stringify({ meta: { githubCommitSha: APPROVED_SUPABASE_EXIT_PREVIEW.commit } })), APPROVED_SUPABASE_EXIT_PREVIEW.commit);
+  assert.throws(() => readApprovedDeploymentCommit(JSON.stringify({ meta: { githubCommitSha: "d".repeat(40) } })), /SUPABASE_EXIT_COMMIT_UNAPPROVED/);
+  assert.throws(() => readApprovedDeploymentCommit("not-json"), /SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID/);
 });
 
 test("preflight rejects production, unapproved Preview, missing protected inputs, and Supabase drift", () => {

@@ -67,6 +67,26 @@ export function validateSupabaseExitPreflight(input) {
   return true;
 }
 
+function commitFromMetadata(value) {
+  if (!value || typeof value !== "object") return null;
+  for (const [key, candidate] of Object.entries(value)) {
+    if (["githubCommitSha", "gitCommitSha", "commit", "sha"].includes(key) && typeof candidate === "string" && /^[0-9a-f]{40}$/i.test(candidate)) return candidate.toLowerCase();
+    const nested = commitFromMetadata(candidate);
+    if (nested) return nested;
+  }
+  return null;
+}
+
+/** Vercel CLI metadata is the authority for the deployed source, not local HEAD. */
+export function readApprovedDeploymentCommit(serialized) {
+  let metadata;
+  try { metadata = JSON.parse(serialized); } catch { failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID"); }
+  const commit = commitFromMetadata(metadata);
+  if (!commit) failure("SUPABASE_EXIT_DEPLOYMENT_METADATA_INVALID");
+  if (commit !== APPROVED_SUPABASE_EXIT_PREVIEW.commit) failure("SUPABASE_EXIT_COMMIT_UNAPPROVED");
+  return commit;
+}
+
 export function createSupabaseExitFixture({ authUserId, nonce = randomBytes(8).toString("hex"), hostname = "preview.ldchub.test" } = {}) {
   if (!UUID.test(cleanText(authUserId))) failure("SUPABASE_EXIT_AUTH_USER_INVALID");
   if (!/^[a-f0-9]{8,32}$/i.test(cleanText(nonce)) || !/^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?\.[a-z]{2,63}$/.test(cleanText(hostname))) failure("SUPABASE_EXIT_FIXTURE_INVALID");
@@ -236,9 +256,10 @@ async function validateImportWorkflow({ request, fixture }) {
 }
 
 async function defaultPreflight() {
-  const commit = cleanText(await execute("git", ["rev-parse", "HEAD"]));
-  validateSupabaseExitPreflight({ commit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: process.env, activeSource: await projectSource() });
+  validateSupabaseExitPreflight({ commit: APPROVED_SUPABASE_EXIT_PREVIEW.commit, previewUrl: APPROVED_SUPABASE_EXIT_PREVIEW.url, environment: process.env, activeSource: await projectSource() });
   await execute("vercel", ["whoami"]);
+  const deployment = await execute("vercel", ["inspect", APPROVED_SUPABASE_EXIT_PREVIEW.url, "--json"]);
+  readApprovedDeploymentCommit(deployment);
   const cookieJar = `/private/tmp/supabase-exit-${randomUUID()}.cookies`;
   await writeFile(cookieJar, "", { mode: 0o600 });
   const request = await createVercelRequest({ cookieJar });
