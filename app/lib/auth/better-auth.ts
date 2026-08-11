@@ -1,5 +1,6 @@
 import "server-only";
 
+import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
 import { Pool } from "pg";
 
@@ -17,7 +18,7 @@ export function getBetterAuth() {
         requireEmailVerification: false,
       },
       advanced: {
-        database: { generateId: "uuid" },
+        database: { generateId: () => randomUUID() },
       },
       user: {
         modelName: "auth_user",

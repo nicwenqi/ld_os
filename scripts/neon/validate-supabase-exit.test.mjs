@@ -206,6 +206,41 @@ test("AUTH_SIGNUP diagnostics fail closed and never emit an unrecognized policy 
   );
 });
 
+for (const code of ["FAILED_TO_CREATE_USER", "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL"]) {
+  test(`AUTH_SIGNUP safely reports recognized Better Auth 422 code ${code}`, async () => {
+    const request = createProtectedPreviewRequest({
+      bypassSecret: "protected-bypass-value",
+      fetchImpl: async () => ({
+        ok: false,
+        status: 422,
+        headers: { getSetCookie: () => [] },
+        text: async () => JSON.stringify({ code, message: "must-not-be-emitted" }),
+      }),
+    });
+    await assert.rejects(
+      () => request("/api/auth/sign-up/email", { method: "POST", operation: "AUTH_SIGNUP", body: { password: "never-output" } }),
+      error => error.code === `SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:AUTH_SIGNUP:HTTP_422:${code}` && !String(error.code).includes("must-not-be-emitted"),
+    );
+  });
+}
+
+test("AUTH_SIGNUP keeps unknown Better Auth 422 response fail-closed", async () => {
+  const secret = "unknown-422-must-not-appear";
+  const request = createProtectedPreviewRequest({
+    bypassSecret: "protected-bypass-value",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 422,
+      headers: { getSetCookie: () => [] },
+      text: async () => JSON.stringify({ code: secret, message: secret }),
+    }),
+  });
+  await assert.rejects(
+    () => request("/api/auth/sign-up/email", { method: "POST", operation: "AUTH_SIGNUP", body: { password: secret } }),
+    error => error.code === "SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:AUTH_SIGNUP:HTTP_422:POLICY_REJECTED" && !String(error.code).includes(secret),
+  );
+});
+
 test("protected Preview bootstrap rejects a second same-origin 307 redirect", async () => {
   let calls = 0;
   const request = createProtectedPreviewRequest({

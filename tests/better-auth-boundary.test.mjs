@@ -4,14 +4,19 @@ import test from "node:test";
 
 const read = path => readFile(new URL(path, import.meta.url), "utf8");
 
-test("Better Auth is server-only, uses only AUTH_DATABASE_URL, and creates UUID identity IDs", async () => {
+test("Better Auth is server-only, uses only AUTH_DATABASE_URL, and supplies UUID identity IDs", async () => {
   const source = await read("../app/lib/auth/better-auth.ts");
+  const schema = await read("../neon/canonical/087_better_auth_tables.sql");
 
   assert.match(source, /import\s+["']server-only["']/);
+  assert.match(source, /import\s*\{\s*randomUUID\s*\}\s*from\s*["']node:crypto["']/);
   assert.match(source, /from\s+["']better-auth["']/);
   assert.match(source, /AUTH_DATABASE_URL/);
   assert.match(source, /BETTER_AUTH_SECRET/);
-  assert.match(source, /generateId:\s*["']uuid["']/);
+  assert.match(source, /generateId:\s*\(\)\s*=>\s*randomUUID\(\)/);
+  assert.doesNotMatch(source, /generateId:\s*["']uuid["']/);
+  assert.match(schema, /create\s+table\s+app_auth\.auth_user\s*\([\s\S]*?id\s+uuid\s+primary\s+key/i);
+  assert.doesNotMatch(schema, /id\s+uuid\s+(?:default\s+[^,]+\s+)?primary\s+key\s+default/i);
   assert.match(source, /modelName:\s*["']auth_user["']/);
   assert.match(source, /modelName:\s*["']auth_session["']/);
   assert.doesNotMatch(source, /process\.env\.DATABASE_URL/);
