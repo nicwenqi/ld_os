@@ -168,6 +168,44 @@ test("protected Preview bootstrap rejects a 307 without a Set-Cookie", async () 
   await assert.rejects(() => request("/", { operation: "PREVIEW_PROBE" }), error => error.code === "SUPABASE_EXIT_BYPASS_COOKIE_MISSING");
 });
 
+test("AUTH_SIGNUP sends the exact Preview Origin and reports Better Auth's stable missing-origin policy", async () => {
+  let requestHeaders;
+  const request = createProtectedPreviewRequest({
+    bypassSecret: "protected-bypass-value",
+    fetchImpl: async (_url, options) => {
+      requestHeaders = new Headers(options.headers);
+      return {
+        ok: false,
+        status: 403,
+        headers: { getSetCookie: () => [] },
+        text: async () => JSON.stringify({ code: "MISSING_OR_NULL_ORIGIN", message: "Missing or null Origin" }),
+      };
+    },
+  });
+  await assert.rejects(
+    () => request("/api/auth/sign-up/email", { method: "POST", operation: "AUTH_SIGNUP", body: { email: "acceptance@example.test", password: "never-output" } }),
+    error => error.code === "SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:AUTH_SIGNUP:HTTP_403:MISSING_OR_NULL_ORIGIN",
+  );
+  assert.equal(requestHeaders.get("origin"), APPROVED_SUPABASE_EXIT_PREVIEW.url);
+});
+
+test("AUTH_SIGNUP diagnostics fail closed and never emit an unrecognized policy body", async () => {
+  const secret = "never-output-policy-value";
+  const request = createProtectedPreviewRequest({
+    bypassSecret: "protected-bypass-value",
+    fetchImpl: async () => ({
+      ok: false,
+      status: 403,
+      headers: { getSetCookie: () => [] },
+      text: async () => JSON.stringify({ code: secret, message: secret }),
+    }),
+  });
+  await assert.rejects(
+    () => request("/api/auth/sign-up/email", { method: "POST", operation: "AUTH_SIGNUP", body: { password: secret } }),
+    error => error.code === "SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:AUTH_SIGNUP:HTTP_403:POLICY_REJECTED" && !String(error.code).includes(secret),
+  );
+});
+
 test("protected Preview bootstrap rejects a second same-origin 307 redirect", async () => {
   let calls = 0;
   const request = createProtectedPreviewRequest({

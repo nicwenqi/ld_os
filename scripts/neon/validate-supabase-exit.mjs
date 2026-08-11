@@ -334,6 +334,22 @@ function createPreviewProxyDispatcher(httpsProxy, ProxyAgentImpl) {
   }
 }
 
+const AUTH_SIGNUP_POLICY_CODES = new Set([
+  "MISSING_OR_NULL_ORIGIN",
+  "INVALID_ORIGIN",
+  "EMAIL_PASSWORD_SIGN_UP_DISABLED",
+]);
+
+async function authSignupFailureReason(response) {
+  try {
+    const payload = JSON.parse(await response.text());
+    const code = cleanText(payload?.code);
+    return AUTH_SIGNUP_POLICY_CODES.has(code) ? code : "POLICY_REJECTED";
+  } catch {
+    return "POLICY_REJECTED";
+  }
+}
+
 /** Server-side direct-or-explicit-proxy transport through Vercel Protection Bypass, never browser code. */
 export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = globalThis.fetch, baseUrl = APPROVED_SUPABASE_EXIT_PREVIEW.url, timeoutMs = 45_000, httpsProxy = process.env.HTTPS_PROXY, ProxyAgentImpl = ProxyAgent } = {}) {
   const secret = cleanText(bypassSecret);
@@ -353,6 +369,7 @@ export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = global
       "x-vercel-protection-bypass": secret,
       "x-vercel-set-bypass-cookie": "true",
     });
+    if (!["GET", "HEAD"].includes(method.toUpperCase())) headers.set("origin", origin.origin);
     const cookie = cookieJar.header();
     if (cookie) headers.set("cookie", cookie);
     let requestBody;
@@ -399,7 +416,11 @@ export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = global
         response = await fetchPreview(redirected);
         if (response?.status === 307) failure("SUPABASE_EXIT_BYPASS_REDIRECT_LOOP");
       }
-      if (!response?.ok) failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}:HTTP_${Number.isInteger(response?.status) ? response.status : "UNKNOWN"}`);
+      if (!response?.ok) {
+        const status = Number.isInteger(response?.status) ? response.status : "UNKNOWN";
+        const suffix = operationName === "AUTH_SIGNUP" ? `:${await authSignupFailureReason(response)}` : "";
+        failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}:HTTP_${status}${suffix}`);
+      }
       cookieJar.absorb(response.headers);
       if (responseKind === "status") return { status: response.status };
       if (responseKind !== "json") failure("SUPABASE_EXIT_RESPONSE_INVALID");
