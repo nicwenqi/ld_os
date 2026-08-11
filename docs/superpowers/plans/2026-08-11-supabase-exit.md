@@ -27,6 +27,9 @@
 - Create: `scripts/neon/bootstrap-better-auth-preview.mjs`
 - Create: `scripts/neon/validate-better-auth-boundary.mjs`
 - Test: `scripts/neon/validate-better-auth-boundary.test.mjs`
+- Modify: `neon/canonical/manifest.json`
+- Modify: `scripts/neon/validate-canonical-neon-baseline.mjs`
+- Test: `scripts/neon/canonical-neon-bootstrap-contract.test.mjs`
 
 **Consumes:** canonical 010–085 role topology and the approved direct non-production bootstrap connection.
 
@@ -75,7 +78,7 @@ schema ACLs, and zero business object privileges.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add neon/canonical/086_better_auth_boundary.sql scripts/neon/bootstrap-better-auth-preview.mjs scripts/neon/validate-better-auth-boundary.mjs scripts/neon/validate-better-auth-boundary.test.mjs
+git add neon/canonical/086_better_auth_boundary.sql neon/canonical/manifest.json scripts/neon/bootstrap-better-auth-preview.mjs scripts/neon/validate-better-auth-boundary.mjs scripts/neon/validate-better-auth-boundary.test.mjs scripts/neon/validate-canonical-neon-baseline.mjs scripts/neon/canonical-neon-bootstrap-contract.test.mjs
 git commit -m "feat(auth): add isolated Better Auth boundary"
 ```
 

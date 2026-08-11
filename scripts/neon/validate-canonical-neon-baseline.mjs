@@ -861,7 +861,12 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
   runtimeRoleSourceChecks(source, manifest);
   requireActorContextLocality(source);
   requirePublicRevocations(source, routines);
-  if (manifest.security?.requireForceRls) requireForceRls(source, asStringArray(manifest, "tables"));
+  // app_auth is isolated by schema/table ACLs and owned solely by the auth service.
+  // FORCE RLS remains mandatory for every business relation; applying it to the
+  // service's own credential/session tables would require an unnecessary policy.
+  if (manifest.security?.requireForceRls) {
+    requireForceRls(source, asStringArray(manifest, "tables").filter((table) => !table.startsWith("app_auth.")));
+  }
   return {
     mode: "source",
     modules: modules.map(({ path }) => path),

@@ -62,35 +62,21 @@ export async function authenticateSyntheticAccount(input: {
 
 export type ResolvedAccount = {
   session: AuthSession;
-  accessToken?: string;
-  refreshToken?: string;
+  refreshedCookies?: string[];
 };
 
 export type NeonAuthorizationRepository = Readonly<{
   resolveAuthorizationForAuthUser(authUserId: string, hostname: string, requestId: string): Promise<NeonAuthorizationFacts>;
 }>;
 
-type PasswordSignInClient = Readonly<{
-  auth: Readonly<{
-    signInWithPassword(input: { email: string; password: string }): Promise<{
-      data: {
-        user: { id: string } | null;
-        session: { access_token: string; refresh_token: string } | null;
-      };
-      error: unknown;
-    }>;
-    getUser(accessToken: string): Promise<{ data: { user: { id: string } | null }; error?: unknown }>;
-  }>;
-}>;
-
 export type LoginResolutionDependencies = Readonly<{
+  request: Request;
   hostname: string;
   loginId: string;
   password: string;
-  auth: PasswordSignInClient;
   neon: NeonAuthorizationRepository;
   requestId?: string;
-  deriveAuthEmail?: (loginId: string, hostname: string) => string;
+  signIn: (input: { request: Request; loginId: string; password: string; hostname: string }) => Promise<{ userId: string; refreshedCookies: string[] } | null>;
 }>;
 
 export type LoginResolution = (input: { loginId: string; password: string; hostname: string }) => Promise<ResolvedAccount>;
@@ -104,35 +90,34 @@ export async function resolveLoginWith(
 ): Promise<ResolvedAccount | { kind: "generic-login-failure" }> {
   try {
     const hostname = dependencies.hostname.trim().toLowerCase();
-    const loginId = dependencies.loginId.trim().toLowerCase();
-    const email = dependencies.deriveAuthEmail
-      ? dependencies.deriveAuthEmail(loginId, hostname)
-      : (await import("../lib/auth/deterministic-login-identity.ts"))
-        .deriveDeterministicAuthEmail(loginId, hostname);
-    const { data: auth, error } = await dependencies.auth.auth.signInWithPassword({ email, password: dependencies.password });
-    if (error || !auth.user || !auth.session) return genericLoginFailure();
-    const verified = await dependencies.auth.auth.getUser(auth.session.access_token);
-    if (!verified.data.user || verified.data.user.id !== auth.user.id) return genericLoginFailure();
+    const authenticated = await dependencies.signIn({
+      request: dependencies.request,
+      loginId: dependencies.loginId,
+      password: dependencies.password,
+      hostname,
+    });
+    if (!authenticated) return genericLoginFailure();
     const authorization = await dependencies.neon.resolveAuthorizationForAuthUser(
-      verified.data.user.id,
+      authenticated.userId,
       hostname,
       dependencies.requestId ?? crypto.randomUUID(),
     );
     if (!authorization.session.authenticated) return genericLoginFailure();
-    return { session: authorization.session, accessToken: auth.session.access_token, refreshToken: auth.session.refresh_token };
+    return { session: authorization.session, refreshedCookies: authenticated.refreshedCookies };
   } catch {
     return genericLoginFailure();
   }
 }
 
 export async function resolveAccountForLogin(input: {
+  request: Request;
   loginId: string;
   password: string;
   hostname: string;
   requestId?: string;
 }): Promise<ResolvedAccount> {
-  const [{ createServerPasswordClient }, { parseAppEnvironment }] = await Promise.all([
-    import("../lib/supabase/server-admin.ts"),
+  const [{ signInWithBetterAuth }, { parseAppEnvironment }] = await Promise.all([
+    import("./better-auth-session.ts"),
     import("../lib/environment.ts"),
   ]);
   const environment = parseAppEnvironment();
@@ -141,7 +126,7 @@ export async function resolveAccountForLogin(input: {
   }
   const resolved = await resolveLoginWith({
     ...input,
-    auth: createServerPasswordClient(),
+    signIn: signInWithBetterAuth,
     neon: { resolveAuthorizationForAuthUser: resolveNeonAuthorizationForAuthUser },
   });
   if ("kind" in resolved) throw genericLoginError();

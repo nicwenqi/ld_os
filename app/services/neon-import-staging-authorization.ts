@@ -1,6 +1,5 @@
 import "server-only";
 
-import { authCookies } from "../api/auth/cookies.ts";
 import { withNeonResolvedActorContext } from "../lib/neon/actor-context.ts";
 import { resolveNeonPropertyScope } from "../lib/neon/property-context.ts";
 import { parseAppEnvironment } from "../lib/environment.ts";
@@ -11,7 +10,7 @@ import type { ImportMappingRepository } from "../repositories/contracts/import-m
 import { createNeonImportCommitRepository } from "../repositories/neon/import-commit-repository.ts";
 import type { ImportCommitRepository } from "../repositories/contracts/import-commit-repository.ts";
 import { createVercelBlobImportStorageGateway } from "./import/vercel-blob-import-storage.ts";
-import { resolveRequestAuthIdentity } from "./request-authentication.ts";
+import { appendRefreshedAuthCookies, resolveRequestAuthIdentity } from "./request-authentication.ts";
 
 /** Only the authenticated server actor's Storage surface is exposed. */
 export type ImportStorageGateway = Readonly<{
@@ -72,11 +71,7 @@ export async function runAuthorizedNeonImportStaging<T>(
     "Cache-Control": "no-store, private",
     "X-Request-Id": requestId,
   });
-  if (identity.refreshed) {
-    for (const value of authCookies(identity.accessToken, identity.refreshToken, environment.appEnv !== "local")) {
-      headers.append("Set-Cookie", value);
-    }
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     const scope = await resolveTrustedImportScope(identity.userId, identity.hostname, requestId);

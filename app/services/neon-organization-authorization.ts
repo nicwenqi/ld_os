@@ -1,6 +1,5 @@
 import "server-only";
 
-import { authCookies } from "../api/auth/cookies.ts";
 import { withNeonResolvedActorContext } from "../lib/neon/actor-context.ts";
 import { resolveNeonOrganizationPropertyScope } from "../lib/neon/organization-property.ts";
 import { parseAppEnvironment } from "../lib/environment.ts";
@@ -24,7 +23,7 @@ import {
   mapOrganizationDatabaseError,
   type OrganizationHttpStatus,
 } from "./neon-organization-errors.ts";
-import { resolveRequestAuthIdentity } from "./request-authentication.ts";
+import { appendRefreshedAuthCookies, resolveRequestAuthIdentity } from "./request-authentication.ts";
 
 export class OrganizationApiError extends Error {
   constructor(
@@ -56,15 +55,7 @@ export async function runAuthorizedNeonOrganizationWrite<T>(
   }
 
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(
-      identity.accessToken,
-      identity.refreshToken,
-      environment.appEnv !== "local",
-    )) {
-      headers.append("Set-Cookie", value);
-    }
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     let scope: { tenantId: string; propertyId: string } | null = null;
@@ -116,15 +107,7 @@ export async function runAuthorizedNeonOrganizationRead<T>(
   }
 
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(
-      identity.accessToken,
-      identity.refreshToken,
-      environment.appEnv !== "local",
-    )) {
-      headers.append("Set-Cookie", value);
-    }
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     const data = await withNeonResolvedActorContext(
@@ -205,15 +188,7 @@ async function runAuthorizedNeonOrganizationAliasOperation<T>(
   }
 
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(
-      identity.accessToken,
-      identity.refreshToken,
-      environment.appEnv !== "local",
-    )) {
-      headers.append("Set-Cookie", value);
-    }
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     let resolvedPropertyId: string | null = null;
@@ -267,7 +242,7 @@ async function runAuthorizedNeonOrganizationOperationalUnitOperation<T>(request:
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) throw new OrganizationApiError(401, "登录状态已失效");
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) for (const value of authCookies(identity.accessToken, identity.refreshToken, environment.appEnv !== "local")) headers.append("Set-Cookie", value);
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
   try {
     let scope: OrganizationPropertyScope | null = null;
     const data = await withNeonResolvedActorContext({ authUserId: identity.userId, requestId }, async database => {

@@ -143,6 +143,8 @@ test("the ordered canonical modules form a complete connection-free source basel
     "070_security_postflight.sql",
     "080_property_initialization.sql",
     "085_auth_authorization.sql",
+    "086_better_auth_boundary.sql",
+    "087_better_auth_tables.sql",
   ]);
 });
 

@@ -69,16 +69,14 @@ test("department administrator receives only Neon-authorized descendant scope", 
 });
 
 test("refresh re-resolves Neon authority instead of retaining stale role facts", async () => {
-  assert.equal(typeof requestAuthentication.resolveRequestWithRefresh, "function");
-  const result = await requestAuthentication.resolveRequestWithRefresh({
+  const refreshed = await requestAuthentication.resolveSessionWith({
+    authUserId: "11111111-1111-4111-8111-111111111111",
     hostname,
-    accessToken: "expired-access",
-    refreshToken: "refresh-token",
-    auth: authOnlyClient({ initialUser: null, refreshedUserId: "11111111-1111-4111-8111-111111111111" }),
     neon: fakeUnauthorizedAuthority(),
   });
-
-  assert.equal(result, null);
+  assert.equal(refreshed.session.authenticated, false);
+  const source = await readFile(new URL("../app/services/request-authentication.ts", import.meta.url), "utf8");
+  assert.match(source, /resolveBetterAuthIdentity/);
 });
 
 test("hostname property mismatch produces no authenticated business session", async () => {
@@ -109,8 +107,7 @@ test("property manager authorization emits refreshed cookies with the supplied e
 
   const actor = await productionAuthorization.requirePropertyManagerWith(request);
 
-  assert.equal(actor.refreshedCookies.length, 2);
-  assert.equal(actor.refreshedCookies.every(cookie => !cookie.includes("; Secure")), true);
+  assert.deepEqual(actor.refreshedCookies, ["better-auth.session_token=opaque; HttpOnly"]);
 });
 
 test("source gate requires the deterministic Neon contract and server-only resolver factories", () => {
@@ -758,8 +755,7 @@ function fakeNeonManagerRequest() {
     resolved: {
       session: { ...managerSession, propertyId: "property-a" },
       tenantId: "tenant-a",
-      accessToken: "access-token",
-      refreshToken: "refresh-token",
+      refreshedCookies: ["better-auth.session_token=opaque; HttpOnly"],
       refreshed: false,
     },
   };

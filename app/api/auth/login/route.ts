@@ -17,12 +17,11 @@ export async function POST(request:Request){
       const session=await authenticateSyntheticAccount({loginId,password,hostname,appEnv:environment.appEnv,dataMode:environment.dataMode});
       const token=createMockSession(session);return success(session,token,null,false);
     }
-    const resolved=await resolveAccountForLogin({loginId,password,hostname,requestId:request.headers.get("x-request-id")??crypto.randomUUID()});
-    if(!resolved.accessToken)return failure();
-    return success(resolved.session,resolved.accessToken,resolved.refreshToken??null,true);
+    const resolved=await resolveAccountForLogin({request,loginId,password,hostname,requestId:request.headers.get("x-request-id")??crypto.randomUUID()});
+    return success(resolved.session,resolved.refreshedCookies??[]);
   }catch{return failure()}
 }
 
-function success(session:AuthSession,token:string,refreshToken:string|null,secure:boolean){const headers=new Headers({"Cache-Control":"no-store"});for(const value of authCookies(token,refreshToken,secure))headers.append("Set-Cookie",value);return Response.json({...session,destination:session.mustChangePassword?"/change-password":homeForRole(session.role)},{headers})}
+function success(session:AuthSession,cookies:string[]){const headers=new Headers({"Cache-Control":"no-store"});for(const value of cookies)headers.append("Set-Cookie",value);return Response.json({...session,destination:session.mustChangePassword?"/change-password":homeForRole(session.role)},{headers})}
 function failure(){return Response.json({message:"账号或密码错误"},{status:401,headers:{"Cache-Control":"no-store"}})}
 async function safeJson(request:Request):Promise<Record<string,unknown>>{try{return await request.json()}catch{return{}}}

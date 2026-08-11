@@ -10,10 +10,12 @@
     { "order": 60, "path": "060_employee_write.sql", "capability": "employee-write" },
     { "order": 70, "path": "070_security_postflight.sql", "capability": "security-postflight" },
     { "order": 80, "path": "080_property_initialization.sql", "capability": "property-initialization-authority" },
-    { "order": 85, "path": "085_auth_authorization.sql", "capability": "auth-authorization-session" }
+    { "order": 85, "path": "085_auth_authorization.sql", "capability": "auth-authorization-session" },
+    { "order": 86, "path": "086_better_auth_boundary.sql", "capability": "auth-identity-boundary" },
+    { "order": 87, "path": "087_better_auth_tables.sql", "capability": "auth-identity-tables" }
   ],
-  "schemas": ["app_private", "public"],
-  "roles": ["hotel_ld_application", "hotel_ld_migration_owner"],
+  "schemas": ["app_auth", "app_private", "public"],
+  "roles": ["hotel_ld_application", "hotel_ld_auth_service", "hotel_ld_migration_owner"],
   "types": [
     "public.department_node_type",
     "public.department_resolution_type",
@@ -26,6 +28,10 @@
     "public.position_resolution_status"
   ],
   "tables": [
+    "app_auth.auth_account",
+    "app_auth.auth_session",
+    "app_auth.auth_user",
+    "app_auth.auth_verification",
     "app_private.employee_write_audit_events",
     "app_private.initialization_audit_events",
     "app_private.organization_alias_activation_audit_events",

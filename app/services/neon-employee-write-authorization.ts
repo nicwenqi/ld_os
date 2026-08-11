@@ -1,6 +1,5 @@
 import "server-only";
 
-import { authCookies } from "../api/auth/cookies.ts";
 import { withNeonResolvedActorContext } from "../lib/neon/actor-context.ts";
 import { resolveNeonPeoplePropertyScope } from "../lib/neon/people-property.ts";
 import { parseAppEnvironment } from "../lib/environment.ts";
@@ -8,7 +7,7 @@ import {
   createNeonEmployeeWriteRepository,
 } from "../repositories/neon/employee-write-repository.ts";
 import { peopleResponseHeaders } from "./neon-people-authorization.ts";
-import { resolveRequestAuthIdentity } from "./request-authentication.ts";
+import { appendRefreshedAuthCookies, resolveRequestAuthIdentity } from "./request-authentication.ts";
 
 type EmployeeWriteRepository = ReturnType<
   typeof createNeonEmployeeWriteRepository
@@ -44,15 +43,7 @@ export async function runAuthorizedNeonEmployeeWrite<T>(
   }
 
   const headers = peopleResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(
-      identity.accessToken,
-      identity.refreshToken,
-      environment.appEnv !== "local",
-    )) {
-      headers.append("Set-Cookie", value);
-    }
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     let trustedScope: { tenantId: string; propertyId: string } | null = null;

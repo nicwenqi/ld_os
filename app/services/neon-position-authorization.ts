@@ -1,6 +1,5 @@
 import "server-only";
 
-import { authCookies } from "../api/auth/cookies.ts";
 import { withNeonResolvedActorContext } from "../lib/neon/actor-context.ts";
 import { resolveNeonOrganizationPropertyScope } from "../lib/neon/organization-property.ts";
 import { parseAppEnvironment } from "../lib/environment.ts";
@@ -21,7 +20,7 @@ import {
   organizationResponseHeaders,
 } from "./neon-organization-authorization.ts";
 import { mapOrganizationDatabaseError } from "./neon-organization-errors.ts";
-import { resolveRequestAuthIdentity } from "./request-authentication.ts";
+import { appendRefreshedAuthCookies, resolveRequestAuthIdentity } from "./request-authentication.ts";
 
 /** E4A dark read boundary; it is not wired into the Position registry. */
 export async function runAuthorizedNeonPositionRead<T>(
@@ -38,13 +37,7 @@ export async function runAuthorizedNeonPositionRead<T>(
   if (!identity) throw new OrganizationApiError(401, "登录状态已失效");
 
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(
-      identity.accessToken,
-      identity.refreshToken,
-      environment.appEnv !== "local",
-    )) headers.append("Set-Cookie", value);
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     let propertyId: string | null = null;
@@ -96,13 +89,7 @@ export async function runAuthorizedNeonPositionWrite<T>(
   if (!identity) throw new OrganizationApiError(401, "登录状态已失效");
 
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(
-      identity.accessToken,
-      identity.refreshToken,
-      environment.appEnv !== "local",
-    )) headers.append("Set-Cookie", value);
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
 
   try {
     let scope: { tenantId: string; propertyId: string } | null = null;
@@ -152,11 +139,7 @@ export async function runAuthorizedNeonPositionMapping<T>(
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) throw new OrganizationApiError(401, "登录状态已失效");
   const headers = organizationResponseHeaders(requestId);
-  if (identity.refreshed) {
-    for (const value of authCookies(identity.accessToken, identity.refreshToken, environment.appEnv !== "local")) {
-      headers.append("Set-Cookie", value);
-    }
-  }
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
   try {
     let propertyId: string | null = null;
     const data = await withNeonResolvedActorContext(

@@ -82,7 +82,7 @@ test("server login keeps technical identities outside the browser",async()=>{
   assert.doesNotMatch(client,/SUPABASE_SECRET_KEY|service_role|internalAuthIdentity|\.internal/);
 });
 
-test("browser repository tokens are released only to the two approved application roles", async () => {
+test("browser never receives an authentication-provider bearer token", async () => {
   const base = {
     authenticated: true,
     userId: "user-a",
@@ -140,8 +140,9 @@ test("browser repository tokens are released only to the two approved applicatio
     read("../app/api/auth/access-token/route.ts"),
     read("../app/services/request-authentication.ts"),
   ]);
-  assert.match(route, /resolveAuthenticatedRequest/);
-  assert.match(guard, /resolveBackendRequest\(request, false\)/);
+  assert.match(route, /浏览器不会获得认证提供方 bearer token/);
+  assert.doesNotMatch(route, /accessToken|resolveAuthenticatedRequest/);
+  assert.match(guard, /resolveBetterAuthIdentity/);
   assert.match(guard, /!session\.mustChangePassword/);
 });
 

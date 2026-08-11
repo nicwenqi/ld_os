@@ -1,10 +1,9 @@
-import { authCookies } from "../api/auth/cookies.ts";
 import { withNeonResolvedActorContext } from "../lib/neon/actor-context.ts";
 import { resolveNeonPropertyScope } from "../lib/neon/property-context.ts";
 import { parseAppEnvironment } from "../lib/environment.ts";
 import { createNeonInitializationRepository } from "../repositories/neon/initialization-repository.ts";
 import { createNeonPropertyRepository } from "../repositories/neon/property-repository.ts";
-import { resolveRequestAuthIdentity } from "./request-authentication.ts";
+import { appendRefreshedAuthCookies, resolveRequestAuthIdentity } from "./request-authentication.ts";
 
 export class PropertyApiError extends Error {
   constructor(readonly status: 400 | 401 | 403 | 404 | 409 | 422 | 503, message: string, readonly headers?: Headers) {
@@ -39,7 +38,7 @@ export async function runAuthorizedNeonInitialization<T>(
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) throw new PropertyApiError(401, "登录状态已失效");
   const headers = responseHeaders(requestId);
-  appendRefresh(headers, identity, environment.appEnv !== "local");
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
   try {
     let scope: { tenantId: string; propertyId: string } | null = null;
     const data = await withNeonResolvedActorContext(
@@ -72,7 +71,7 @@ async function runAuthorizedNeonPropertyOperation<T>(
   const identity = await resolveRequestAuthIdentity(request);
   if (!identity) throw new PropertyApiError(401, "登录状态已失效");
   const headers = responseHeaders(requestId);
-  appendRefresh(headers, identity, environment.appEnv !== "local");
+  if (identity.refreshed) appendRefreshedAuthCookies(headers, identity);
   try {
     let scope: { tenantId: string; propertyId: string } | null = null;
     const data = await withNeonResolvedActorContext(
@@ -101,11 +100,6 @@ export function propertyErrorResponse(error: unknown, requestId: string) {
 
 export function responseHeaders(requestId: string) {
   return new Headers({ "Cache-Control": "no-store, private", "X-Request-Id": requestId });
-}
-
-function appendRefresh(headers: Headers, identity: { refreshed: boolean; accessToken: string; refreshToken: string | null }, secure: boolean) {
-  if (!identity.refreshed) return;
-  for (const value of authCookies(identity.accessToken, identity.refreshToken, secure)) headers.append("Set-Cookie", value);
 }
 
 function mapPropertyError(error: unknown, _headers: Headers, _write = false): PropertyApiError {

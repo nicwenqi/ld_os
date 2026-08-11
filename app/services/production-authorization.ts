@@ -3,14 +3,12 @@ import { resolveRequestHostname } from "../lib/request-hostname.ts";
 import type { AppDataMode, AppEnvironmentName } from "../lib/environment.ts";
 import type { AuthenticatedAuthorizationRequest } from "./request-authentication.ts";
 import { resolveAuthenticatedRequestWithAuthority } from "./request-authentication.ts";
-import { authCookies } from "../api/auth/cookies.ts";
 
 export type PropertyManagerActor = {
   authUserId: string;
   tenantId: string;
   propertyId: string;
   hostname: string;
-  accessToken: string;
   refreshedCookies: string[];
 };
 
@@ -52,14 +50,7 @@ export async function requirePropertyManagerWith(
     tenantId: resolved.tenantId,
     propertyId: session.propertyId,
     hostname: input.hostname,
-    accessToken: resolved.accessToken,
-    refreshedCookies: resolved.refreshed
-      ? authCookies(
-          resolved.accessToken,
-          resolved.refreshToken,
-          input.environment.appEnv !== "local",
-        )
-      : [],
+    refreshedCookies: resolved.refreshedCookies,
   };
 }
 
