@@ -56,10 +56,10 @@ export function createNeonPropertyRepository(
       return result.rows[0]!.save_neon_property_settings;
     },
     uploadLogo(_input: UploadPropertyLogoInput) {
-      return Promise.reject(new Error("Neon Property 不包含 Supabase Storage；品牌资产仍由 Storage 边界处理"));
+      return Promise.reject(new Error("当前 Neon-first baseline 不持久化 Property branding 资产"));
     },
     cleanupExpiredLogos() {
-      return Promise.reject(new Error("Neon Property 不包含 Supabase Storage；品牌资产清理由 Storage 边界处理"));
+      return Promise.reject(new Error("当前 Neon-first baseline 不持久化 Property branding 资产"));
     },
   };
 }

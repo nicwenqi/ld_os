@@ -6,7 +6,7 @@ import { validateCanonicalPropertyAuthority, PROPERTY_ENTRYPOINT_SIGNATURES, PRO
 
 test("canonical property authority is connection-free and security constrained", async () => {
   const result = await validateCanonicalPropertyAuthority();
-  assert.deepEqual(result, { module: "080_property_initialization.sql", tables: 5, entrypoints: 9, storageBoundary: "supabase-storage-out-of-scope", importAuthority: "excluded" });
+  assert.deepEqual(result, { module: "080_property_initialization.sql", tables: 5, entrypoints: 9, storageBoundary: "no-branding-object-storage", importAuthority: "excluded" });
 });
 
 test("property authority inventories remain explicit", async () => {

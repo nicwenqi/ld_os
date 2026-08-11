@@ -65,7 +65,7 @@ export async function validateCanonicalPropertyAuthority({ root = ROOT } = {}) {
   if (!/createHttpPropertyRepository/.test(registry) || !/createHttpInitializationRepository/.test(registry)) fail("CANONICAL_PROPERTY_REGISTRY_WIRING");
   if (!/credentials:\s*["']same-origin["']/.test(propertyHttp) || !/credentials:\s*["']same-origin["']/.test(initializationHttp)) fail("CANONICAL_PROPERTY_HTTP_BOUNDARY");
 
-  return { module: "080_property_initialization.sql", tables: PROPERTY_TABLES.length, entrypoints: PROPERTY_ENTRYPOINT_SIGNATURES.length, storageBoundary: "supabase-storage-out-of-scope", importAuthority: "excluded" };
+  return { module: "080_property_initialization.sql", tables: PROPERTY_TABLES.length, entrypoints: PROPERTY_ENTRYPOINT_SIGNATURES.length, storageBoundary: "no-branding-object-storage", importAuthority: "excluded" };
 }
 
 function routineSource(source, qualifiedName) {

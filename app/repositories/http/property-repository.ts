@@ -26,10 +26,10 @@ export function createHttpPropertyRepository(): PropertyRepository {
       return request<HotelPropertyRecord>("/api/property/settings", json("PATCH", body));
     },
     uploadLogo(_input: UploadPropertyLogoInput) {
-      return Promise.reject(new Error("Neon Property brand assets remain on the Supabase Storage boundary"));
+      return Promise.reject(new Error("当前 Neon-first baseline 不持久化 Property branding 资产"));
     },
     cleanupExpiredLogos() {
-      return Promise.reject(new Error("Neon Property brand assets remain on the Supabase Storage boundary"));
+      return Promise.reject(new Error("当前 Neon-first baseline 不持久化 Property branding 资产"));
     },
   };
 }
