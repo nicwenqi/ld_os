@@ -8,5 +8,5 @@ test("E5E runtime source contract includes explicit Neon Import HTTP activation"
   assert.equal(result.sameOriginHttpOnly, true);
   assert.equal(result.noBrowserNeonCredential, true);
   assert.equal(result.storageSaga, true);
-  assert.equal(result.legacyInspectRpc, "fallback-only");
+  assert.equal(result.legacyInspectRpc, "disabled");
 });

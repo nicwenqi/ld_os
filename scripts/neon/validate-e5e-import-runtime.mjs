@@ -24,15 +24,12 @@ export async function validateE5eImportRuntimeSource() {
   if (!sources.runtimeLoader.includes("import:") || !sources.runtimeLoader.includes("payload.domains.import")) throw new Error("E5E_IMPORT_RUNTIME_LOADER_MISSING");
   if (/createBrowserSupabaseClient\(environment\)/.test(sources.mainRegistry) && !/dataMode\s*!==\s*["']neon["']/.test(sources.mainRegistry)) throw new Error("E5E_MAIN_REGISTRY_SUPABASE_CLIENT_EAGER");
   if (!sources.inspectBoundary.includes("createStorageSagaCoordinator") || !sources.inspectBoundary.includes("runAuthorizedNeonImportStaging")) throw new Error("E5E_IMPORT_INSPECTION_NEON_SAGA_MISSING");
-  // The legacy RPC is allowed only in the explicitly non-Neon branch.  A
-  // Neon request must call the server Storage saga and never fall back after
-  // an error.
-  if (!/environment\.dataMode\s*===\s*["']neon["']/.test(sources.inspectRoute)
-    || !/return\s+createImportInspectionHandler\(\)\(request\)/.test(sources.inspectRoute)) {
+  if (!/environment\.dataMode\s*!==\s*["']neon["']/.test(sources.inspectRoute)
+    || /return\s+createImportInspectionHandler\(\)\(request\)/.test(sources.inspectRoute)) {
     throw new Error("E5E_IMPORT_INSPECTION_MODE_BOUNDARY_MISSING");
   }
   if (!sources.seed.includes("tenant") || !sources.seed.includes("property") || !sources.seed.includes("department") || !sources.seed.includes("position") || !sources.seed.includes("employee")) throw new Error("E5E_SEED_SCENARIOS_MISSING");
-  return { runtimeImport: "neon", sameOriginHttpOnly: true, noBrowserNeonCredential: true, storageSaga: true, legacyInspectRpc: "fallback-only" };
+  return { runtimeImport: "neon", sameOriginHttpOnly: true, noBrowserNeonCredential: true, storageSaga: true, legacyInspectRpc: "disabled" };
 }
 
 export async function main() {
