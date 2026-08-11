@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { registerHooks } from "node:module";
 import test from "node:test";
 
 import { AuthorizationError } from "../app/services/production-authorization.ts";
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    if (specifier === "server-only") return { url: "data:text/javascript,export%20{}", shortCircuit: true };
+    return nextResolve(specifier, context);
+  },
+});
 
 const fullChecksum = "a".repeat(64);
 const accidentalChecksum = "b".repeat(64);
@@ -192,15 +200,15 @@ const prepared = {
   },
 };
 
-const routeModule = await import("../app/api/import/inspect/route.ts");
+const legacyModule = await import("../app/services/import/legacy-supabase-import-inspection.ts");
 
 function createHandler() {
   assert.equal(
-    typeof routeModule.createImportInspectionHandler,
+    typeof legacyModule.createImportInspectionHandler,
     "function",
-    "route must export an injectable actor-scoped handler",
+    "legacy test adapter must export an injectable actor-scoped handler",
   );
-  return routeModule.createImportInspectionHandler({
+  return legacyModule.createImportInspectionHandler({
     authorize: async () => {
       if (authorizationMode === "department") {
         throw new AuthorizationError(403, "仅酒店学习与发展经理可更新员工资料");
@@ -239,16 +247,18 @@ function importRequest() {
   });
 }
 
-test("Recovery C staging source uses only the authenticated actor client and server property context", async () => {
-  const [route, authorization, serverClient] = await Promise.all([
+test("legacy Recovery C adapter is isolated from the active Neon Import route", async () => {
+  const [route, legacy, authorization, serverClient] = await Promise.all([
     readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/services/import/legacy-supabase-import-inspection.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/services/production-authorization.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/supabase/server-admin.ts", import.meta.url), "utf8"),
   ]);
 
-  assert.match(route, /createServerActorClient/);
-  assert.match(route, /stage_employee_import/);
-  assert.match(route, /property-import-files/);
+  assert.doesNotMatch(route, /createServerActorClient|stage_employee_import|\.storage\b/);
+  assert.match(legacy, /createServerActorClient/);
+  assert.match(legacy, /stage_employee_import/);
+  assert.match(legacy, /property-import-files/);
   assert.doesNotMatch(route, /createServerAdminClient/);
   assert.doesNotMatch(route, /form\.get\(["']propertyId["']\)/);
   assert.doesNotMatch(route, /\.from\(["'](?:import_batches|import_sheets|import_field_mappings|import_source_rows|import_issues|department_aliases|position_aliases)["']\)/);

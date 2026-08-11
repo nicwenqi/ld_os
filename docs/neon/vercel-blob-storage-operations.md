@@ -31,15 +31,19 @@ cleanup retry, and idempotent not-found cleanup. Its `finally` block attempts
 to remove only the three random validation objects it created.
 
 Do not use this command against Production. The command fails closed unless
-`BLOB_VALIDATION_NON_PRODUCTION=1`, `VERCEL_ENV` is not `production`, and a
-non-empty server token is present.
+`BLOB_VALIDATION_NON_PRODUCTION=1`, `VERCEL_ENV=preview`, and the injected
+token identifies the allowlisted Preview Blob store. A Production token cannot
+pass this check.
 
 ## Validation record
 
 On 2026-08-11, the private Preview-only `hotel-ld-os-import-validation` Blob
 store passed this matrix through Vercel's ephemeral Preview environment runner:
 private upload, uncached full read-back, checksum, size, content MIME,
-exact-path deletion, cleanup retry, and idempotent not-found cleanup. No Blob
-token, URL, or object path was recorded. The temporary local Vercel directory
+exact-path deletion, cleanup retry, and idempotent not-found cleanup. The
+retry probe deliberately injects one transient local failure before the first
+provider deletion, then proves the existing cleanup executor retries against
+the real Blob gateway; it is not a claimed provider outage. No Blob token,
+URL, or object path was recorded. The temporary local Vercel directory
 used for that run, including its local credential material, was removed after
 the command completed.

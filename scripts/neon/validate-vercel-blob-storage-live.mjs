@@ -3,11 +3,13 @@ import { createHash, randomUUID } from "node:crypto";
 const BUCKET = "property-import-files";
 const MIME = "text/csv";
 const BYTES = new TextEncoder().encode("Employee No,Name\nE-001,Ada\n");
+const PREVIEW_BLOB_STORE_TOKEN_ID = "bdM5v7tXMyRQPrGq";
 
 export function validateNonProductionBlobEnvironment(environment = process.env) {
+  const token = environment.BLOB_READ_WRITE_TOKEN?.trim() ?? "";
   if (environment.BLOB_VALIDATION_NON_PRODUCTION !== "1" ||
-      environment.VERCEL_ENV === "production" ||
-      !environment.BLOB_READ_WRITE_TOKEN?.trim()) {
+      environment.VERCEL_ENV !== "preview" ||
+      token.split("_")[3] !== PREVIEW_BLOB_STORE_TOKEN_ID) {
     throw new Error("BLOB_STORAGE_VALIDATION_ENVIRONMENT_INVALID");
   }
 }

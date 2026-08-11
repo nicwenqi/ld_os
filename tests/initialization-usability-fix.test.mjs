@@ -63,11 +63,14 @@ test("activation requires only identity, rules, one active department, and one a
 });
 
 test("production inspection stages source-label mappings but never employees", async () => {
-  const route = await readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8");
-  assert.match(route, /stage_employee_import/);
-  assert.match(route, /sourceLabels/);
-  assert.match(route, /resolutionType:\s*"department"/);
-  assert.match(route, /resolutionType:\s*"position"/);
-  assert.doesNotMatch(route, /department_aliases|position_aliases/);
-  assert.doesNotMatch(route, /from\(["']employees["']\).*insert/s);
+  const [route, boundary] = await Promise.all([
+    readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/services/import/neon-import-inspection-boundary.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(route, /inspectAndStageWorkbookInNeon/);
+  assert.match(boundary, /sourceLabels/);
+  assert.match(boundary, /resolutionType:\s*"department"/);
+  assert.match(boundary, /resolutionType:\s*"position"/);
+  assert.doesNotMatch(boundary, /department_aliases|position_aliases/);
+  assert.doesNotMatch(boundary, /from\(["']employees["']\).*insert/s);
 });

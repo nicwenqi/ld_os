@@ -74,9 +74,11 @@ test("trusted staging preserves private evidence and returns aggregate-only insp
 });
 
 test("production routes use server-authorized property context and never accept a property id", async () => {
-  const [contextRoute, inspectionRoute, tokenRoute, browserClient, loginPage, initializePage, importPage, fileInspectionStep] = await Promise.all([
+  const [contextRoute, inspectionRoute, inspectionBoundary, inspectionAuthorization, tokenRoute, browserClient, loginPage, initializePage, importPage, fileInspectionStep] = await Promise.all([
     readFile(new URL("../app/api/property/context/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/import/inspect/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/services/import/neon-import-inspection-boundary.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/services/neon-import-staging-authorization.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/access-token/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/lib/supabase/browser.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/login/page.tsx", import.meta.url), "utf8"),
@@ -86,10 +88,11 @@ test("production routes use server-authorized property context and never accept 
   ]);
 
   assert.match(contextRoute, /resolveRequestHostname/);
-  assert.match(inspectionRoute, /requireProductionPropertyManager/);
-  assert.match(inspectionRoute, /property-import-files/);
-  assert.match(inspectionRoute, /fileChecksum:\s*prepared\.inspection\.checksum/);
-  assert.doesNotMatch(inspectionRoute, /fileChecksum:\s*prepared\.safeSummary\.checksum/);
+  assert.match(inspectionRoute, /inspectAndStageWorkbookInNeon/);
+  assert.match(inspectionBoundary, /runAuthorizedNeonImportStaging/);
+  assert.match(inspectionAuthorization, /property-import-files/);
+  assert.match(inspectionBoundary, /declaredChecksumSha256:\s*checksum/);
+  assert.doesNotMatch(inspectionBoundary, /safeSummary\.checksum/);
   assert.doesNotMatch(inspectionRoute, /form\.get\(["']propertyId["']\)/);
   assert.match(tokenRoute, /resolveAuthenticatedRequest/);
   assert.match(tokenRoute, /["']Cache-Control["']\s*:\s*["']no-store["']/);

@@ -17,12 +17,17 @@ registerHooks({
 const { executeDueStorageCleanup } = await import("../../app/services/import/storage-cleanup-executor.ts");
 
 test("live Blob validation requires an explicitly non-production token environment", () => {
+  const token = "vercel_blob_rw_bdM5v7tXMyRQPrGq_validation";
   assert.throws(
-    () => validateNonProductionBlobEnvironment({ BLOB_READ_WRITE_TOKEN: "token", VERCEL_ENV: "production", BLOB_VALIDATION_NON_PRODUCTION: "1" }),
+    () => validateNonProductionBlobEnvironment({ BLOB_READ_WRITE_TOKEN: token, VERCEL_ENV: "production", BLOB_VALIDATION_NON_PRODUCTION: "1" }),
     /BLOB_STORAGE_VALIDATION_ENVIRONMENT_INVALID/,
   );
   assert.doesNotThrow(
-    () => validateNonProductionBlobEnvironment({ BLOB_READ_WRITE_TOKEN: "token", VERCEL_ENV: "preview", BLOB_VALIDATION_NON_PRODUCTION: "1" }),
+    () => validateNonProductionBlobEnvironment({ BLOB_READ_WRITE_TOKEN: token, VERCEL_ENV: "preview", BLOB_VALIDATION_NON_PRODUCTION: "1" }),
+  );
+  assert.throws(
+    () => validateNonProductionBlobEnvironment({ BLOB_READ_WRITE_TOKEN: "vercel_blob_rw_production_validation", VERCEL_ENV: "preview", BLOB_VALIDATION_NON_PRODUCTION: "1" }),
+    /BLOB_STORAGE_VALIDATION_ENVIRONMENT_INVALID/,
   );
 });
 

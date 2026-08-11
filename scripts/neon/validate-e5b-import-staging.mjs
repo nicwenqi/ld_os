@@ -246,8 +246,9 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
     || !/contentDerivedMimeType/.test(server)) {
     failSource("E5B_IMPORT_STAGING_READBACK_VERIFICATION_MISSING");
   }
-  if (!inspectRoute.includes('actorClient.rpc(\n        "stage_employee_import"')) {
-    failSource("E5B_IMPORT_STAGING_INSPECT_RPC_CONTRACT_CHANGED");
+  if (!/inspectAndStageWorkbookInNeon/.test(inspectRoute)
+    || /createServerActorClient|stage_employee_import|\.storage\b/.test(inspectRoute)) {
+    failSource("E5B_IMPORT_STAGING_INSPECT_RUNTIME_BOUNDARY_INVALID");
   }
   if (/DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|from\s+["']pg["']/.test(serverSources.filter((_, index) => REQUIRED_SERVER_FILES[index].startsWith("app/api/")).join("\n"))) {
     failSource("E5B_IMPORT_STAGING_BROWSER_OR_API_DATABASE_CREDENTIAL");
@@ -255,7 +256,7 @@ export async function validateE5bImportStagingSource({ root = ROOT } = {}) {
   return {
     modules: E5B_MIGRATIONS,
     entrypoints: E5B_ENTRYPOINT_SIGNATURES.length,
-    inspectionRpcPreserved: true,
+    inspectionNeonSaga: true,
     storageVerification: "read-back-sha256-size-content-mime",
     runtimeMatrix: "source-validated",
     storageRuntime: "synthetic-only",
