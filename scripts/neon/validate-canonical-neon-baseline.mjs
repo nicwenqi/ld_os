@@ -44,10 +44,22 @@ export const ACCEPTANCE_NEON_TARGET = Object.freeze({
   postgresMajor: 18,
 });
 
+export const CLEAN_VALIDATION_NEON_TARGET = Object.freeze({
+  projectName: "hotel-ld-os-neon-canonical-validation",
+  projectId: "withered-bar-40598816",
+  branchName: "main",
+  branchId: "br-wispy-flower-avd4hssa",
+  endpointId: "ep-lingering-pine-avbdti90",
+  database: "neondb",
+  bootstrapRole: "neondb_owner",
+  postgresMajor: 18,
+});
+
 export const AUTHORIZED_NEON_TARGETS = Object.freeze([
   EXPECTED_NEON_TARGET,
   REPLAY_NEON_TARGET,
   ACCEPTANCE_NEON_TARGET,
+  CLEAN_VALIDATION_NEON_TARGET,
 ]);
 
 const FORBIDDEN_NEON_TARGETS = new Set([
@@ -1184,7 +1196,9 @@ function catalogInventories(bundle) {
     asStringArray(bundle.manifest, "types").sort(),
     asStringArray(bundle.manifest, "tables").sort(),
     asStringArray(bundle.manifest, "routines").sort(),
-    asStringArray(bundle.manifest, "entrypointSignatures").map((value) => value.replace(/\s+/g, "")).sort(),
+    asStringArray(bundle.manifest, "entrypointSignatures")
+      .map((value) => value.replace(/\s+/g, "").replace(/\btimestamptz\b/g, "timestampwithtimezone"))
+      .sort(),
     securityDescriptorInventory(bundle.manifest, "policy", "catalog"),
     securityDescriptorInventory(bundle.manifest, "trigger"),
     asStringArray(bundle.manifest, "tables").filter((value) => value.startsWith("app_private.")).sort(),

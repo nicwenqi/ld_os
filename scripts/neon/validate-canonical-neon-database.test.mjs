@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 
 import {
+  CLEAN_VALIDATION_NEON_TARGET,
   EXPECTED_NEON_TARGET,
   POLICY_CATALOG_DESCRIPTOR_SQL,
   assertExpectedSmokeRejection,
@@ -171,7 +172,7 @@ test("rejects any non-canonical project metadata before constructing a pool", as
 });
 
 test("accepts only complete authorized target tuples without field mixing", async () => {
-  const authorizedTargets = [EXPECTED_NEON_TARGET, replayTarget, acceptanceTarget];
+  const authorizedTargets = [EXPECTED_NEON_TARGET, replayTarget, acceptanceTarget, CLEAN_VALIDATION_NEON_TARGET];
   for (const target of authorizedTargets) {
     const pool = fakePool(bootstrapHandler);
     const result = await validateCanonicalNeon({
@@ -218,7 +219,7 @@ test("accepts only complete authorized target tuples without field mixing", asyn
 });
 
 test("binds each authorized target tuple to its own endpoint", async () => {
-  const authorizedTargets = [EXPECTED_NEON_TARGET, replayTarget, acceptanceTarget];
+  const authorizedTargets = [EXPECTED_NEON_TARGET, replayTarget, acceptanceTarget, CLEAN_VALIDATION_NEON_TARGET];
   for (const target of authorizedTargets) {
     for (const connectionTarget of authorizedTargets) {
       if (connectionTarget === target) continue;
