@@ -114,7 +114,7 @@ test("access-token release is limited by the server-resolved workspace role", as
   assert.match(tokenRoute, /resolveAuthenticatedRequest\(request\)/);
   assert.match(
     requestAuthentication,
-    /resolveSessionForAuthUser\(identity\.userId, identity\.hostname\)/,
+    /resolveNeonAuthorizationForAuthUser\(\s*identity\.userId,\s*identity\.hostname,\s*crypto\.randomUUID\(\),\s*\)/,
   );
   assert.match(
     requestAuthentication,
@@ -126,12 +126,11 @@ test("access-token release is limited by the server-resolved workspace role", as
     requestAuthentication,
     /session\.role === ["']department_training_responsible["']/,
   );
-  assert.match(authenticationService, /role\?\.code === ["']property_ld_manager["']/);
-  assert.match(authenticationService, /role\?\.code === ["']department_training_admin["']/);
-  assert.match(authenticationService, /role: ["']department_training_responsible["']/);
+  assert.match(authenticationService, /resolveNeonAuthorizationForAuthUser/);
+  assert.match(authenticationService, /authorization\.session\.authenticated/);
   assert.doesNotMatch(
     authenticationService,
-    /role\?\.code === ["'](?:platform_admin|tenant_admin)["']/,
+    /(?:platform_admin|tenant_admin)/,
   );
 });
 
