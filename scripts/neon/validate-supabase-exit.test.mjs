@@ -132,6 +132,72 @@ test("protected direct Preview transport sends bypass header and retains only in
   assert.doesNotMatch(JSON.stringify(await request("/api/auth/session", { operation: "AUTH_SESSION" })), new RegExp(bypassSecret));
 });
 
+test("first protected Preview request follows one same-origin 307 only after storing its bypass cookie", async () => {
+  const bypassSecret = "protected-bypass-value";
+  const bypassCookie = "vercel-protection=opaque-bypass-cookie";
+  const calls = [];
+  const request = createProtectedPreviewRequest({
+    bypassSecret,
+    fetchImpl: async (url, options) => {
+      calls.push({ url: String(url), options });
+      if (calls.length === 1) {
+        return {
+          ok: false,
+          status: 307,
+          headers: { get: name => name === "location" ? `${APPROVED_SUPABASE_EXIT_PREVIEW.url}/` : null, getSetCookie: () => [`${bypassCookie}; Path=/; HttpOnly`] },
+          text: async () => "",
+        };
+      }
+      return { ok: true, status: 200, headers: { getSetCookie: () => [] }, text: async () => JSON.stringify({ ok: true }) };
+    },
+  });
+  assert.deepEqual(await request("/", { operation: "PREVIEW_PROBE" }), { ok: true });
+  assert.equal(calls.length, 2);
+  assert.equal(calls[0].options.redirect, "manual");
+  assert.equal(calls[1].url, `${APPROVED_SUPABASE_EXIT_PREVIEW.url}/`);
+  assert.equal(new Headers(calls[1].options.headers).get("cookie"), bypassCookie);
+  assert.equal(new Headers(calls[1].options.headers).get("x-vercel-protection-bypass"), bypassSecret);
+  assert.doesNotMatch(JSON.stringify({ calls: calls.map(({ url, options }) => ({ url, method: options.method })) }), new RegExp(`${bypassSecret}|${bypassCookie}`));
+});
+
+test("protected Preview bootstrap rejects a 307 without a Set-Cookie", async () => {
+  const request = createProtectedPreviewRequest({
+    bypassSecret: "protected-bypass-value",
+    fetchImpl: async () => ({ ok: false, status: 307, headers: { get: name => name === "location" ? `${APPROVED_SUPABASE_EXIT_PREVIEW.url}/` : null, getSetCookie: () => [] }, text: async () => "" }),
+  });
+  await assert.rejects(() => request("/", { operation: "PREVIEW_PROBE" }), error => error.code === "SUPABASE_EXIT_BYPASS_COOKIE_MISSING");
+});
+
+test("protected Preview bootstrap rejects a second same-origin 307 redirect", async () => {
+  let calls = 0;
+  const request = createProtectedPreviewRequest({
+    bypassSecret: "protected-bypass-value",
+    fetchImpl: async () => {
+      calls += 1;
+      return {
+        ok: false,
+        status: 307,
+        headers: { get: name => name === "location" ? `${APPROVED_SUPABASE_EXIT_PREVIEW.url}/` : null, getSetCookie: () => calls === 1 ? ["vercel-protection=opaque; Path=/; HttpOnly"] : [] },
+        text: async () => "",
+      };
+    },
+  });
+  await assert.rejects(() => request("/", { operation: "PREVIEW_PROBE" }), error => error.code === "SUPABASE_EXIT_BYPASS_REDIRECT_LOOP");
+});
+
+for (const [name, location] of [
+  ["cross-origin", "https://other-preview.example/"],
+  ["Vercel SSO", "https://vercel.com/sso-api/login"],
+]) {
+  test(`protected Preview bootstrap rejects ${name} redirect`, async () => {
+    const request = createProtectedPreviewRequest({
+      bypassSecret: "protected-bypass-value",
+      fetchImpl: async () => ({ ok: false, status: 307, headers: { get: key => key === "location" ? location : null, getSetCookie: () => ["vercel-protection=opaque; Path=/; HttpOnly"] }, text: async () => "" }),
+    });
+    await assert.rejects(() => request("/", { operation: "PREVIEW_PROBE" }), error => error.code === "SUPABASE_EXIT_BYPASS_REDIRECT_FORBIDDEN");
+  });
+}
+
 test("Preview transport stays direct when HTTPS_PROXY is absent", async () => {
   let fetchOptions;
   const request = createProtectedPreviewRequest({

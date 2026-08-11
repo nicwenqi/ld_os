@@ -342,6 +342,7 @@ export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = global
   const origin = approvedPreviewOrigin(baseUrl);
   const dispatcher = createPreviewProxyDispatcher(httpsProxy, ProxyAgentImpl);
   const cookieJar = createMemoryCookieJar();
+  let firstPreviewRequest = true;
   const request = async (path, { method = "GET", body, formFile, operation = "PREVIEW_REQUEST", responseKind = "json" } = {}) => {
     const operationName = requireOperation(operation);
     if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//")) failure("SUPABASE_EXIT_REQUEST_INVALID");
@@ -366,24 +367,48 @@ export function createProtectedPreviewRequest({ bypassSecret, fetchImpl = global
     }
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let response;
     try {
-      const options = { method, headers, body: requestBody, signal: controller.signal, redirect: "error" };
-      if (dispatcher) options.dispatcher = dispatcher;
-      response = await fetchImpl(target, options);
-    } catch {
-      if (controller.signal.aborted) failure(`SUPABASE_EXIT_OPERATOR_TIMEOUT:${operationName}`);
-      failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`);
+      const fetchPreview = async nextTarget => {
+        const nextHeaders = new Headers(headers);
+        const nextCookie = cookieJar.header();
+        if (nextCookie) nextHeaders.set("cookie", nextCookie);
+        const options = { method, headers: nextHeaders, body: requestBody, signal: controller.signal, redirect: "manual" };
+        if (dispatcher) options.dispatcher = dispatcher;
+        try {
+          return await fetchImpl(nextTarget, options);
+        } catch {
+          if (controller.signal.aborted) failure(`SUPABASE_EXIT_OPERATOR_TIMEOUT:${operationName}`);
+          failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`);
+        }
+      };
+      const allowBypassBootstrap = firstPreviewRequest;
+      firstPreviewRequest = false;
+      let response = await fetchPreview(target);
+      if (response?.status === 307) {
+        if (!allowBypassBootstrap) failure("SUPABASE_EXIT_BYPASS_REDIRECT_FORBIDDEN");
+        const location = cleanText(response.headers?.get?.("location"));
+        let redirected;
+        try { redirected = new URL(location, target); } catch { failure("SUPABASE_EXIT_BYPASS_REDIRECT_FORBIDDEN"); }
+        if (!redirected || redirected.origin !== origin.origin || redirected.protocol !== "https:" || redirected.href !== target.href) {
+          failure("SUPABASE_EXIT_BYPASS_REDIRECT_FORBIDDEN");
+        }
+        const beforeCookie = cookieJar.header();
+        cookieJar.absorb(response.headers);
+        const afterCookie = cookieJar.header();
+        if (!afterCookie || afterCookie === beforeCookie) failure("SUPABASE_EXIT_BYPASS_COOKIE_MISSING");
+        response = await fetchPreview(redirected);
+        if (response?.status === 307) failure("SUPABASE_EXIT_BYPASS_REDIRECT_LOOP");
+      }
+      if (!response?.ok) failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}:HTTP_${Number.isInteger(response?.status) ? response.status : "UNKNOWN"}`);
+      cookieJar.absorb(response.headers);
+      if (responseKind === "status") return { status: response.status };
+      if (responseKind !== "json") failure("SUPABASE_EXIT_RESPONSE_INVALID");
+      let serialized;
+      try { serialized = await response.text(); } catch { failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`); }
+      try { return JSON.parse(serialized); } catch { failure("SUPABASE_EXIT_RESPONSE_INVALID"); }
     } finally {
       clearTimeout(timer);
     }
-    if (!response?.ok) failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}:HTTP_${Number.isInteger(response?.status) ? response.status : "UNKNOWN"}`);
-    cookieJar.absorb(response.headers);
-    if (responseKind === "status") return { status: response.status };
-    if (responseKind !== "json") failure("SUPABASE_EXIT_RESPONSE_INVALID");
-    let serialized;
-    try { serialized = await response.text(); } catch { failure(`SUPABASE_EXIT_PREVIEW_REQUEST_FAILED:${operationName}`); }
-    try { return JSON.parse(serialized); } catch { failure("SUPABASE_EXIT_RESPONSE_INVALID"); }
   };
   request.clearCookies = () => cookieJar.clear();
   request.closeTransport = async () => {
