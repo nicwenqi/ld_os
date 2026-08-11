@@ -28,13 +28,9 @@ test("application shell exposes Hotel Settings within the approved Recovery A ro
   assert.match(shell,/navigationForRole/);
 });
 
-test("Review Stop 2C-A source and committed seeds contain synthetic property identity only", async () => {
-  const seed = await read("../supabase/seed.sql");
+test("Review Stop 2C-A mock fixture contains synthetic property identity only", async () => {
   const mock = await read("../app/repositories/mock/property-repository.ts");
-  for (const source of [seed, mock]) {
-    assert.doesNotMatch(source, /ldchub\.cn/i);
-    assert.doesNotMatch(source, /KIP Suzhou|苏州|Suzhou/i);
-  }
-  assert.match(seed, /demo-a1\.example\.test/);
+  assert.doesNotMatch(mock, /ldchub\.cn/i);
+  assert.doesNotMatch(mock, /KIP Suzhou|苏州|Suzhou/i);
   assert.match(mock, /training-demo\.example\.test/);
 });

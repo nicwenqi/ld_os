@@ -70,7 +70,7 @@ export function renderSeedManifest(seed = E5E_DEVELOPMENT_SEED) {
 }
 
 export function assertSeedTarget(input = {}) {
-  if (input.production === true || input.supabase === true || input.legacyImport === true) {
+  if (input.production === true || input.legacyImport === true) {
     throw new Error("E5E_SEED_TARGET_FORBIDDEN");
   }
   if (input.apply === true) {

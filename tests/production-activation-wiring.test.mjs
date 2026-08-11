@@ -148,11 +148,11 @@ test("same-origin Better Auth owns session refresh and logout cookies", async ()
 });
 
 test("public hostname resolver suppresses inactive and unknown private context", async () => {
-  const migration = await readFile(new URL("../supabase/migrations/20260712190143_property_context_and_settings.sql", import.meta.url), "utf8");
-  assert.match(migration, /domain\.is_active/);
-  assert.match(migration, /domain\.verification_status = 'verified'/);
-  assert.match(migration, /property\.status = 'active'/);
-  assert.match(migration, /tenant\.status = 'active'/);
+  const canonicalAuthority = await readFile(new URL("../neon/canonical/030_people.sql", import.meta.url), "utf8");
+  assert.match(canonicalAuthority, /domain\.is_active/);
+  assert.match(canonicalAuthority, /domain\.verification_status = 'verified'/);
+  assert.match(canonicalAuthority, /property\.status = 'active'/);
+  assert.match(canonicalAuthority, /tenant\.status = 'active'/);
 });
 
 test("Vite exposes only the validated public runtime boundary to browser repositories", async () => {

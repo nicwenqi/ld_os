@@ -43,8 +43,8 @@ test("missing foundation facts remain unavailable rather than becoming zero", ()
   assert.equal(formatFoundationCount(undefined), "—");
   assert.equal(formatFoundationCount(0), "0");
   assert.equal(foundationPresentationState("mock", false), "demo");
-  assert.equal(foundationPresentationState("supabase", false), "real");
-  assert.equal(foundationPresentationState("supabase", true), "partial");
+  assert.equal(foundationPresentationState("neon", false), "real");
+  assert.equal(foundationPresentationState("neon", true), "partial");
 });
 
 test("organization facts distinguish an established hierarchy from manager confirmation", () => {

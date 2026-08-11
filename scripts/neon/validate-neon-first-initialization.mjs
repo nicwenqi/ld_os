@@ -11,7 +11,7 @@ const FORBIDDEN = [
   /\bgrant\b[\s\S]{0,240}\bhotel_ld_application\b/i,
   /from\s+["'][^"']*app\/api\//i,
   /from\s+["'][^"']*app\/repositories\//i,
-  /stage_employee_import|legacy import|supabase storage/i,
+  /stage_employee_import|legacy import|legacy object storage/i,
 ];
 
 export function validateNeonFirstInitializationSource(sources) {
