@@ -7,15 +7,15 @@ This record audits the Training App source and the connected Vercel project `hot
 ## Repository truth
 
 - Audit branch: `codex/supabase-runtime-zero`
-- Start commit: `dff5d20255d29863d591dd1735100a957fd9f584`
-- Reference branch: `codex/canonical-neon-baseline` at the same start commit
-- Local `main`: `eac1e71`; it is an ancestor of the reference branch and is 254 commits behind it (`main...codex/canonical-neon-baseline = 0/254`).
+- Initial audit commit: `dff5d20255d29863d591dd1735100a957fd9f584`; continuation start commit: `3cf53a693c0a57438f72bf1ecbf3beb930ba0b7c`.
+- Reference branch: `codex/canonical-neon-baseline` at `dff5d20255d29863d591dd1735100a957fd9f584`.
+- Local `main`: `eac1e71`; it is an ancestor of the reference branch and is 254 commits behind it (`main...codex/canonical-neon-baseline = 0/254`). Freshly fetched `origin/main` is `e90de7b` and is not the Training App source of truth.
 - The actual Training App exists on both branches, but `main` lacks the canonical Neon and Better Auth implementation. The reference branch contains `pg`, `better-auth`, and `@vercel/blob`, with no Supabase package dependency.
 - Existing dirty worktrees and their untracked files were not modified, stashed, reset, cleaned, or staged. Audit changes were made in the dedicated worktree `.worktrees/supabase-runtime-zero`.
 
 `CURRENT`: the canonical branch is the verified repository implementation. `main` is incomplete/stale for the intended architecture.
 
-`TARGET`: Production must use a reviewed descendant of the canonical implementation.
+`TARGET`: Production must use the reviewed `codex/supabase-runtime-zero` descendant after a populated-Neon adoption rehearsal establishes its database, auth, and Blob identities.
 
 ## Supabase reference classification
 
@@ -96,20 +96,35 @@ References under `docs/archive/supabase-project/`, historical migration plans/re
 
 Preview values were not copied into Production: reachability and variable presence do not prove that credentials have the correct Production branch, endpoint, database, role, tenant, or property scope.
 
+## Production database identity correction
+
+Fresh Neon control-plane and read-only SQL evidence identifies the migrated Training App data as project `flat-brook-43278549` (`hotel_L&D_os`), primary branch `br-twilight-leaf-azmowo1k` (`production`), endpoint `ep-wild-wave-azjmgdif`, database `neondb`, PostgreSQL 18. It contains the expected Training App business schemas and 90 public tables, with one tenant, one property, and one user-account mapping. This proves the data origin; it does not prove canonical runtime readiness.
+
+The same read-only catalog check found that this branch lacks all three canonical runtime identities and boundaries:
+
+- no `hotel_ld_application` role;
+- no `hotel_ld_migration_owner` role;
+- no `hotel_ld_auth_service` role or `app_auth` schema/tables;
+- no canonical constrained entrypoints from the final manifest.
+
+The canonical application also deliberately rejects `ep-wild-wave-azjmgdif` and `br-twilight-leaf-azmowo1k` as historical targets. Consequently, the existing Production branch cannot be placed in `DATABASE_URL` or `AUTH_DATABASE_URL`. The safe target is a separately reviewed child branch cloned from this data origin, followed by a non-destructive schema/role/auth adoption rehearsal. That is not a second data migration: the branch copy preserves the already migrated rows. It is nevertheless a T4 Production cutover prerequisite and requires a separate approved ExecPlan before any SQL or Production configuration write.
+
+The clean canonical validation project `withered-bar-40598816` is explicitly staging-only and must not receive Production traffic. Preview credentials remain ineligible for Production.
+
 ## Vercel topology
 
 - Project: `hotel-ld-os` (`prj_LWWqjlOsHToxi7cVemxm6xKtw9m1`)
 - Configured Production branch: `main`
 - Aliased READY Production: deployment `dpl_HwvZr71WiqvVub7p5GsYeKWm5tCE`, commit `19ffae5ecca9c0a7da97ce6a28448d84746c6ad4`
 - Production aliases include `hotel-ld-os.vercel.app` and `ktsz.ldchub.cn`.
-- Latest relevant READY Preview: deployment `dpl_HQ2EFEQqaNVMn86BspWH8TCzEfXk`, commit `dff5d20255d29863d591dd1735100a957fd9f584`, branch `codex/canonical-neon-baseline`.
+- Latest relevant READY Preview at continuation start: commit `3cf53a693c0a57438f72bf1ecbf3beb930ba0b7c`, branch `codex/supabase-runtime-zero`. It is ahead of the aliased Production deployment but does not establish Production credential suitability.
 - The project metadata also records a newer errored Production attempt from stale `main`; it did not replace the READY aliases.
 
 `CURRENT`: Production is not running the canonical Neon/Better Auth implementation. Preview is ahead of Production.
 
 `TARGET`: after Production-scoped credentials are supplied and verified, deploy/promote an immutable artifact matching the reviewed canonical descendant, verify aliases and runtime, then update the Production source branch without rewriting history.
 
-`UNKNOWN`: correct Production-scoped values for the five missing required names. Their values were not available from an authorized Production source.
+`UNKNOWN`: approved credentials for a canonical populated Production child branch, an approved Better Auth bootstrap identity/credential, and a Production-attached Blob store/token. Their values were not available from an authorized Production source.
 
 No Production mutation was made because it would either deploy an artifact guaranteed to fail its environment guard or reuse Preview-scoped secrets without evidence of correct Production scope.
 
@@ -120,11 +135,13 @@ No Production mutation was made because it would either deploy an artifact guara
 - Focused Better Auth/auth-split tests: PASS (31/31).
 - Runtime final-cutover source tests: PASS (4/4); all business domains resolve to Neon, no Supabase business client, no browser Neon credential.
 - Configured `npm test`: PASS (188/188), including its embedded standard build and rendered-HTML test.
-- Exact Vercel-format build (`NITRO_PRESET=vercel npx vite build`): PASS.
+- Broad historical `node --test scripts/neon/*.test.mjs`: PASS (276/276) after replacing two obsolete Supabase implementation assertions with equivalent Better Auth/Neon and Neon/Blob boundary coverage, correcting the Better Auth catalog split, and adding exact auth-service membership validation.
+- Focused auth/import/Blob validation: PASS (86/86).
+- Typecheck: PASS through the new worktree-local `npm run typecheck` contract.
+- Lint: PASS with zero errors and 88 non-blocking warnings. The 14 prior errors were repaired without disabling rules.
+- Exact Vercel Output v3 build: PASS; `.vercel/output/config.json` reports version 3.
 - Generated `.vercel/output` scan for Supabase markers/endpoints/imports: PASS (zero hits).
 - `git diff --check`: PASS.
-- Lint: FAIL on the unchanged canonical baseline (14 errors, 89 warnings), including pre-existing explicit-`any` and validator naming violations outside this repair.
-- Broad historical `node --test scripts/neon/*.test.mjs`: FAIL because out-of-config legacy tests still expect Supabase session/RPC behavior and stale catalog counts. The configured suite and current canonical validators pass; the historical fixtures were not rewritten to conceal the mismatch.
 - Requested `scripts/neon/validate-supabase-exit.mjs live`: NOT AVAILABLE in active source. Only an archived historical operator copy exists and was not treated as a live validator.
 
 ## Runtime smoke and logs
@@ -138,6 +155,7 @@ No Production mutation was made because it would either deploy an artifact guara
 ## Remaining blockers
 
 1. Production aliases still point to source containing active Supabase runtime paths.
-2. Production lacks the required Neon, Better Auth, and Blob environment variables, and no verified Production-scoped values were available.
-3. Required lint is red on the canonical baseline.
-4. Authenticated Production smoke and live Neon/Better Auth validation cannot run until a canonical Production deployment and disposable identity authority exist.
+2. The migrated Production Neon branch is an explicitly denied historical runtime target and lacks the canonical application/auth roles, `app_auth`, and canonical constrained entrypoints.
+3. Production lacks the required Neon, Better Auth, and Blob environment variables; no approved Production child-branch credentials, Better Auth bootstrap credential, or Production Blob token is available.
+4. The repository's existing canonical installer is an empty-baseline installer and must not be run against the populated Production data branch. A separate populated-branch adoption plan and rehearsal are required.
+5. Authenticated Production smoke and live Neon/Better Auth/Blob validation cannot run until that adoption is approved, rehearsed, configured, and deployed.
