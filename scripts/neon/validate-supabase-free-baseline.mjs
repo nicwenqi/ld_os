@@ -42,6 +42,15 @@ function isSource(path) {
   return [...SOURCE_EXTENSIONS].some(extension => path.endsWith(extension));
 }
 
+function isProductionCapableScript(path) {
+  const normalized = path.replaceAll("\\", "/");
+  const name = normalized.split("/").at(-1) ?? "";
+  return isSource(path)
+    && !normalized.includes("/fixtures/")
+    && !name.includes(".test.")
+    && !name.startsWith("validate-");
+}
+
 function hasActiveSupabaseImport(source) {
   return /(?:from\s*["'][^"']*(?:supabase|Supabase)[^"']*["']|require\(\s*["'][^"']*(?:supabase|Supabase)[^"']*["']\s*\)|import\(\s*["'][^"']*(?:supabase|Supabase)[^"']*["']\s*\))/u.test(source);
 }
@@ -92,6 +101,27 @@ export async function validateSupabaseFreeBaseline({ root = DEFAULT_ROOT } = {})
 
   const runtimeFiles = (await filesUnder(join(root, "app"))).filter(isSource);
   for (const path of runtimeFiles) {
+    const source = await readFile(path, "utf8");
+    const file = relative(root, path);
+    if (hasDeletedProjectReference(source)) {
+      throw baselineError("SUPABASE_FREE_DELETED_PROJECT_DRIFT", file);
+    }
+    if (/\b(?:NEXT_PUBLIC_)?SUPABASE_[A-Z0-9_]*\b/u.test(source)) {
+      throw baselineError("SUPABASE_FREE_ENV_DRIFT", file);
+    }
+    if (hasActiveSupabaseImport(source)) {
+      throw baselineError("SUPABASE_FREE_RUNTIME_IMPORT", file);
+    }
+    if (hasSupabaseClientCall(source)) {
+      throw baselineError("SUPABASE_FREE_RUNTIME_CLIENT_DRIFT", file);
+    }
+    if (hasSupabaseFallback(source)) {
+      throw baselineError("SUPABASE_FREE_FALLBACK_DRIFT", file);
+    }
+  }
+
+  const productionScripts = (await filesUnder(join(root, "scripts"))).filter(isProductionCapableScript);
+  for (const path of productionScripts) {
     const source = await readFile(path, "utf8");
     const file = relative(root, path);
     if (hasDeletedProjectReference(source)) {

@@ -56,6 +56,7 @@ test("Supabase-free gate rejects package, environment, active client, RPC, fallb
     ["optional rpc", { "app/runtime.ts": "client?.rpc('legacy_operation');\n" }, "SUPABASE_FREE_RUNTIME_CLIENT_DRIFT"],
     ["fallback", { "app/runtime.ts": "export const dataMode = 'supabase';\n" }, "SUPABASE_FREE_FALLBACK_DRIFT"],
     ["project", { "app/runtime.ts": "export const endpoint = 'gaikifwwyaetjlnepuwh.supabase.co';\n" }, "SUPABASE_FREE_DELETED_PROJECT_DRIFT"],
+    ["production script import", { "scripts/deploy-runtime.mjs": "import { createClient } from '@supabase/supabase-js';\n" }, "SUPABASE_FREE_RUNTIME_IMPORT"],
     ["legacy config", { "supabase/config.toml": "project_id = 'legacy'\n" }, "SUPABASE_FREE_LEGACY_CONFIG_DRIFT"],
   ];
 
