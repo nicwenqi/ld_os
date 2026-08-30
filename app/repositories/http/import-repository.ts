@@ -64,7 +64,7 @@ export function createHttpImportRepository(): ImportRepository {
       const label = workflow.sourceLabels.items.find(item => item.resolutionType === type && item.sourceLabel === sourceValue);
       if (!label || typeof label.sourceLabelId !== "string") throw new Error("来源标签不存在或当前无权访问");
       const action = sourceDecision(decision, type);
-      const body = { expectedDecisionVersion: expectedVersion, decisions: [{ sourceLabelId: label.sourceLabelId, action, ...(type === "department" && action === "department" ? { targetDepartmentId: targetId } : {}), ...(type === "department" && action === "operational_unit" ? { targetOperationalUnitId: targetId } : {}), ...(type === "position" && action === "position" ? { targetPositionId: targetId } : {}), ...(type === "position" && action === "family" ? { targetPositionFamilyId: targetId } : {}) }] };
+      const body = { expectedDecisionVersion: expectedVersion, decisions: [{ sourceLabelId: label.sourceLabelId, action, ...(type === "department" && action === "department" ? { targetDepartmentId: targetId } : {}), ...(type === "position" && action === "position" ? { targetPositionId: targetId } : {}) }] };
       return mutation(await postLabels(batchId, body));
     },
     async validateBatch(batchId) {
@@ -155,6 +155,6 @@ async function postMapping(batchId: string, body: unknown) { return request<Mapp
 async function postLabels(batchId: string, body: unknown) { return request<MappingWorkflow>(`/api/import/batches/${encodeURIComponent(batchId)}/labels`, json("POST", body)); }
 async function postIssues(batchId: string, body: unknown) { return request<MappingWorkflow>(`/api/import/batches/${encodeURIComponent(batchId)}/issues`, json("POST", body)); }
 function emptySummary() { return { inserted: 0, updated: 0, unchanged: 0, excluded: 0, blocked: 0, unresolved: 0 }; }
-function unsupported(name: string, message: string): (...args: any[]) => Promise<never> { return async () => { throw new Error(`E5E_IMPORT_${name.toUpperCase()}_UNAVAILABLE:${message}`); }; }
+function unsupported(name: string, message: string): (...args: unknown[]) => Promise<never> { return async () => { throw new Error(`E5E_IMPORT_${name.toUpperCase()}_UNAVAILABLE:${message}`); }; }
 function json(method: "POST", body: unknown): RequestInit { return { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }; }
 async function request<T>(url: string, init?: RequestInit): Promise<T> { const response = await fetch(url, { ...init, credentials: "same-origin", cache: "no-store" }); const payload = await response.json() as T & { message?: string }; if (!response.ok) throw new Error(payload.message ?? "Import Neon 服务暂时不可用"); return payload; }

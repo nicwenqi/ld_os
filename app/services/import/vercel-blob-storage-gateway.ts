@@ -21,7 +21,14 @@ export function createVercelBlobImportStorageGateway(
   options: VercelBlobGatewayOptions = {},
 ): ImportStorageGateway {
   const token = requireBlobToken(options.token);
-  const blob: BlobOperations = options.blob ?? { put, get, del };
+  const blob: BlobOperations = options.blob ?? {
+    put: (pathname, body, putOptions) => put(pathname, Buffer.from(body), putOptions),
+    get: async (pathname, getOptions) => {
+      const result = await get(pathname, getOptions);
+      return result?.stream ? { stream: result.stream } : null;
+    },
+    del: (pathname, deleteOptions) => del(pathname, deleteOptions),
+  };
   return {
     async upload(bucket, objectPath, body, contentType) {
       assertImportObjectReference(bucket, objectPath);

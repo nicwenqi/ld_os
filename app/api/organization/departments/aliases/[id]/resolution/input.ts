@@ -79,8 +79,7 @@ function departmentDraft(value: unknown): CreateDepartmentFromAliasDraft {
   const draft = record(value, "新建部门资料格式无效");
   exactKeys(draft, ["parentId", "nodeType", "code", "nameZh", "nameEn", "sortOrder"]);
   try {
-    const parsed = parseCreateDepartmentInput({
-      ...draft,
+    const parsed = parseCreateDepartmentInput(draft, {
       tenantId: VALIDATION_SCOPE_ID,
       propertyId: VALIDATION_SCOPE_ID,
     });

@@ -84,7 +84,7 @@ function revertPreview(value: unknown, field: string): ImportRevertPreview {
   };
 }
 
-function record(value: unknown, field: string): Record<string, any> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`NEON_IMPORT_COMMIT_PAYLOAD_INVALID:${field}`); return value as Record<string, any>; }
+function record(value: unknown, field: string): Record<string, unknown> { if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`NEON_IMPORT_COMMIT_PAYLOAD_INVALID:${field}`); return value as Record<string, unknown>; }
 function text(value: unknown, field: string, max: number): string { if (typeof value !== "string" || value.length === 0 || value.length > max) throw new Error(`NEON_IMPORT_COMMIT_PAYLOAD_INVALID:${field}`); return value; }
 function uuid(value: unknown, field: string): string { const result = text(value, field, 100); if (!UUID.test(result)) throw new Error(`NEON_IMPORT_COMMIT_PAYLOAD_INVALID:${field}`); return result; }
 function hash(value: unknown, field: string): string { const result = text(value, field, 100); if (!HASH.test(result)) throw new Error(`NEON_IMPORT_COMMIT_PAYLOAD_INVALID:${field}`); return result; }

@@ -15,7 +15,7 @@ export async function POST(request:Request){
   try{
     if(environment.appEnv==="local"&&environment.dataMode==="mock"){
       const session=await authenticateSyntheticAccount({loginId,password,hostname,appEnv:environment.appEnv,dataMode:environment.dataMode});
-      const token=createMockSession(session);return success(session,token,null,false);
+      const token=createMockSession(session);return success(session,authCookies(token,null,false));
     }
     const resolved=await resolveAccountForLogin({request,loginId,password,hostname,requestId:request.headers.get("x-request-id")??crypto.randomUUID()});
     return success(resolved.session,resolved.refreshedCookies??[]);

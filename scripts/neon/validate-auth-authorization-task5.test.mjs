@@ -46,12 +46,14 @@ test("server authorization repository uses only the two constrained Neon entrypo
   assert.doesNotMatch(repository, /\.from\s*\(|\.rpc\s*\(|createServerActorClient|createClient\s*\(/);
 });
 
-test("request authorization refresh re-resolves Neon authority without business Supabase reads", async () => {
+test("request authentication resolves Better Auth identity and re-resolves Neon authority", async () => {
   const requestAuthentication = await source("app/services/request-authentication.ts");
-  assert.match(requestAuthentication, /refreshSession\s*\(/);
-  assert.match(requestAuthentication, /resolveSessionWith\s*\(/);
+  assert.match(requestAuthentication, /resolveBetterAuthIdentity\(request\)/);
   assert.match(requestAuthentication, /resolveNeonAuthorizationForAuthUser\s*\(/);
-  assert.doesNotMatch(requestAuthentication, /\.from\s*\(|\.rpc\s*\(/);
+  assert.match(requestAuthentication, /isApprovedBackendSession\s*\(/);
+  assert.match(requestAuthentication, /mustChangePassword/);
+  assert.match(requestAuthentication, /refreshedCookies/);
+  assert.doesNotMatch(requestAuthentication, /refreshSession\s*\(|\.from\s*\(|\.rpc\s*\(|supabase/i);
 });
 
 test("catalog and runtime validators cover authorization identity, scope, isolation, and raw denial", async () => {

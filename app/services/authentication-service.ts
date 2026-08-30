@@ -79,7 +79,7 @@ export type LoginResolutionDependencies = Readonly<{
   signIn: (input: { request: Request; loginId: string; password: string; hostname: string }) => Promise<{ userId: string; refreshedCookies: string[] } | null>;
 }>;
 
-export type LoginResolution = (input: { loginId: string; password: string; hostname: string }) => Promise<ResolvedAccount>;
+export type LoginResolution = (input: { request: Request; loginId: string; password: string; hostname: string; requestId?: string }) => Promise<ResolvedAccount>;
 
 export function createLoginResolutionDependencies(): LoginResolution {
   return resolveAccountForLogin;

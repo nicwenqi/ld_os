@@ -2,14 +2,20 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
-import { Pool } from "pg";
+import { Pool, type PoolConfig } from "pg";
 
 let authPool: Pool | null = null;
-let configuredAuth: ReturnType<typeof betterAuth> | null = null;
+let configuredAuth: ReturnType<typeof createBetterAuth> | null = null;
 
 export function getBetterAuth() {
-  if (!configuredAuth) {
-    configuredAuth = betterAuth({
+  if (configuredAuth) return configuredAuth;
+  const auth = createBetterAuth();
+  configuredAuth = auth;
+  return auth;
+}
+
+function createBetterAuth() {
+  return betterAuth({
       appName: "Hotel L&D OS",
       database: createAuthPool(),
       secret: requiredEnvironment("BETTER_AUTH_SECRET"),
@@ -65,22 +71,21 @@ export function getBetterAuth() {
           updatedAt: "updated_at",
         },
       },
-    });
-  }
-  return configuredAuth;
+  });
 }
 
 export function createAuthPool() {
   if (!authPool) {
     const connectionString = requiredEnvironment("AUTH_DATABASE_URL");
     assertAuthConnection(connectionString);
-    authPool = new Pool({
+    const config: PoolConfig & { enableChannelBinding: boolean } = {
       connectionString,
       ssl: { rejectUnauthorized: true },
       enableChannelBinding: true,
       max: 5,
       connectionTimeoutMillis: 5_000,
-    });
+    };
+    authPool = new Pool(config);
   }
   return authPool;
 }

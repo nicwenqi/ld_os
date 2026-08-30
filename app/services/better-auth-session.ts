@@ -27,7 +27,7 @@ export async function signInWithBetterAuth(input: {
   }));
   if (!response.ok) return null;
   const payload = await safeJson(response);
-  const userId = uuidSubject(payload?.user?.id);
+  const userId = userIdFromPayload(payload);
   return userId ? { userId, refreshedCookies: responseCookies(response.headers) } : null;
 }
 
@@ -42,7 +42,7 @@ export async function resolveBetterAuthIdentityWith(input: {
   const response = await input.handler(sameOriginRequest(input.request, "/api/auth/get-session", { method: "GET" }));
   if (!response.ok) return null;
   const payload = await safeJson(response);
-  const userId = uuidSubject(payload?.user?.id);
+  const userId = userIdFromPayload(payload);
   return userId ? { userId, refreshedCookies: responseCookies(response.headers) } : null;
 }
 
@@ -58,12 +58,21 @@ function sameOriginRequest(source: Request, path: string, init: RequestInit) {
   return new Request(new URL(path, source.url), { ...init, headers });
 }
 
-async function safeJson(response: Response): Promise<any> {
+async function safeJson(response: Response): Promise<unknown> {
   try {
     return await response.json();
   } catch {
     return null;
   }
+}
+
+function userIdFromPayload(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.user)) return null;
+  return uuidSubject(value.user.id);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function uuidSubject(value: unknown) {

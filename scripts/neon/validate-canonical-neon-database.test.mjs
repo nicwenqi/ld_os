@@ -58,9 +58,9 @@ const emptyRow = {
 };
 
 const catalogRow = {
-  schema_count: 2,
+  schema_count: 3,
   type_count: 9,
-  table_count: 36,
+  table_count: 40,
   routine_count: 103,
   entrypoint_count: 37,
   policy_count: 36,
@@ -71,9 +71,13 @@ const catalogRow = {
   roles_exact: true,
   runtime_role_restricted: true,
   migration_role_restricted: true,
+  auth_service_restricted: true,
+  auth_service_membership_exact: true,
   runtime_memberships_empty: true,
   runtime_owns_nothing: true,
   migration_owner_owns_all: true,
+  auth_service_owns_auth: true,
+  auth_service_business_schemas_denied: true,
   schemas_exact: true,
   types_exact: true,
   tables_exact: true,
@@ -134,7 +138,7 @@ function bootstrapHandler(text, values) {
   if (text.includes("canonical_empty_state")) return { rows: [emptyRow] };
   if (text.includes("canonical_catalog_matrix")) {
     const exactInventory = Array.isArray(values)
-      && [2, 9, 36, 103, 37, 36, 18, 13].every((length, index) => values[index]?.length === length)
+      && [3, 9, 40, 103, 37, 36, 18, 13].every((length, index) => values[index]?.length === length)
       && text.includes("namespace.nspname::text")
       && text.includes("pg_catalog.oidvectortypes(routine.proargtypes)");
     return { rows: [{ ...catalogRow, tables_exact: exactInventory }] };
@@ -365,6 +369,16 @@ test("catalog binds every policy and trigger security descriptor, not names alon
   assert.equal(catalogQuery.values[6].every((descriptor) => descriptor.split("|").length === 7), true);
 });
 
+test("catalog inventories Better Auth tables while keeping business RLS and ownership boundaries separate", async () => {
+  const source = await readFile(validatorPath, "utf8");
+
+  assert.match(source, /namespace\.nspname in \('public','app_private','app_auth'\).*?relation\.relkind in \('r','p'\)/s);
+  assert.match(source, /pg_catalog\.unnest\(expected\.tables\).*?item\.value not like 'app_auth\.%'/s);
+  assert.match(source, /pg_catalog\.unnest\(expected\.schemas\).*?item\.value <> 'app_auth'/s);
+  assert.match(source, /has_schema_privilege\('hotel_ld_application','app_auth','USAGE'\)/);
+  assert.match(source, /rolname in \('hotel_ld_application','hotel_ld_migration_owner','hotel_ld_auth_service'\)/);
+});
+
 test("policy catalog mapping query returns exact raw pg_get_expr descriptors without qualified special forms", () => {
   assert.match(POLICY_CATALOG_DESCRIPTOR_SQL, /canonical_policy_catalog_descriptors/);
   assert.match(POLICY_CATALOG_DESCRIPTOR_SQL, /pg_get_expr\(policy\.polqual,policy\.polrelid\)/);
@@ -434,26 +448,26 @@ test("entrypoint smoke supplies scoped fixtures for every exact signature", asyn
 });
 
 test("entrypoint smoke selects the authorized actor kind for every exact signature", async () => {
-  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const baseline = await import("./validate-canonical-neon-baseline.mjs");
   const manifest = JSON.parse(await readFile(new URL("../../neon/canonical/manifest.json", import.meta.url), "utf8"));
   const departmentSignature = "public.read_neon_people_department_directory(text,text,integer,integer)";
 
-  assert.equal(typeof module.runtimeSmokeActorKind, "function");
+  assert.equal(typeof baseline.runtimeSmokeActorKind, "function");
   for (const signature of manifest.entrypointSignatures) {
     assert.equal(
-      module.runtimeSmokeActorKind(manifest, signature),
+      baseline.runtimeSmokeActorKind(manifest, signature),
       signature === departmentSignature ? "admin" : "manager",
       signature,
     );
   }
   assert.throws(
-    () => module.runtimeSmokeActorKind(manifest, "public.not_declared(text)"),
+    () => baseline.runtimeSmokeActorKind(manifest, "public.not_declared(text)"),
     (error) => error?.code === "CANONICAL_NEON_ENTRYPOINT_SIGNATURE_DRIFT",
   );
 });
 
 test("entrypoint smoke executes every signature with its selected authorized actor", async () => {
-  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const baseline = await import("./validate-canonical-neon-baseline.mjs");
   const manifest = JSON.parse(await readFile(new URL("../../neon/canonical/manifest.json", import.meta.url), "utf8"));
   const seed = Object.fromEntries([
     "tenantA", "propertyA", "rootDepartment", "childDepartment", "operationalUnit",
@@ -463,8 +477,8 @@ test("entrypoint smoke executes every signature with its selected authorized act
   seed.hostnameA = "fixture.validation.invalid";
   const actors = [];
 
-  assert.equal(typeof module.smokeAllEntrypoints, "function");
-  await module.smokeAllEntrypoints(
+  assert.equal(typeof baseline.smokeAllEntrypoints, "function");
+  await baseline.smokeAllEntrypoints(
     async (input, action) => {
       actors.push(input.authUserId);
       return action({ query: async () => ({ rows: [] }) });
@@ -505,6 +519,28 @@ test("catalog fails closed when the migration owner gains login, inheritance, by
     }),
     (error) => error?.code === "CANONICAL_NEON_CATALOG_DRIFT"
       && error.message.includes("migration_role_restricted"),
+  );
+});
+
+test("catalog fails closed when the Better Auth service gains an unexpected role membership edge", async () => {
+  const pool = fakePool((text) => {
+    if (text.includes("canonical_target_identity")) return { rows: [identityRow()] };
+    if (text.includes("canonical_catalog_matrix")) {
+      return { rows: [{ ...catalogRow, auth_service_membership_exact: false }] };
+    }
+    return { rows: [] };
+  });
+
+  await assert.rejects(
+    validateCanonicalNeon({
+      mode: "catalog",
+      root: fixtureRoot,
+      target: EXPECTED_NEON_TARGET,
+      bootstrapConnectionString: bootstrapUrl,
+      dependencies: dependenciesFor(pool),
+    }),
+    (error) => error?.code === "CANONICAL_NEON_CATALOG_DRIFT"
+      && error.message.includes("auth_service_membership_exact"),
   );
 });
 
@@ -629,11 +665,11 @@ test("real runtime matrix proves pooled-client cleanup and denies every raw tabl
 });
 
 test("runtime stage failures expose only a stable stage, code, and safe canonical message", async () => {
-  const module = await import("./validate-canonical-neon-baseline.mjs");
-  assert.equal(typeof module.runCanonicalRuntimeStage, "function");
+  const baseline = await import("./validate-canonical-neon-baseline.mjs");
+  assert.equal(typeof baseline.runCanonicalRuntimeStage, "function");
 
   await assert.rejects(
-    module.runCanonicalRuntimeStage("seed-create", async () => {
+    baseline.runCanonicalRuntimeStage("seed-create", async () => {
       const error = new Error("ACTOR_CONTEXT_REQUIRED");
       error.code = "42501";
       throw error;
@@ -642,7 +678,7 @@ test("runtime stage failures expose only a stable stage, code, and safe canonica
       && error.message === "seed-create:42501:ACTOR_CONTEXT_REQUIRED",
   );
   await assert.rejects(
-    module.runCanonicalRuntimeStage("manager-reads", async () => {
+    baseline.runCanonicalRuntimeStage("manager-reads", async () => {
       throw new Error("unsafe detail with credential material");
     }),
     (error) => error?.message === "manager-reads:ERROR:REDACTED_RUNTIME_ERROR",
@@ -650,13 +686,13 @@ test("runtime stage failures expose only a stable stage, code, and safe canonica
 });
 
 test("runtime business denial matching requires the exact SQLSTATE and message", async () => {
-  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const baseline = await import("./validate-canonical-neon-baseline.mjs");
   const denial = Object.assign(new Error("NEON_ORGANIZATION_ALIAS_DENIED"), { code: "42501" });
 
-  assert.equal(typeof module.expectRuntimeRejection, "function");
-  await assert.doesNotReject(() => module.expectRuntimeRejection(async () => { throw denial; }, "42501", "NEON_ORGANIZATION_ALIAS_DENIED"));
+  assert.equal(typeof baseline.expectRuntimeRejection, "function");
+  await assert.doesNotReject(() => baseline.expectRuntimeRejection(async () => { throw denial; }, "42501", "NEON_ORGANIZATION_ALIAS_DENIED"));
   await assert.rejects(
-    () => module.expectRuntimeRejection(async () => { throw denial; }, "42501", "NEON_ORGANIZATION_MANAGER_REQUIRED"),
+    () => baseline.expectRuntimeRejection(async () => { throw denial; }, "42501", "NEON_ORGANIZATION_MANAGER_REQUIRED"),
     (error) => error === denial,
   );
 });
@@ -704,9 +740,9 @@ test("bootstrap seed and cleanup bind synthetic actor settings locally before fo
 });
 
 test("manager runtime reads are generated from exact manifest signatures with every nullable argument typed", async () => {
-  const module = await import("./validate-canonical-neon-baseline.mjs");
+  const baseline = await import("./validate-canonical-neon-baseline.mjs");
   const manifest = JSON.parse(await readFile(new URL("../../neon/canonical/manifest.json", import.meta.url), "utf8"));
-  assert.equal(typeof module.runtimeEntrypointQuery, "function");
+  assert.equal(typeof baseline.runtimeEntrypointQuery, "function");
 
   const fixtures = [
     {
@@ -717,7 +753,7 @@ test("manager runtime reads are generated from exact manifest signatures with ev
     { signature: "public.read_neon_positions(text)", values: ["fixture.invalid"] },
   ];
   for (const fixture of fixtures) {
-    const query = module.runtimeEntrypointQuery(manifest, fixture.signature, fixture.values);
+    const query = baseline.runtimeEntrypointQuery(manifest, fixture.signature, fixture.values);
     const types = fixture.signature.slice(fixture.signature.indexOf("(") + 1, -1).split(",");
     assert.deepEqual(query.values, fixture.values);
     assert.equal(
@@ -726,7 +762,7 @@ test("manager runtime reads are generated from exact manifest signatures with ev
     );
   }
   assert.throws(
-    () => module.runtimeEntrypointQuery(manifest, "public.read_neon_positions(text)", []),
+    () => baseline.runtimeEntrypointQuery(manifest, "public.read_neon_positions(text)", []),
     (error) => error?.code === "CANONICAL_NEON_ENTRYPOINT_ARGUMENT_DRIFT",
   );
 });

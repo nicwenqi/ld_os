@@ -274,7 +274,7 @@ function EmployeeDataUpdateContent({ registry }: { registry: RuntimeDomainRegist
       const decisions = workflow.fieldMappings.map(mapping => fieldDecisions[mapping.id] ?? ({
         mappingId: mapping.id,
         mappingStatus: mapping.mappingStatus === "excluded" ? "excluded" : "confirmed",
-        targetField: mapping.targetField,
+        targetField: mapping.targetField ?? undefined,
         transformationRule: mapping.transformationRule,
       } satisfies ImportFieldMappingDecision));
       const next = await importService.confirmFieldMappings(workflow.batch.id, workflow.batch.version, decisions);
@@ -585,7 +585,7 @@ function fieldDecisionsFrom(workflow: EmployeeUpdateWorkflow): FieldDecisionStat
   return Object.fromEntries(workflow.fieldMappings.map(mapping => [mapping.id, {
     mappingId: mapping.id,
     mappingStatus: mapping.mappingStatus === "excluded" ? "excluded" : "confirmed",
-    targetField: mapping.targetField,
+    targetField: mapping.targetField ?? undefined,
     transformationRule: mapping.transformationRule,
   }]));
 }

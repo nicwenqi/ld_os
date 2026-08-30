@@ -52,13 +52,16 @@ function mapAuthorizationFacts(value: unknown): NeonAuthorizationFacts {
     && typeof session.propertyId === "string"
     && role !== "unauthorized";
   if (!authenticated) return unauthorizedFacts();
+  const userId = session.userId;
+  const propertyId = session.propertyId;
+  if (typeof userId !== "string" || typeof propertyId !== "string") return unauthorizedFacts();
   return {
     tenantId: typeof value.tenantId === "string" ? value.tenantId : null,
     session: {
       authenticated: true,
-      userId: session.userId,
+      userId,
       displayName: nullableString(session.displayName),
-      propertyId: session.propertyId,
+      propertyId,
       propertyNameZh: nullableString(session.propertyNameZh),
       propertyNameEn: nullableString(session.propertyNameEn),
       propertyLogoUrl: nullableString(session.propertyLogoUrl),

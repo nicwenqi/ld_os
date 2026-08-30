@@ -220,9 +220,9 @@ function mapIssue(value: unknown, field: string): ImportIssueWorkflowItem {
   };
 }
 
-function exactRecord(value: unknown, keys: readonly string[], field: string): Record<string, any> {
+function exactRecord(value: unknown, keys: readonly string[], field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) invalid(field);
-  const row = value as Record<string, any>;
+  const row = value as Record<string, unknown>;
   if (keys.length && Object.keys(row).some(key => !keys.includes(key))) invalid(field);
   return row;
 }

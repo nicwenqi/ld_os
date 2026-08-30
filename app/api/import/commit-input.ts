@@ -22,7 +22,7 @@ export function parseRevertInput(value: unknown, batchId: string) {
 
 function exact(value: unknown, keys: readonly string[]) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new ImportCommitInputError("请求体无效");
-  const row = value as Record<string, any>;
+  const row = value as Record<string, unknown>;
   if (Object.keys(row).some(key => !keys.includes(key))) throw new ImportCommitInputError("请求体包含未批准字段");
   return row;
 }

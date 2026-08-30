@@ -31,7 +31,7 @@ import type {
 
 type PayloadRow = { payload: unknown };
 type TrustedImportScope = { tenantId: string; propertyId: string };
-type JsonRecord = Record<string, JsonValue>;
+interface JsonRecord { [key: string]: JsonValue }
 type JsonValue = string | number | boolean | null | JsonRecord | JsonValue[];
 type PreparedCollection = { chunks: readonly string[]; records: readonly JsonRecord[] };
 
@@ -478,8 +478,8 @@ function postgresJsonbByteUpperBound(value: JsonValue): number {
 
 function jsonNodeCount(value: JsonValue): number {
   if (value === null || typeof value !== "object") return 1;
-  if (Array.isArray(value)) return 1 + value.reduce((total, child) => total + jsonNodeCount(child), 0);
-  return 1 + Object.values(value).reduce((total, child) => total + jsonNodeCount(child), 0);
+  if (Array.isArray(value)) return 1 + value.reduce<number>((total, child) => total + jsonNodeCount(child), 0);
+  return 1 + Object.values(value).reduce<number>((total, child) => total + jsonNodeCount(child), 0);
 }
 
 function sourceRowFingerprint(rawValues: readonly JsonRecord[]): string {

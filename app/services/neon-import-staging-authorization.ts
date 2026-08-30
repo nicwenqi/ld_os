@@ -154,16 +154,14 @@ async function resolveTrustedImportScope(
   hostname: string,
   requestId: string,
 ) {
-  let scope: { tenantId: string; propertyId: string } | null = null;
-  await withNeonResolvedActorContext(
+  const scope = await withNeonResolvedActorContext(
     { authUserId, requestId },
     async database => {
       const property = await resolveNeonPropertyScope(hostname, database);
       if (!property) throw new ImportStagingApiError(403, "当前账号无权访问此酒店");
-      scope = property;
       return property.propertyId;
     },
-    async () => undefined,
+    async database => resolveNeonPropertyScope(hostname, database),
   );
   if (!scope) throw new ImportStagingApiError(403, "当前账号无权访问此酒店");
   return scope;

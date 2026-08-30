@@ -125,7 +125,7 @@ function validateDeclaredEvidence(input: {
 
   const extension = workbookExtension(input.sanitizedFilename);
   if (!extension) fail("DECLARED_FILENAME_INVALID");
-  if (!Object.values(CONTENT_TYPES).includes(input.declaredMimeType)) fail("DECLARED_MIME_INVALID");
+  if (!isWorkbookMimeType(input.declaredMimeType)) fail("DECLARED_MIME_INVALID");
 
   return {
     checksumSha256: input.declaredChecksumSha256,
@@ -133,6 +133,10 @@ function validateDeclaredEvidence(input: {
     mimeType: input.declaredMimeType,
     extension,
   } as const;
+}
+
+function isWorkbookMimeType(value: string): value is (typeof CONTENT_TYPES)[WorkbookExtension] {
+  return Object.values(CONTENT_TYPES).some(contentType => contentType === value);
 }
 
 async function downloadReadBackBytes(

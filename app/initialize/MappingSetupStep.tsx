@@ -62,7 +62,13 @@ function slug(value:string){return value.trim().toLowerCase().replace(/[^a-z0-9]
 
 function toItems(props:Pick<Props,"aliases"|"positionLabels"|"tree"|"positions"|"families">):MappingItem[]{
   const path=(id:string|null)=>{const node=props.tree.find(item=>item.id===id);return node?.pathIds.map(pathId=>props.tree.find(item=>item.id===pathId)?.nameZh).filter(Boolean).join(" / ")??null};
-  const departmentItems:MappingItem[]=props.aliases.map(item=>({id:item.id,type:"department",sourceLabel:item.sourceValue,affectedRows:item.syntheticEmployeeCount,sourceSheet:item.sourceSheet,suggestedTarget:item.suggestionLabel,confidence:item.confidence,suggestionReason:item.suggestionReason,targetLabel:path(item.targetDepartmentId),status:item.resolutionType==="deferred"?(item.suggestedTargetId?"pending":"blocked"):item.resolutionType,blocked:item.resolutionType==="deferred"&&!item.suggestedTargetId,batchEligible:Boolean(item.suggestedTargetId)&&!item.suggestionLabel.includes("运营单元")}));
+  const departmentItems:MappingItem[]=props.aliases.map(item=>({id:item.id,type:"department",sourceLabel:item.sourceValue,affectedRows:item.syntheticEmployeeCount,sourceSheet:item.sourceSheet,suggestedTarget:item.suggestionLabel,confidence:item.confidence,suggestionReason:item.suggestionReason,targetLabel:path(item.targetDepartmentId),status:departmentStatus(item.resolutionType,Boolean(item.suggestedTargetId)),blocked:item.resolutionType==="deferred"&&!item.suggestedTargetId,batchEligible:Boolean(item.suggestedTargetId)&&!item.suggestionLabel.includes("运营单元")}));
   const positionItems:MappingItem[]=props.positionLabels.map(item=>({id:item.id,type:"position",sourceLabel:item.sourceValue,affectedRows:item.syntheticEmployeeCount,sourceSheet:item.sourceSheet,suggestedTarget:props.positions.find(position=>position.id===item.suggestedPositionId)?.nameZh??props.families.find(family=>family.id===item.suggestedFamilyId)?.nameZh??null,confidence:item.confidence,suggestionReason:item.suggestionReason,targetLabel:props.positions.find(position=>position.id===item.targetPositionId)?.nameZh??props.families.find(family=>family.id===item.targetPositionFamilyId)?.nameZh??null,status:item.resolutionStatus==="deferred"?(item.suggestedPositionId||item.suggestedFamilyId?"pending":"blocked"):item.resolutionStatus,blocked:item.resolutionStatus==="deferred"&&!item.suggestedPositionId&&!item.suggestedFamilyId,batchEligible:Boolean(item.suggestedPositionId)}));
   return [...departmentItems,...positionItems];
+}
+
+function departmentStatus(status:DepartmentAlias["resolutionType"],hasSuggestion:boolean):MappingItemStatus{
+  if(status==="deferred")return hasSuggestion?"pending":"blocked";
+  if(status==="created_top_level"||status==="created_child")return "mapped";
+  return status;
 }

@@ -6,7 +6,7 @@ import {
   listMockAccounts,
   updateMockAccount,
 } from "./mock-store.ts";
-import { validateAccountDraft, type BackendAccountDraft } from "../../../services/account-administration.ts";
+import { validateAccountDraft, type BackendAccountDraft, type BackendAccountStatus } from "../../../services/account-administration.ts";
 
 /**
  * Real account provisioning is deliberately an acceptance/operator workflow:
@@ -61,7 +61,7 @@ async function draft(request: Request, requireTemporaryPassword: boolean, existi
     temporaryPassword: text(body.temporaryPassword),
     roleCode: text(body.roleCode),
     scopes: Array.isArray(body.scopes) ? body.scopes : [],
-    status: text(body.status) || undefined,
+    status: accountStatus(body.status),
   };
   validateAccountDraft(value, { requireTemporaryPassword });
   return value;
@@ -73,6 +73,10 @@ async function safeJson(request: Request) {
 }
 
 function text(value: unknown) { return typeof value === "string" ? value.trim() : ""; }
+
+function accountStatus(value: unknown): BackendAccountStatus | undefined {
+  return value === "active" || value === "suspended" || value === "disabled" ? value : undefined;
+}
 
 function response(value: unknown) {
   return Response.json(value, { headers: { "Cache-Control": "no-store, private" } });

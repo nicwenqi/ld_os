@@ -21,13 +21,13 @@ export type WizardStepState = {
   detail: string;
 };
 
-const definitions: readonly Omit<WizardStepState, "complete" | "blocked" | "warning" | "detail">[] = [
+const definitions = [
   { key: "identity", number: 1, label: "酒店信息与规则", english: "Hotel Information & Rules" },
   { key: "organization", number: 2, label: "正式部门", english: "Official Departments" },
   { key: "access", number: 3, label: "管理员账号", english: "Manager Account" },
   { key: "upload", number: 4, label: "员工资料准备", english: "Employee Data Readiness" },
   { key: "readiness", number: 5, label: "启用复核", english: "Activation Review" },
-];
+] as const satisfies readonly Omit<WizardStepState, "complete" | "blocked" | "warning" | "detail">[];
 
 export function deriveWizardState(facts: WizardFacts) {
   const identityComplete = Object.values(facts.identity).every(value => Boolean(String(value).trim()));

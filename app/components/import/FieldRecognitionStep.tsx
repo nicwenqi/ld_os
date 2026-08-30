@@ -58,7 +58,7 @@ export function FieldRecognitionStep({
               <label>
                 <span className="visually-hidden">目标字段</span>
                 <select
-                  value={decision.targetField ?? mapping.targetField}
+                  value={decision.targetField ?? mapping.targetField ?? ""}
                   disabled={decision.mappingStatus === "excluded"}
                   onChange={event => onDecision({ ...decision, targetField: event.target.value })}
                 >

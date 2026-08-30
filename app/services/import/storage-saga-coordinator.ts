@@ -4,6 +4,7 @@ import type {
   CreateImportUploadIntentInput,
   ImportStagingRepository,
   ImportStagingResult,
+  ImportSagaState,
   StageVerifiedWorkbookInput,
 } from "../../repositories/contracts/import-staging-repository.ts";
 import {
@@ -39,21 +40,25 @@ export function createStorageSagaCoordinator(dependencies: StorageSagaDependenci
   return {
     async uploadAndStage(input: StorageSagaUploadInput): Promise<ImportStagingResult> {
       const intent = await repository.createUploadIntent(input);
-      let state = intent;
+      const objectPath = intent.objectPath;
+      let version = intent.version;
+      let storageLifecycle: ImportSagaState["storageLifecycle"] = intent.storageLifecycle;
       let uploaded = false;
       let verificationStateRecorded = false;
       try {
         // Storage upload is outside the Neon repository operation.
-        await storage.upload("property-import-files", intent.objectPath, input.bytes, input.declaredMimeType);
+        await storage.upload("property-import-files", objectPath, input.bytes, input.declaredMimeType);
         uploaded = true;
 
-        state = await repository.recordObjectUploaded(input.batchId, state.version);
+        const uploadedState = await repository.recordObjectUploaded(input.batchId, version);
+        version = uploadedState.version;
+        storageLifecycle = uploadedState.storageLifecycle;
         // Read the persisted object once and keep that immutable server-side
         // snapshot for both verification and parser handoff. A second Storage
         // download here would introduce a TOCTOU window between verification
         // and staging.
         const readBackBytes = new Uint8Array(
-          await storage.download("property-import-files", intent.objectPath),
+          await storage.download("property-import-files", objectPath),
         );
         const reader: StorageObjectReader = {
           async download(bucket, objectPath) {
@@ -67,21 +72,23 @@ export function createStorageSagaCoordinator(dependencies: StorageSagaDependenci
         const verified = await verifyWorkbookStorageObject({
           reader,
           bucket: "property-import-files",
-          objectPath: intent.objectPath,
+          objectPath,
           sanitizedFilename: input.sanitizedFilename,
           declaredChecksumSha256: input.declaredChecksumSha256,
           declaredSizeBytes: input.declaredSizeBytes,
           declaredMimeType: input.declaredMimeType,
         });
-        state = await repository.recordObjectVerification({
+        const verifiedState = await repository.recordObjectVerification({
           batchId: input.batchId,
-          expectedVersion: state.version,
+          expectedVersion: version,
           verifiedChecksumSha256: verified.checksumSha256,
           verifiedSizeBytes: verified.sizeBytes,
           verifiedMimeType: verified.contentDerivedMimeType,
           status: "passed",
           failureReason: null,
         });
+        version = verifiedState.version;
+        storageLifecycle = verifiedState.storageLifecycle;
         verificationStateRecorded = true;
 
         // Parser input is the verified server-side snapshot, never the
@@ -89,29 +96,31 @@ export function createStorageSagaCoordinator(dependencies: StorageSagaDependenci
         const evidence = await input.prepareEvidence(readBackBytes, verified);
         return await repository.stageVerifiedWorkbook({
           batchId: input.batchId,
-          expectedVersion: state.version,
+          expectedVersion: version,
           evidence,
         });
       } catch (error) {
         if (uploaded) {
-          if (!verificationStateRecorded && state.storageLifecycle === "uploaded_unverified") {
+          if (!verificationStateRecorded && storageLifecycle === "uploaded_unverified") {
             try {
-              state = await repository.recordObjectVerification({
+              const failedState = await repository.recordObjectVerification({
                 batchId: input.batchId,
-                expectedVersion: state.version,
+                expectedVersion: version,
                 verifiedChecksumSha256: null,
                 verifiedSizeBytes: null,
                 verifiedMimeType: null,
                 status: "failed",
                 failureReason: safeReason(error),
               });
+              version = failedState.version;
+              storageLifecycle = failedState.storageLifecycle;
               verificationStateRecorded = true;
             } catch {
               // Preserve the original failure; cleanup pending remains the
               // durable compensation obligation when this write is unavailable.
             }
           }
-          await persistCleanupPending(repository, input.batchId, state.version, safeReason(error));
+          await persistCleanupPending(repository, input.batchId, version, safeReason(error));
           if (dependencies.cleanup) {
             try {
               await dependencies.cleanup(repository, storage, dependencies.requestId);

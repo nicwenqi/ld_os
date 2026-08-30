@@ -1,6 +1,7 @@
 import type { InitializationRepository, SaveWizardStepInput } from "../contracts/initialization-repository.ts";
+import type { WizardProgress } from "../../services/initialization-wizard-service.ts";
 const propertyId = "20000000-0000-0000-0000-000000000011";
-let state = { lastActiveStep: 1, steps: {}, version: 1, completedAt: null as string | null };
+let state: WizardProgress & { version: number; completedAt: string | null } = { lastActiveStep: 1, steps: {}, version: 1, completedAt: null };
 export function createMockInitializationRepository(): InitializationRepository { return {
   async getProgress(id) { if (browserAvailable()) return request(`?propertyId=${encodeURIComponent(id)}`); if (id !== propertyId) throw new Error("未找到当前酒店初始化资料"); return structuredClone(state); },
   async saveNavigation(id,lastActiveStep,expectedVersion) { if(browserAvailable())return request("",{propertyId:id,lastActiveStep,expectedVersion,action:"navigate"});if(id!==propertyId)throw new Error("无权修改其他酒店初始化资料");if(expectedVersion&&expectedVersion!==state.version)throw new Error("初始化进度已更新，请刷新后重试");state={...state,lastActiveStep,version:state.version+1};return structuredClone(state); },

@@ -35,7 +35,7 @@ test("E5B history routes are same-origin GET-only APIs with bounded input", asyn
   assert.doesNotMatch(input, /tenantId|propertyId|role|authUserId/);
 });
 
-test("E5B dark boundary preserves the legacy inspect RPC and keeps credentials server-side", async () => {
+test("E5B inspect route delegates to the Neon and Blob server boundary", async () => {
   const inspect = await source("app/api/import/inspect/route.ts");
   const all = await Promise.all([
     source("app/services/import/neon-import-inspection-boundary.ts"),
@@ -43,9 +43,10 @@ test("E5B dark boundary preserves the legacy inspect RPC and keeps credentials s
     source("app/api/import/batches/[id]/route.ts"),
     source("app/api/import/batches/input.ts"),
   ]);
-  assert.match(inspect, /actorClient\.rpc\(\s*["']stage_employee_import["']/);
+  assert.match(inspect, /inspectAndStageWorkbookInNeon\s*\(/);
+  assert.doesNotMatch(inspect, /createServerActorClient|stage_employee_import|supabase/i);
   assert.doesNotMatch(all.join("\n"), /DATABASE_URL|NEON_BOOTSTRAP_DATABASE_URL|from ["'](?:pg|@neondatabase)/);
-  assert.doesNotMatch(all.join("\n"), /createServerPasswordClient\(\)\.storage|createBrowserClient/);
+  assert.doesNotMatch(all.join("\n"), /createServerPasswordClient\(\)\.storage|createBrowserClient|supabase/i);
 });
 
 test("dark-boundary source audit rejects browser scope and credential inputs", () => {

@@ -208,7 +208,7 @@ function validateManifest(manifest) {
   if (!Array.isArray(manifest.modules) || manifest.modules.length === 0) {
     fail("CANONICAL_NEON_INVALID_MANIFEST", "manifest.modules must be a non-empty array");
   }
-  const modules = manifest.modules.map((module) => ({ order: module?.order, path: module?.path }));
+  const modules = manifest.modules.map((manifestModule) => ({ order: manifestModule?.order, path: manifestModule?.path }));
   if (modules.some(({ order, path }) => !Number.isInteger(order) || typeof path !== "string" || !/^[a-z0-9_]+\.sql$/.test(path))) {
     fail("CANONICAL_NEON_INVALID_MANIFEST", "each manifest module needs an integer order and local SQL path");
   }
@@ -813,7 +813,7 @@ export async function validateCanonicalNeonSource({ root = DEFAULT_ROOT } = {}) 
     fail("CANONICAL_NEON_MODULE_INVENTORY_DRIFT", `SQL modules missing from ordered manifest inventory: ${unlistedModules.join(", ")}`);
   }
   const missingPaths = [];
-  for (const module of modules) if (!(await exists(join(canonicalRoot, module.path)))) missingPaths.push(module.path);
+  for (const manifestModule of modules) if (!(await exists(join(canonicalRoot, manifestModule.path)))) missingPaths.push(manifestModule.path);
   if (missingPaths.length) {
     fail("CANONICAL_NEON_MISSING_MODULE", `canonical module inventory is incomplete: ${missingPaths.join(", ")}`);
   }
@@ -960,7 +960,7 @@ const EMPTY_STATE_SQL = `
   select
     (select count(*)::integer from pg_catalog.pg_class as relation
       join pg_catalog.pg_namespace as namespace on namespace.oid = relation.relnamespace
-      where namespace.nspname in ('public','app_private')
+      where namespace.nspname in ('public','app_private','app_auth')
         and relation.relkind in ('r','p'))
     + (select count(*)::integer from pg_catalog.pg_proc as routine
           join pg_catalog.pg_namespace as namespace on namespace.oid = routine.pronamespace
@@ -968,10 +968,10 @@ const EMPTY_STATE_SQL = `
       + (select count(*)::integer from pg_catalog.pg_type as data_type
           join pg_catalog.pg_namespace as namespace on namespace.oid = data_type.typnamespace
           where namespace.nspname in ('public','app_private') and data_type.typtype = 'e')
-      + (select count(*)::integer from pg_catalog.pg_namespace where nspname='app_private')
+      + (select count(*)::integer from pg_catalog.pg_namespace where nspname in ('app_private','app_auth'))
       as application_object_count,
     (select count(*)::integer from pg_catalog.pg_roles
-      where rolname in ('hotel_ld_application','hotel_ld_migration_owner')) as canonical_role_count,
+      where rolname in ('hotel_ld_application','hotel_ld_migration_owner','hotel_ld_auth_service')) as canonical_role_count,
     (select count(*)::integer from pg_catalog.pg_namespace
       where nspname in ('auth','storage')) as forbidden_schema_count,
     0::integer as application_row_count,
@@ -990,7 +990,7 @@ function expectedCatalogCounts(manifest, modules) {
     entrypoint_count: asStringArray(manifest, "entrypoints").length,
     policy_count: [...source.matchAll(/\bcreate\s+policy\b/gi)].length,
     trigger_count: asStringArray(manifest, "triggers").length,
-    rls_table_count: asStringArray(manifest, "tables").length,
+    rls_table_count: asStringArray(manifest, "tables").filter((table) => !table.startsWith("app_auth.")).length,
     application_row_count: 0,
     audit_row_count: 0,
   };
@@ -1000,9 +1000,13 @@ const CATALOG_BOOLEAN_FIELDS = [
   "roles_exact",
   "runtime_role_restricted",
   "migration_role_restricted",
+  "auth_service_restricted",
+  "auth_service_membership_exact",
   "runtime_memberships_empty",
   "runtime_owns_nothing",
   "migration_owner_owns_all",
+  "auth_service_owns_auth",
+  "auth_service_business_schemas_denied",
   "schemas_exact",
   "types_exact",
   "tables_exact",
@@ -1056,7 +1060,7 @@ const CATALOG_MATRIX_SQL = `
         where namespace.nspname in ('public','app_private') and data_type.typtype='e'), '{}'::text[]) as types,
       coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||relation.relname order by namespace.nspname,relation.relname)
         from pg_catalog.pg_class as relation join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
-        where namespace.nspname in ('public','app_private') and relation.relkind in ('r','p')), '{}'::text[]) as tables,
+        where namespace.nspname in ('public','app_private','app_auth') and relation.relkind in ('r','p')), '{}'::text[]) as tables,
       coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||routine.proname order by namespace.nspname,routine.proname)
         from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
         where namespace.nspname in ('public','app_private')), '{}'::text[]) as routines,
@@ -1114,7 +1118,7 @@ const CATALOG_MATRIX_SQL = `
         and relation.relrowsecurity and relation.relforcerowsecurity) as rls_table_count,
     0::integer as application_row_count,
     0::integer as audit_row_count,
-    ((select count(*) from pg_catalog.pg_roles where rolname in ('hotel_ld_application','hotel_ld_migration_owner'))=2) as roles_exact,
+    ((select count(*) from pg_catalog.pg_roles where rolname in ('hotel_ld_application','hotel_ld_migration_owner','hotel_ld_auth_service'))=3) as roles_exact,
     coalesce((select role_record.rolcanlogin and not role_record.rolinherit and not role_record.rolsuper
       and not role_record.rolbypassrls and not role_record.rolcreatedb and not role_record.rolcreaterole
       and not role_record.rolreplication from pg_catalog.pg_roles as role_record where role_record.rolname='hotel_ld_application'),false)
@@ -1123,6 +1127,21 @@ const CATALOG_MATRIX_SQL = `
       and not role_record.rolbypassrls and not role_record.rolcreatedb and not role_record.rolcreaterole
       and not role_record.rolreplication from pg_catalog.pg_roles as role_record where role_record.rolname='hotel_ld_migration_owner'),false)
       as migration_role_restricted,
+    coalesce((select role_record.rolcanlogin and not role_record.rolinherit and not role_record.rolsuper
+      and not role_record.rolbypassrls and not role_record.rolcreatedb and not role_record.rolcreaterole
+      and not role_record.rolreplication from pg_catalog.pg_roles as role_record where role_record.rolname='hotel_ld_auth_service'),false)
+      as auth_service_restricted,
+    coalesce((select count(*)=1 and pg_catalog.bool_and(
+        role_record.rolname='hotel_ld_auth_service'
+        and member_record.rolname=session_user
+        and not membership.admin_option
+        and not membership.inherit_option
+        and membership.set_option)
+      from pg_catalog.pg_auth_members as membership
+      join pg_catalog.pg_roles as role_record on role_record.oid=membership.roleid
+      join pg_catalog.pg_roles as member_record on member_record.oid=membership.member
+      where role_record.rolname='hotel_ld_auth_service' or member_record.rolname='hotel_ld_auth_service'),false)
+      as auth_service_membership_exact,
     not exists(select 1 from pg_catalog.pg_auth_members as membership join pg_catalog.pg_roles as member_role on member_role.oid=membership.member
       where member_role.rolname='hotel_ld_application') as runtime_memberships_empty,
     not exists(
@@ -1136,11 +1155,11 @@ const CATALOG_MATRIX_SQL = `
       select 1 from pg_catalog.unnest(expected.schemas) as item(value)
         left join pg_catalog.pg_namespace as namespace on namespace.nspname=item.value
         left join pg_catalog.pg_roles as owner_role on owner_role.oid=namespace.nspowner
-        where owner_role.rolname is distinct from 'hotel_ld_migration_owner'
+        where item.value <> 'app_auth' and owner_role.rolname is distinct from 'hotel_ld_migration_owner'
       union all select 1 from pg_catalog.unnest(expected.tables) as item(value)
         left join pg_catalog.pg_class as relation on relation.oid=pg_catalog.to_regclass(item.value)
         left join pg_catalog.pg_roles as owner_role on owner_role.oid=relation.relowner
-        where owner_role.rolname is distinct from 'hotel_ld_migration_owner'
+        where item.value not like 'app_auth.%' and owner_role.rolname is distinct from 'hotel_ld_migration_owner'
       union all select 1 from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
         join pg_catalog.pg_roles as owner_role on owner_role.oid=routine.proowner
         where namespace.nspname in ('public','app_private') and owner_role.rolname<>'hotel_ld_migration_owner'
@@ -1148,6 +1167,21 @@ const CATALOG_MATRIX_SQL = `
         join pg_catalog.pg_roles as owner_role on owner_role.oid=data_type.typowner
         where namespace.nspname in ('public','app_private') and data_type.typtype='e' and owner_role.rolname<>'hotel_ld_migration_owner'
     ) as migration_owner_owns_all,
+    not exists(
+      select 1 from pg_catalog.pg_namespace as namespace
+        left join pg_catalog.pg_roles as owner_role on owner_role.oid=namespace.nspowner
+        where namespace.nspname='app_auth' and owner_role.rolname is distinct from 'hotel_ld_auth_service'
+      union all select 1 from pg_catalog.pg_class as relation
+        join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
+        left join pg_catalog.pg_roles as owner_role on owner_role.oid=relation.relowner
+        where namespace.nspname='app_auth' and relation.relkind in ('r','p','S')
+          and owner_role.rolname is distinct from 'hotel_ld_auth_service'
+    ) as auth_service_owns_auth,
+    not pg_catalog.has_schema_privilege('hotel_ld_auth_service','public','USAGE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_auth_service','public','CREATE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_auth_service','app_private','USAGE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_auth_service','app_private','CREATE')
+      as auth_service_business_schemas_denied,
     actual.schemas=expected.schemas as schemas_exact,
     actual.types=expected.types as types_exact,
     actual.tables=expected.tables as tables_exact,
@@ -1157,14 +1191,17 @@ const CATALOG_MATRIX_SQL = `
     actual.triggers=expected.triggers as triggers_exact,
     not exists(select 1 from pg_catalog.unnest(expected.tables) as item(value)
       join pg_catalog.pg_class as relation on relation.oid=pg_catalog.to_regclass(item.value)
-      where not relation.relrowsecurity or not relation.relforcerowsecurity) as rls_exact,
+      where item.value not like 'app_auth.%'
+        and (not relation.relrowsecurity or not relation.relforcerowsecurity)) as rls_exact,
     not exists(select 1 from pg_catalog.pg_class as relation join pg_catalog.pg_namespace as namespace on namespace.oid=relation.relnamespace
-      where namespace.nspname in ('public','app_private') and relation.relkind in ('r','p','S')
+      where namespace.nspname in ('public','app_private','app_auth') and relation.relkind in ('r','p','S')
         and (pg_catalog.has_table_privilege('hotel_ld_application',relation.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
           or pg_catalog.has_any_column_privilege('hotel_ld_application',relation.oid,'SELECT,INSERT,UPDATE,REFERENCES'))) as runtime_raw_privileges_empty,
     not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','USAGE')
       and not pg_catalog.has_schema_privilege('hotel_ld_application','app_private','CREATE')
-      and not pg_catalog.has_schema_privilege('hotel_ld_application','public','CREATE') as runtime_private_schema_denied,
+      and not pg_catalog.has_schema_privilege('hotel_ld_application','public','CREATE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_application','app_auth','USAGE')
+      and not pg_catalog.has_schema_privilege('hotel_ld_application','app_auth','CREATE') as runtime_private_schema_denied,
     coalesce((select pg_catalog.array_agg(namespace.nspname||'.'||routine.proname||'('||pg_catalog.replace(pg_catalog.oidvectortypes(routine.proargtypes),' ','')||')'
       order by namespace.nspname,routine.proname,pg_catalog.oidvectortypes(routine.proargtypes))
       from pg_catalog.pg_proc as routine join pg_catalog.pg_namespace as namespace on namespace.oid=routine.pronamespace
@@ -1884,7 +1921,7 @@ async function executeInstall(client, bundle, { rollback }) {
   let transactionOpen = true;
   try {
     assertEmptyState(await readEmptyState(client));
-    for (const module of bundle.modules) await client.query(module.source);
+    for (const manifestModule of bundle.modules) await client.query(manifestModule.source);
     await client.query("RESET ROLE");
     const counts = await readCatalog(client, bundle);
     await client.query(rollback ? "ROLLBACK" : "COMMIT");
