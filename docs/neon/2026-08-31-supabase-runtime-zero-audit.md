@@ -141,4 +141,3 @@ No Production mutation was made because it would either deploy an artifact guara
 2. Production lacks the required Neon, Better Auth, and Blob environment variables, and no verified Production-scoped values were available.
 3. Required lint is red on the canonical baseline.
 4. Authenticated Production smoke and live Neon/Better Auth validation cannot run until a canonical Production deployment and disposable identity authority exist.
-
